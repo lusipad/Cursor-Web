@@ -13,6 +13,10 @@
             <div class="status-bar">
                 <span id="connection-status" class="status-indicator">🔴 未连接</span>
                 <span id="cursor-status" class="status-indicator">🔴 Cursor 未连接</span>
+                <span class="sync-status status-indicator">
+                    <span id="sync-indicator">🔄</span>
+                    <span id="sync-status-text">连接中...</span>
+                </span>
             </div>
         </header>
 
@@ -117,8 +121,8 @@
                     <div class="ai-chat-input">
                         <div class="input-container">
                             <div class="input-wrapper">
-                                <textarea 
-                                    id="ai-message" 
+                                <textarea
+                                    id="ai-message"
                                     placeholder="输入您的问题... (Ctrl+Enter 发送)"
                                     rows="1"
                                     maxlength="10000"
@@ -217,4 +221,4 @@
 
     <script src="client.js"></script>
 </body>
-</html> 
+</html>

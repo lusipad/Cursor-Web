@@ -49,7 +49,7 @@ class CursorRemoteServer {
         this.app.use(cors());
         this.app.use(express.json());
         this.app.use(express.static('public'));
-        
+
         // 请求日志
         this.app.use((req, res, next) => {
             console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
@@ -77,7 +77,7 @@ class CursorRemoteServer {
         this.app.get('/inject-script.js', (req, res) => {
             res.setHeader('Content-Type', 'application/javascript');
             res.setHeader('Access-Control-Allow-Origin', '*');
-            
+
             try {
                 let script = fs.readFileSync('inject.js', 'utf8');
                 const wsHost = req.headers.host ? req.headers.host.split(':')[0] : 'localhost';
@@ -105,7 +105,7 @@ class CursorRemoteServer {
                 if (error) {
                     return res.status(500).json({ success: false, error: error.message });
                 }
-                
+
                 const branches = stdout.split('\n')
                     .filter(branch => branch.trim())
                     .map(branch => {
@@ -114,7 +114,7 @@ class CursorRemoteServer {
                         const isRemote = name.startsWith('remotes/');
                         return { name, isCurrent, isRemote };
                     });
-                
+
                 res.json({ success: true, branches });
             });
         });
@@ -124,12 +124,12 @@ class CursorRemoteServer {
             if (!branch) {
                 return res.status(400).json({ error: '需要提供分支名称' });
             }
-            
+
             exec(`git checkout ${branch}`, { cwd: this.workspacePath }, (error, stdout, stderr) => {
                 if (error) {
-                    return res.status(500).json({ 
-                        success: false, 
-                        error: `切换分支失败：${error.message}` 
+                    return res.status(500).json({
+                        success: false,
+                        error: `切换分支失败：${error.message}`
                     });
                 }
                 res.json({ success: true, message: `成功切换到分支：${branch}` });
@@ -156,31 +156,47 @@ class CursorRemoteServer {
     }
 
     setupWebSocket() {
-        this.wss = new WebSocket.Server({ port: CONFIG.wsPort, host: CONFIG.host });
-        
-        this.wss.on('connection', (ws, req) => {
-            const url = new URL(req.url, `http://${req.headers.host}`);
-            const clientType = url.searchParams.get('type');
-            
-            if (clientType === 'web') {
-                this.handleWebClient(ws);
-            } else {
-                this.handleCursorClient(ws);
-            }
-        });
-        
-        console.log(`WebSocket服务器启动在端口 ${CONFIG.wsPort}`);
+        try {
+            this.wss = new WebSocket.Server({
+                port: CONFIG.wsPort,
+                host: CONFIG.host
+            });
+
+            this.wss.on('connection', (ws, req) => {
+                const url = new URL(req.url, `http://${req.headers.host}`);
+                const clientType = url.searchParams.get('type');
+
+                if (clientType === 'web') {
+                    this.handleWebClient(ws);
+                } else {
+                    this.handleCursorClient(ws);
+                }
+            });
+
+            this.wss.on('error', (error) => {
+                console.error('WebSocket服务器错误:', error);
+            });
+
+            this.wss.on('listening', () => {
+                console.log(`✅ WebSocket服务器启动成功，端口 ${CONFIG.wsPort}`);
+            });
+
+            console.log(`🔧 正在启动WebSocket服务器，端口 ${CONFIG.wsPort}...`);
+        } catch (error) {
+            console.error('❌ WebSocket服务器启动失败:', error);
+            throw error;
+        }
     }
 
     handleWebClient(ws) {
         console.log('网页客户端已连接');
         this.webClients.add(ws);
-        
+
         ws.on('close', () => {
             console.log('网页客户端断开连接');
             this.webClients.delete(ws);
         });
-        
+
         ws.on('message', (message) => {
             try {
                 const data = JSON.parse(message);
@@ -199,24 +215,24 @@ class CursorRemoteServer {
     handleCursorClient(ws) {
         console.log('Cursor 客户端已连接');
         this.cursorClient = ws;
-        
+
         ws.on('message', (message) => {
             try {
                 const data = JSON.parse(message);
                 console.log('收到 Cursor 消息：', data.type);
-                
+
                 // 处理响应
                 if (data.requestId && this.pendingRequests.has(data.requestId)) {
                     const { resolve } = this.pendingRequests.get(data.requestId);
                     this.pendingRequests.delete(data.requestId);
                     resolve(data);
                 }
-                
+
                 // 转发AI回复给网页客户端
                 if (data.type === 'ai_response') {
                     this.broadcastToWebClients(data);
                 }
-                
+
                 // 转发Cursor同步消息给网页客户端
                 if (data.type === 'cursor_message') {
                     console.log('📨 收到Cursor消息:', data.data.type, data.data.content.substring(0, 50) + '...');
@@ -229,14 +245,14 @@ class CursorRemoteServer {
                 console.error('处理 Cursor 消息错误：', error);
             }
         });
-        
+
         ws.on('close', () => {
             console.log('Cursor 客户端断开连接');
             if (this.cursorClient === ws) {
                 this.cursorClient = null;
             }
         });
-        
+
         // 心跳检测
         const pingInterval = setInterval(() => {
             if (ws.readyState === WebSocket.OPEN) {
@@ -282,22 +298,22 @@ class CursorRemoteServer {
                 reject(new Error('Cursor 未连接'));
                 return;
             }
-            
+
             const requestId = Math.random().toString(36).substring(7);
             message.requestId = requestId;
-            
+
             const timeout = setTimeout(() => {
                 this.pendingRequests.delete(requestId);
                 reject(new Error('请求超时'));
             }, CONFIG.timeout);
-            
+
             this.pendingRequests.set(requestId, {
                 resolve: (data) => {
                     clearTimeout(timeout);
                     resolve(data);
                 }
             });
-            
+
             this.cursorClient.send(JSON.stringify(message));
         });
     }
@@ -311,7 +327,7 @@ class CursorRemoteServer {
             console.error('服务器错误:', error);
             res.status(500).json({ error: '服务器内部错误' });
         });
-        
+
         process.on('SIGINT', () => {
             console.log('\n正在关闭服务器...');
             this.close();
@@ -336,7 +352,7 @@ class CursorRemoteServer {
                 `);
                 resolve();
             });
-            
+
             this.httpServer.on('error', reject);
         });
     }
@@ -355,7 +371,7 @@ class CursorRemoteServer {
 // 启动服务器
 async function main() {
     const server = new CursorRemoteServer();
-    
+
     try {
         server.init();
         await server.start();
@@ -369,4 +385,4 @@ if (require.main === module) {
     main();
 }
 
-module.exports = CursorRemoteServer; 
+module.exports = CursorRemoteServer;

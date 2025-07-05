@@ -13,10 +13,14 @@ class CursorRemoteClient {
     init() {
         this.bindEvents();
         this.initTabs();
-        this.checkServerStatus();
         this.loadInjectScript();
         this.initAIDemo();
-        this.updateSyncStatus('connecting');
+
+        // 确保DOM元素准备好后再连接WebSocket
+        setTimeout(() => {
+            this.updateSyncStatus('connecting');
+            this.checkServerStatus();
+        }, 100);
     }
 
     // 事件绑定
@@ -161,18 +165,19 @@ class CursorRemoteClient {
         try {
             const response = await fetch('/health');
             const data = await response.json();
-            
+
             this.serverAddress = data.localUrl;
             this.updateConnectionStatus(true);
             this.updateCursorStatus(data.cursorConnected);
             this.updateWorkspaceInfo(data.workspace);
-            
-            // 连接 WebSocket
-            this.connectWebSocket();
         } catch (error) {
             console.error('服务器连接失败:', error);
             this.updateConnectionStatus(false);
+            this.serverAddress = 'http://localhost:3459';
         }
+
+        // 无论健康检查是否成功，都尝试建立WebSocket连接
+        this.connectWebSocket();
     }
 
     // 连接 WebSocket
@@ -181,11 +186,14 @@ class CursorRemoteClient {
             this.ws.close();
         }
 
-        const wsUrl = this.serverAddress.replace('http://', 'ws://').replace(':3459', ':3460');
-        this.ws = new WebSocket(`${wsUrl}?type=web`);
+        const wsUrl = 'ws://localhost:3460?type=web';
+        console.log('🔌 尝试连接WebSocket:', wsUrl);
+        this.updateSyncStatus('connecting');
+
+        this.ws = new WebSocket(wsUrl);
 
         this.ws.onopen = () => {
-            console.log('WebSocket 连接成功');
+            console.log('✅ WebSocket 连接成功');
             this.reconnectAttempts = 0;
             this.startHeartbeat();
             this.updateSyncStatus('connected');
@@ -200,15 +208,19 @@ class CursorRemoteClient {
             }
         };
 
-        this.ws.onclose = () => {
-            console.log('WebSocket 连接关闭');
+        this.ws.onclose = (event) => {
+            console.log('❌ WebSocket 连接关闭:', event.code, event.reason);
             this.stopHeartbeat();
-            this.updateSyncStatus('disconnected');
-            this.attemptReconnect();
+
+            // 如果不是正常关闭，显示断开状态
+            if (event.code !== 1000) {
+                this.updateSyncStatus('disconnected');
+                this.attemptReconnect();
+            }
         };
 
         this.ws.onerror = (error) => {
-            console.error('WebSocket 错误:', error);
+            console.error('⚠️ WebSocket 错误:', error);
             this.updateSyncStatus('error');
         };
     }
@@ -251,12 +263,14 @@ class CursorRemoteClient {
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
             console.log(`尝试重连... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-            
+            this.updateSyncStatus('connecting');
+
             setTimeout(() => {
                 this.connectWebSocket();
             }, this.reconnectDelay);
         } else {
             console.error('WebSocket 重连失败，已达到最大重连次数');
+            this.updateSyncStatus('error');
         }
     }
 
@@ -300,7 +314,7 @@ class CursorRemoteClient {
         try {
             const response = await fetch('/inject-script.js');
             const script = await response.text();
-            
+
             const codeElement = document.getElementById('inject-script-code');
             codeElement.textContent = script;
         } catch (error) {
@@ -314,13 +328,13 @@ class CursorRemoteClient {
     copyInjectScript() {
         const codeElement = document.getElementById('inject-script-code');
         const text = codeElement.textContent;
-        
+
         navigator.clipboard.writeText(text).then(() => {
             const button = document.getElementById('copy-script-btn');
             const originalText = button.textContent;
             button.textContent = '已复制！';
             button.style.background = '#2ecc71';
-            
+
             setTimeout(() => {
                 button.textContent = originalText;
                 button.style.background = '';
@@ -371,7 +385,7 @@ class CursorRemoteClient {
         try {
             const response = await fetch('/api/git/branches');
             const data = await response.json();
-            
+
             if (data.success) {
                 this.displayBranches(data.branches);
             } else {
@@ -394,20 +408,20 @@ class CursorRemoteClient {
         branches.forEach(branch => {
             const branchElement = document.createElement('div');
             branchElement.className = `branch-item ${branch.isCurrent ? 'current' : ''}`;
-            
+
             const nameElement = document.createElement('span');
             nameElement.textContent = branch.name;
             if (branch.isCurrent) {
                 nameElement.textContent += ' (当前)';
             }
-            
+
             const buttonElement = document.createElement('button');
             buttonElement.textContent = '切换';
             buttonElement.disabled = branch.isCurrent;
             buttonElement.addEventListener('click', () => {
                 this.checkoutBranch(branch.name);
             });
-            
+
             branchElement.appendChild(nameElement);
             branchElement.appendChild(buttonElement);
             listElement.appendChild(branchElement);
@@ -442,7 +456,7 @@ class CursorRemoteClient {
     async sendAIMessage() {
         const messageElement = document.getElementById('ai-message');
         const message = messageElement.value.trim();
-        
+
         if (!message) {
             alert('请输入消息内容');
             return;
@@ -460,7 +474,7 @@ class CursorRemoteClient {
                     type: 'send_to_cursor',
                     data: { message: message }
                 }));
-                
+
                 // 显示发送状态
                 const statusElement = document.createElement('div');
                 statusElement.className = 'chat-message system';
@@ -473,20 +487,20 @@ class CursorRemoteClient {
                     <div class="message-content">正在发送消息到Cursor...</div>
                     <div class="message-timestamp">${new Date().toLocaleTimeString()}</div>
                 `;
-                
+
                 const messagesContainer = document.getElementById('messages-container');
                 if (messagesContainer) {
                     messagesContainer.appendChild(statusElement);
                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
                 }
-                
+
                 // 3秒后移除状态消息
                 setTimeout(() => {
                     if (statusElement.parentNode) {
                         statusElement.parentNode.removeChild(statusElement);
                     }
                 }, 3000);
-                
+
             } else {
                 this.displayChatMessage('WebSocket连接断开，无法发送到Cursor', 'system');
             }
@@ -502,7 +516,7 @@ class CursorRemoteClient {
         const messageElement = document.createElement('div');
         messageElement.className = `chat-message ${sender}`;
         messageElement.textContent = message;
-        
+
         messagesElement.appendChild(messageElement);
         messagesElement.scrollTop = messagesElement.scrollHeight;
     }
@@ -517,7 +531,7 @@ class CursorRemoteClient {
         const messageElement = document.createElement('div');
         messageElement.className = `message message-${type}`;
         messageElement.textContent = message;
-        
+
         // 添加样式
         messageElement.style.cssText = `
             position: fixed;
@@ -530,7 +544,7 @@ class CursorRemoteClient {
             z-index: 1000;
             animation: slideIn 0.3s ease-out;
         `;
-        
+
         switch (type) {
             case 'success':
                 messageElement.style.background = '#2ecc71';
@@ -541,9 +555,9 @@ class CursorRemoteClient {
             default:
                 messageElement.style.background = '#3498db';
         }
-        
+
         document.body.appendChild(messageElement);
-        
+
         // 3秒后自动消失
         setTimeout(() => {
             messageElement.style.animation = 'slideOut 0.3s ease-out';
@@ -580,7 +594,7 @@ class CursorRemoteClient {
         const searchWidget = document.getElementById('search-widget');
         const isVisible = searchWidget.style.display !== 'none';
         searchWidget.style.display = isVisible ? 'none' : 'block';
-        
+
         if (!isVisible) {
             document.getElementById('search-input').focus();
         }
@@ -597,7 +611,7 @@ class CursorRemoteClient {
         const charCount = document.getElementById('char-count');
         if (charCount) {
             charCount.textContent = `${text.length}/10000`;
-            
+
             // 根据字符数改变颜色
             if (text.length > 9000) {
                 charCount.style.color = '#ff6b6b';
@@ -613,7 +627,7 @@ class CursorRemoteClient {
     autoResizeTextarea(textarea) {
         textarea.style.height = 'auto';
         textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
-        
+
         // 更新发送按钮状态
         const sendBtn = document.getElementById('send-ai-btn');
         if (sendBtn) {
@@ -625,18 +639,18 @@ class CursorRemoteClient {
     handleFileUpload(event) {
         const files = event.target.files;
         if (files.length === 0) return;
-        
+
         const file = files[0];
         if (!file.type.startsWith('image/')) {
             this.showMessage('只支持图片文件', 'error');
             return;
         }
-        
+
         if (file.size > 10 * 1024 * 1024) { // 10MB
             this.showMessage('文件大小不能超过10MB', 'error');
             return;
         }
-        
+
         const reader = new FileReader();
         reader.onload = (e) => {
             this.showImagePreview(e.target.result, file.name);
@@ -656,7 +670,7 @@ class CursorRemoteClient {
             border-radius: 4px;
             border: 1px solid #3e3e42;
         `;
-        
+
         preview.innerHTML = `
             <div style="display: flex; align-items: center; gap: 8px;">
                 <img src="${src}" alt="${fileName}" style="max-width: 50px; max-height: 50px; border-radius: 4px;">
@@ -667,14 +681,14 @@ class CursorRemoteClient {
                 <button onclick="this.parentNode.parentNode.remove()" style="background: none; border: none; color: #ff6b6b; cursor: pointer; font-size: 16px;">×</button>
             </div>
         `;
-        
+
         aiMessage.parentNode.insertBefore(preview, aiMessage);
     }
 
     // 加载更多消息
     loadMoreMessages() {
         this.showMessage('正在加载更多消息...', 'info');
-        
+
         setTimeout(() => {
             const messagesContainer = document.getElementById('messages-container');
             if (messagesContainer) {
@@ -697,15 +711,15 @@ class CursorRemoteClient {
             document.getElementById('search-results').textContent = '0/0';
             return;
         }
-        
+
         const messagesContainer = document.getElementById('messages-container');
         if (!messagesContainer) return;
-        
+
         const messages = messagesContainer.querySelectorAll('.chat-message');
         let matches = 0;
-        
+
         this.clearSearchHighlight();
-        
+
         messages.forEach(message => {
             const text = message.textContent.toLowerCase();
             if (text.includes(query.toLowerCase())) {
@@ -713,7 +727,7 @@ class CursorRemoteClient {
                 this.highlightText(message, query);
             }
         });
-        
+
         document.getElementById('search-results').textContent = `${matches}/${messages.length}`;
     }
 
@@ -740,7 +754,7 @@ class CursorRemoteClient {
         const button = document.getElementById(`search-${option}-btn`);
         if (button) {
             button.classList.toggle('active');
-            
+
             // 重新搜索
             const query = document.getElementById('search-input').value;
             if (query) {
@@ -753,7 +767,7 @@ class CursorRemoteClient {
     searchNavigate(direction) {
         const marks = document.querySelectorAll('#messages-container mark');
         if (marks.length === 0) return;
-        
+
         if (direction === 'next') {
             if (marks.length > 0) {
                 marks[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -773,18 +787,18 @@ class CursorRemoteClient {
             // 如果新容器不存在，使用旧的
             messagesContainer = document.getElementById('chat-messages');
         }
-        
+
         if (!messagesContainer) return;
-        
+
         const messageElement = document.createElement('div');
         messageElement.className = `chat-message ${sender}`;
-        
+
         const timestamp = new Date().toLocaleTimeString();
         messageElement.innerHTML = `
             <div>${message}</div>
             <div class="message-timestamp">${timestamp}</div>
         `;
-        
+
         messagesContainer.appendChild(messageElement);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
@@ -814,14 +828,14 @@ class CursorRemoteClient {
     displayCursorMessage(messageData) {
         const messagesContainer = document.getElementById('messages-container');
         if (!messagesContainer) return;
-        
+
         const messageElement = document.createElement('div');
         messageElement.className = `chat-message ${messageData.type} cursor-sync`;
         messageElement.dataset.messageId = messageData.id;
-        
+
         const timestamp = new Date(messageData.timestamp).toLocaleTimeString();
         const content = this.formatMessageContent(messageData.content);
-        
+
         messageElement.innerHTML = `
             <div class="message-header">
                 <span class="sync-indicator">🔄</span>
@@ -831,10 +845,10 @@ class CursorRemoteClient {
             <div class="message-content">${content}</div>
             <div class="message-timestamp">${timestamp}</div>
         `;
-        
+
         messagesContainer.appendChild(messageElement);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        
+
         // 显示通知
         this.showMessage(`同步了一条${messageData.type === 'user' ? '用户' : 'AI'}消息`, 'info');
     }
@@ -845,53 +859,83 @@ class CursorRemoteClient {
         if (content.length > 1000) {
             return content.substring(0, 1000) + '...';
         }
-        
+
         // 处理代码块
         content = content.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
-        
+
         // 处理行内代码
         content = content.replace(/`([^`]+)`/g, '<code>$1</code>');
-        
+
         // 处理换行
         content = content.replace(/\n/g, '<br>');
-        
+
         return content;
     }
 
     // 更新同步状态
     updateSyncStatus(status) {
-        const syncStatus = document.querySelector('.sync-status');
-        const syncIndicator = document.getElementById('sync-indicator');
-        const syncStatusText = document.getElementById('sync-status-text');
-        
-        if (!syncStatus || !syncIndicator || !syncStatusText) return;
-        
+        console.log('🔄 更新同步状态:', status);
+
+        // 更新所有同步状态元素（顶部状态栏和AI助手标签页）
+        const syncStatuses = document.querySelectorAll('.sync-status');
+        const syncIndicators = document.querySelectorAll('#sync-indicator');
+        const syncStatusTexts = document.querySelectorAll('#sync-status-text');
+
+        if (syncIndicators.length === 0 || syncStatusTexts.length === 0) {
+            console.error('❌ 同步状态元素未找到');
+            return;
+        }
+
         // 清除所有状态类
-        syncStatus.classList.remove('connected', 'disconnected', 'error');
-        
+        syncStatuses.forEach(syncStatus => {
+            syncStatus.classList.remove('connected', 'disconnected', 'error');
+        });
+
+        let indicator = '';
+        let statusText = '';
+        let statusClass = '';
+
         switch (status) {
             case 'connected':
-                syncStatus.classList.add('connected');
-                syncIndicator.textContent = '✅';
-                syncStatusText.textContent = '已连接';
+                indicator = '✅';
+                statusText = '同步已连接';
+                statusClass = 'connected';
                 break;
             case 'disconnected':
-                syncStatus.classList.add('disconnected');
-                syncIndicator.textContent = '❌';
-                syncStatusText.textContent = '已断开';
+                indicator = '❌';
+                statusText = '同步已断开';
+                statusClass = 'disconnected';
                 break;
             case 'error':
-                syncStatus.classList.add('disconnected');
-                syncIndicator.textContent = '⚠️';
-                syncStatusText.textContent = '连接错误';
+                indicator = '⚠️';
+                statusText = '同步错误';
+                statusClass = 'disconnected';
                 break;
             case 'connecting':
-                syncIndicator.textContent = '🔄';
-                syncStatusText.textContent = '连接中...';
+                indicator = '🔄';
+                statusText = '同步连接中...';
+                statusClass = '';
                 break;
             default:
-                syncIndicator.textContent = '🔄';
-                syncStatusText.textContent = '同步中...';
+                indicator = '🔄';
+                statusText = '同步中...';
+                statusClass = '';
+        }
+
+        // 更新所有指示器
+        syncIndicators.forEach(el => {
+            el.textContent = indicator;
+        });
+
+        syncStatusTexts.forEach(el => {
+            el.textContent = statusText;
+        });
+
+        // 添加状态类
+        if (statusClass) {
+            syncStatuses.forEach(syncStatus => {
+                syncStatus.classList.add(statusClass);
+            });
         }
     }
 }
@@ -903,7 +947,7 @@ style.textContent = `
         from { transform: translateX(100%); opacity: 0; }
         to { transform: translateX(0); opacity: 1; }
     }
-    
+
     @keyframes slideOut {
         from { transform: translateX(0); opacity: 1; }
         to { transform: translateX(100%); opacity: 0; }
@@ -914,4 +958,4 @@ document.head.appendChild(style);
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', () => {
     new CursorRemoteClient();
-}); 
+});

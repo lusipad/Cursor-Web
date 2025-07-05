@@ -1,7 +1,7 @@
 // 🚀 Cursor Remote Control v2.0 - 注入脚本
 (function() {
     'use strict';
-    
+
     // 配置
     const CONFIG = {
         wsUrl: 'ws://localhost:3460',
@@ -32,7 +32,7 @@
                 ws = new WebSocket(CONFIG.wsUrl);
                 this.bindEvents();
             } catch (error) {
-                console.error('WebSocket 连接失败:', error);
+                console.error('WebSocket 连接失败：', error);
                 this.scheduleReconnect();
             }
         }
@@ -51,7 +51,7 @@
                     const data = JSON.parse(event.data);
                     this.handleMessage(data);
                 } catch (error) {
-                    console.error('消息解析失败:', error);
+                    console.error('消息解析失败：', error);
                 }
             };
 
@@ -63,7 +63,7 @@
             };
 
             ws.onerror = (error) => {
-                console.error('WebSocket 错误:', error);
+                console.error('WebSocket 错误：', error);
                 isConnected = false;
             };
         }
@@ -80,7 +80,7 @@
                     this.handleWebMessage(data);
                     break;
                 default:
-                    console.log('未知消息类型:', data.type);
+                    console.log('未知消息类型：', data.type);
             }
         }
 
@@ -92,7 +92,7 @@
 
         handleWebMessage(data) {
             if (data.data && data.data.message) {
-                console.log('📥 收到Web消息:', data.data.message.substring(0, 50) + '...');
+                console.log('📥 收到 Web 消息：', data.data.message.substring(0, 50) + '...');
                 this.sendToCursor(data.data.message);
             }
         }
@@ -100,26 +100,26 @@
         sendToCursor(message) {
             const inputElement = this.findCursorInput();
             if (inputElement) {
-                console.log('准备发送消息到Cursor:', message.substring(0, 50) + '...');
-                
+                console.log('准备发送消息到 Cursor:', message.substring(0, 50) + '...');
+
                 // 清空现有内容
                 if (inputElement.tagName.toLowerCase() === 'textarea') {
                     inputElement.value = message;
                 } else if (inputElement.contentEditable === 'true') {
                     inputElement.textContent = message;
                 }
-                
+
                 inputElement.focus();
-                
-                // 触发各种事件以确保Cursor识别输入
+
+                // 触发各种事件以确保 Cursor 识别输入
                 const events = ['input', 'change', 'keyup', 'paste'];
                 events.forEach(eventType => {
-                    inputElement.dispatchEvent(new Event(eventType, { 
-                        bubbles: true, 
-                        cancelable: true 
+                    inputElement.dispatchEvent(new Event(eventType, {
+                        bubbles: true,
+                        cancelable: true
                     }));
                 });
-                
+
                 // 尝试触发键盘事件
                 inputElement.dispatchEvent(new KeyboardEvent('keydown', {
                     key: 'Enter',
@@ -127,25 +127,25 @@
                     bubbles: true,
                     cancelable: true
                 }));
-                
+
                 // 延迟自动发送
                 setTimeout(() => {
                     if (this.clickSendButton()) {
-                        console.log('✅ 消息已发送到Cursor');
+                        console.log('✅ 消息已发送到 Cursor');
                     } else {
                         console.warn('⚠️ 未找到发送按钮，请手动发送');
                     }
                 }, 200);
-                
+
             } else {
                 console.warn('❌ 未找到 Cursor 输入框');
             }
         }
 
         findCursorInput() {
-            // 根据Cursor界面结构的多种策略查找输入框
+            // 根据 Cursor 界面结构的多种策略查找输入框
             const selectors = [
-                // 基于placeholder的选择器
+                // 基于 placeholder 的选择器
                 'textarea[placeholder*="问"]',
                 'textarea[placeholder*="Ask"]',
                 'textarea[placeholder*="输入"]',
@@ -153,23 +153,23 @@
                 'textarea[placeholder*="Enter"]',
                 'textarea[placeholder*="message"]',
                 'textarea[placeholder*="chat"]',
-                
+
                 // 基于类名的选择器
                 'textarea[class*="chat"]',
                 'textarea[class*="input"]',
                 'textarea[class*="message"]',
                 'textarea[class*="composer"]',
-                
+
                 // 基于数据属性的选择器
                 'textarea[data-testid*="chat"]',
                 'textarea[data-testid*="input"]',
                 'textarea[data-testid*="message"]',
-                
-                // 基于ID的选择器
+
+                // 基于 ID 的选择器
                 'textarea[id*="chat"]',
                 'textarea[id*="input"]',
                 'textarea[id*="message"]',
-                
+
                 // 编辑器相关
                 'div[contenteditable="true"]',
                 '[role="textbox"]'
@@ -178,25 +178,25 @@
             for (const selector of selectors) {
                 const elements = document.querySelectorAll(selector);
                 for (const element of elements) {
-                    if (element.offsetParent !== null && 
-                        element.offsetHeight > 20 && 
-                        !element.disabled && 
+                    if (element.offsetParent !== null &&
+                        element.offsetHeight > 20 &&
+                        !element.disabled &&
                         !element.readOnly) {
-                        console.log('找到输入框:', selector, element);
+                        console.log('找到输入框：', selector, element);
                         return element;
                     }
                 }
             }
 
-            // 最后尝试查找所有可见的textarea
+            // 最后尝试查找所有可见的 textarea
             const textareas = document.querySelectorAll('textarea');
             for (const textarea of textareas) {
-                if (textarea.offsetParent !== null && 
-                    textarea.offsetHeight > 20 && 
-                    !textarea.disabled && 
+                if (textarea.offsetParent !== null &&
+                    textarea.offsetHeight > 20 &&
+                    !textarea.disabled &&
                     !textarea.readOnly &&
                     textarea.style.display !== 'none') {
-                    console.log('找到通用输入框:', textarea);
+                    console.log('找到通用输入框：', textarea);
                     return textarea;
                 }
             }
@@ -213,24 +213,24 @@
                 'button:contains("Send")',
                 'button:contains("提交")',
                 'button:contains("Submit")',
-                
+
                 // 基于类名
                 'button[class*="send"]',
                 'button[class*="submit"]',
                 'button[class*="chat"]',
                 'button[class*="message"]',
-                
+
                 // 基于标题
                 'button[title*="发送"]',
                 'button[title*="Send"]',
                 'button[title*="提交"]',
                 'button[title*="Submit"]',
-                
-                // 基于aria-label
+
+                // 基于 aria-label
                 'button[aria-label*="发送"]',
                 'button[aria-label*="Send"]',
                 'button[aria-label*="Submit"]',
-                
+
                 // 基于数据属性
                 'button[data-testid*="send"]',
                 'button[data-testid*="submit"]',
@@ -242,7 +242,7 @@
                 try {
                     const button = document.querySelector(selector);
                     if (button && button.offsetParent !== null && !button.disabled) {
-                        console.log('找到发送按钮(选择器):', selector, button);
+                        console.log('找到发送按钮 (选择器):', selector, button);
                         button.click();
                         return true;
                     }
@@ -255,19 +255,19 @@
             const buttons = document.querySelectorAll('button');
             for (const button of buttons) {
                 if (!button.offsetParent || button.disabled) continue;
-                
+
                 const text = (button.textContent || '').toLowerCase().trim();
                 const title = (button.title || '').toLowerCase();
                 const ariaLabel = (button.getAttribute('aria-label') || '').toLowerCase();
-                
-                // 检查文本、标题或aria-label是否包含发送相关词汇
+
+                // 检查文本、标题或 aria-label 是否包含发送相关词汇
                 const sendKeywords = ['send', '发送', 'submit', '提交', '确定', 'ok'];
-                const containsSendKeyword = sendKeywords.some(keyword => 
+                const containsSendKeyword = sendKeywords.some(keyword =>
                     text.includes(keyword) || title.includes(keyword) || ariaLabel.includes(keyword)
                 );
-                
+
                 if (containsSendKeyword) {
-                    console.log('找到发送按钮(文本匹配):', text, button);
+                    console.log('找到发送按钮 (文本匹配):', text, button);
                     button.click();
                     return true;
                 }
@@ -282,11 +282,11 @@
                     for (const button of nearbyButtons) {
                         if (button.offsetParent !== null && !button.disabled) {
                             // 如果是最后一个按钮，很可能是发送按钮
-                            const allNearbyButtons = Array.from(nearbyButtons).filter(b => 
+                            const allNearbyButtons = Array.from(nearbyButtons).filter(b =>
                                 b.offsetParent !== null && !b.disabled
                             );
                             if (button === allNearbyButtons[allNearbyButtons.length - 1]) {
-                                console.log('找到发送按钮(位置推测):', button);
+                                console.log('找到发送按钮 (位置推测):', button);
                                 button.click();
                                 return true;
                             }
@@ -334,7 +334,7 @@
             if (reconnectAttempts < CONFIG.maxReconnectAttempts) {
                 reconnectAttempts++;
                 console.log(`准备重连... (${reconnectAttempts}/${CONFIG.maxReconnectAttempts})`);
-                
+
                 setTimeout(() => {
                     this.connect();
                 }, CONFIG.reconnectDelay);
@@ -356,10 +356,10 @@
 
         start() {
             if (this.isListening) return;
-            
+
             this.isListening = true;
-            
-            // 监听DOM变化
+
+            // 监听 DOM 变化
             this.observer = new MutationObserver((mutations) => {
                 mutations.forEach((mutation) => {
                     mutation.addedNodes.forEach((node) => {
@@ -376,10 +376,10 @@
                 characterData: true
             });
 
-            // 定期检查聊天界面
+            // 定期检查聊天界面（降低频率，减少重复）
             setInterval(() => {
                 this.scanChatInterface();
-            }, 2000);
+            }, 10000); // 从2000改为10000毫秒（10秒）
 
             // 初始扫描
             setTimeout(() => {
@@ -394,12 +394,12 @@
                     this.extractAllMessages(chatContainer);
                 }
             } catch (error) {
-                console.error('扫描聊天界面失败:', error);
+                console.error('扫描聊天界面失败：', error);
             }
         }
 
         findChatContainer() {
-            // 根据提供的HTML结构查找聊天容器
+            // 根据提供的 HTML 结构查找聊天容器
             const selectors = [
                 '.composer-bar .conversations',
                 '.messages-container',
@@ -430,7 +430,7 @@
 
         extractAllMessages(container) {
             const messages = this.findMessages(container);
-            
+
             messages.forEach(messageElement => {
                 const messageData = this.parseMessage(messageElement);
                 if (messageData && !this.processedMessages.has(messageData.id)) {
@@ -451,7 +451,7 @@
             ];
 
             const messages = [];
-            
+
             for (const selector of messageSelectors) {
                 const elements = container.querySelectorAll(selector);
                 elements.forEach(el => {
@@ -466,52 +466,151 @@
 
         isValidMessage(element) {
             const text = element.textContent || element.innerText;
-            return text && text.trim().length > 5 && !text.includes('Load older messages');
+            if (!text || text.trim().length < 10) return false;
+
+            // 过滤掉系统消息和界面元素
+            const excludePatterns = [
+                'Load older messages',
+                'file-input',
+                'button',
+                'textarea',
+                'input',
+                'Copy',
+                'Send',
+                'Enter',
+                'Ctrl',
+                'placeholder',
+                'class=',
+                'id=',
+                'style=',
+                'onClick=',
+                'addEventListener',
+                'querySelector',
+                'getElementById',
+                'console.log',
+                'function',
+                'const ',
+                'let ',
+                'var ',
+                'return',
+                'if (',
+                'for (',
+                'while (',
+                '{ }',
+                '[]',
+                '()',
+                '+=',
+                '=>',
+                'import',
+                'export',
+                'require',
+                'module',
+                'npm',
+                'yarn',
+                'git',
+                'localhost',
+                'http://',
+                'https://',
+                'ws://',
+                '127.0.0.1',
+                '3459',
+                '3460',
+                'WebSocket',
+                'connectWebSocket',
+                'updateSyncStatus',
+                'updateWorkspaceInfo',
+                'checkServerStatus',
+                'serverAddress',
+                'this.connectWebSocket',
+                'this.updateConnectionStatus',
+                'this.serverAddress',
+                'this.updateWorkspaceInfo',
+                'client.js',
+                'inject.js',
+                'app.js',
+                'public/',
+                'node_modules',
+                'package.json'
+            ];
+
+            // 检查是否包含代码或技术内容
+            for (const pattern of excludePatterns) {
+                if (text.includes(pattern)) {
+                    return false;
+                }
+            }
+
+            // 检查是否主要是标点符号和数字
+            const textOnly = text.replace(/[^\u4e00-\u9fa5\w\s]/g, '');
+            if (textOnly.length < text.length * 0.5) {
+                return false;
+            }
+
+            // 检查是否是时间戳格式
+            if (/^\d{2}:\d{2}:\d{2}$/.test(text.trim())) {
+                return false;
+            }
+
+            return true;
         }
 
         parseMessage(element) {
             const text = element.textContent || element.innerText;
-            const messageId = element.id || element.dataset.messageIndex || Date.now() + Math.random();
-            
+            const cleanText = text.trim();
+
+            // 使用内容哈希作为ID，确保相同内容不会重复发送
+            const messageId = this.hashText(cleanText);
+
             // 尝试确定消息类型
             const messageType = this.detectMessageType(element);
-            
+
             return {
                 id: messageId,
-                content: text.trim(),
+                content: cleanText,
                 type: messageType,
                 timestamp: new Date().toISOString(),
                 element: element.outerHTML
             };
         }
 
+        hashText(text) {
+            let hash = 0;
+            if (text.length === 0) return hash;
+            for (let i = 0; i < text.length; i++) {
+                const char = text.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash; // 转换为32位整数
+            }
+            return hash.toString();
+        }
+
         detectMessageType(element) {
             const className = element.className || '';
             const innerHTML = element.innerHTML || '';
-            
+
             // 检查是否是用户消息
-            if (className.includes('user') || 
-                className.includes('human') || 
+            if (className.includes('user') ||
+                className.includes('human') ||
                 innerHTML.includes('user-message') ||
                 element.style.textAlign === 'right') {
                 return 'user';
             }
-            
+
             // 检查是否是AI回复
-            if (className.includes('ai') || 
-                className.includes('assistant') || 
+            if (className.includes('ai') ||
+                className.includes('assistant') ||
                 className.includes('bot') ||
                 innerHTML.includes('ai-message') ||
                 innerHTML.includes('assistant-message')) {
                 return 'ai';
             }
-            
+
             // 基于内容和位置推测
             const text = element.textContent || '';
             if (text.includes('我是') || text.includes('我可以') || text.includes('根据')) {
                 return 'ai';
             }
-            
+
             return 'ai'; // 默认为AI消息
         }
 
@@ -542,7 +641,7 @@
                     type: 'cursor_message',
                     data: messageData
                 });
-                console.log('📤 发送消息到Web界面:', messageData.type, messageData.content.substring(0, 50) + '...');
+                console.log('📤 发送消息到 Web 界面：', messageData.type, messageData.content.substring(0, 50) + '...');
             }
         }
 
@@ -560,13 +659,13 @@
     // 初始化
     function init() {
         console.log('🚀 Cursor Remote Control v2.0 注入脚本已加载');
-        
+
         // 创建 WebSocket 管理器
         window.wsManager = new WSManager();
-        
+
         // 创建 AI 响应监听器
         window.aiListener = new AIResponseListener();
-        
+
         // 暴露调试接口
         window.CursorRemoteDebug = {
             wsManager: window.wsManager,
@@ -580,7 +679,7 @@
                 window.wsManager.sendToCursor(message);
             }
         };
-        
+
         console.log('✅ 初始化完成，调试接口已暴露到 window.CursorRemoteDebug');
     }
 
@@ -590,4 +689,4 @@
     } else {
         init();
     }
-})(); 
+})();
