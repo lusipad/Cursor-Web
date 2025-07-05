@@ -1,0 +1,28 @@
+# 设置行尾符
+* text=auto
+
+# 强制 LF 行尾符的文件
+*.js text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.md text eol=lf
+
+# 二进制文件
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.exe binary
+*.zip binary
+*.tar.gz binary
+
+# 忽略文件在合并时的差异
+package-lock.json merge=ours
+
+# 语言检测
+*.js linguist-language=JavaScript
+*.html linguist-language=HTML
+*.css linguist-language=CSS 
