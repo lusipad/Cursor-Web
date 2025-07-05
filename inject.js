@@ -98,91 +98,110 @@
         }
 
         sendToCursor(message) {
-            const inputElement = this.findCursorInput();
-            if (inputElement) {
-                console.log('准备发送消息到 Cursor:', message.substring(0, 50) + '...');
+            console.log('🚀 开始发送消息到 Cursor:', message.substring(0, 50) + '...');
 
-                // 清空现有内容
-                if (inputElement.tagName.toLowerCase() === 'textarea') {
-                    inputElement.value = message;
-                } else if (inputElement.contentEditable === 'true') {
-                    inputElement.textContent = message;
-                }
+            // 使用 Cursor 特定的选择器
+            const inputDiv = document.querySelector('div.aislash-editor-input[contenteditable="true"]');
+            if (!inputDiv) {
+                console.error('❌ 未找到 Cursor 输入框 (div.aislash-editor-input[contenteditable="true"])');
+                this.showDebugInfo();
+                return;
+            }
 
-                inputElement.focus();
+            console.log('✅ 找到 Cursor 输入框');
 
-                // 触发各种事件以确保 Cursor 识别输入
-                const events = ['input', 'change', 'keyup', 'paste'];
-                events.forEach(eventType => {
-                    inputElement.dispatchEvent(new Event(eventType, {
-                        bubbles: true,
-                        cancelable: true
-                    }));
+            try {
+                // 确保输入框获得焦点
+                inputDiv.focus();
+
+                // 创建 clipboardData
+                const clipboardData = new DataTransfer();
+                clipboardData.setData('text/plain', message);
+
+                // 创建并派发粘贴事件
+                const pasteEvent = new ClipboardEvent('paste', {
+                    bubbles: true,
+                    cancelable: true,
+                    clipboardData: clipboardData
                 });
 
-                // 尝试触发键盘事件
-                inputElement.dispatchEvent(new KeyboardEvent('keydown', {
-                    key: 'Enter',
-                    code: 'Enter',
-                    bubbles: true,
-                    cancelable: true
-                }));
+                console.log('📋 触发粘贴事件');
+                inputDiv.dispatchEvent(pasteEvent);
 
-                // 延迟自动发送
+                // 粘贴后尝试点击发送按钮
                 setTimeout(() => {
-                    if (this.clickSendButton()) {
+                    const sendBtn = document.querySelector('.anysphere-icon-button .codicon-arrow-up-two')?.parentElement;
+                    if (sendBtn) {
+                        console.log('✅ 找到发送按钮，点击发送');
+                        sendBtn.click();
                         console.log('✅ 消息已发送到 Cursor');
                     } else {
-                        console.warn('⚠️ 未找到发送按钮，请手动发送');
+                        console.warn('⚠️ 未找到发送按钮，尝试键盘发送');
+                        inputDiv.dispatchEvent(new KeyboardEvent('keydown', {
+                            key: 'Enter',
+                            code: 'Enter',
+                            keyCode: 13,
+                            which: 13,
+                            bubbles: true,
+                            cancelable: true
+                        }));
                     }
-                }, 200);
+                }, 100);
 
-            } else {
-                console.warn('❌ 未找到 Cursor 输入框');
+            } catch (error) {
+                console.error('❌ 发送消息到 Cursor 失败：', error);
+                this.showDebugInfo();
             }
         }
 
+        showDebugInfo() {
+            console.log('🔍 调试信息：');
+            console.log('Cursor 特定输入框：', document.querySelector('div.aislash-editor-input[contenteditable="true"]'));
+            console.log('Cursor 发送按钮：', document.querySelector('.anysphere-icon-button .codicon-arrow-up-two')?.parentElement);
+            console.log('所有 aislash-editor-input 元素：', document.querySelectorAll('.aislash-editor-input'));
+            console.log('所有 contenteditable 元素：', document.querySelectorAll('[contenteditable="true"]'));
+            console.log('所有 anysphere-icon-button 元素：', document.querySelectorAll('.anysphere-icon-button'));
+            console.log('所有 codicon-arrow-up-two 元素：', document.querySelectorAll('.codicon-arrow-up-two'));
+        }
+
         findCursorInput() {
-            // 根据 Cursor 界面结构的多种策略查找输入框
-            const selectors = [
-                // 基于 placeholder 的选择器
+            // 首先尝试 Cursor 特定的选择器
+            const cursorSelectors = [
+                'div.aislash-editor-input[contenteditable="true"]',
+                'div.aislash-editor-input',
+                '.aislash-editor-input[contenteditable="true"]',
+                '.aislash-editor-input'
+            ];
+
+            for (const selector of cursorSelectors) {
+                const element = document.querySelector(selector);
+                if (element && element.offsetParent !== null) {
+                    console.log('✅ 找到 Cursor 输入框：', selector, element);
+                    return element;
+                }
+            }
+
+            // 后备选择器 - 通用的 contenteditable 元素
+            const fallbackSelectors = [
+                'div[contenteditable="true"]',
+                '[role="textbox"]',
                 'textarea[placeholder*="问"]',
                 'textarea[placeholder*="Ask"]',
                 'textarea[placeholder*="输入"]',
                 'textarea[placeholder*="Send"]',
                 'textarea[placeholder*="Enter"]',
                 'textarea[placeholder*="message"]',
-                'textarea[placeholder*="chat"]',
-
-                // 基于类名的选择器
-                'textarea[class*="chat"]',
-                'textarea[class*="input"]',
-                'textarea[class*="message"]',
-                'textarea[class*="composer"]',
-
-                // 基于数据属性的选择器
-                'textarea[data-testid*="chat"]',
-                'textarea[data-testid*="input"]',
-                'textarea[data-testid*="message"]',
-
-                // 基于 ID 的选择器
-                'textarea[id*="chat"]',
-                'textarea[id*="input"]',
-                'textarea[id*="message"]',
-
-                // 编辑器相关
-                'div[contenteditable="true"]',
-                '[role="textbox"]'
+                'textarea[placeholder*="chat"]'
             ];
 
-            for (const selector of selectors) {
+            for (const selector of fallbackSelectors) {
                 const elements = document.querySelectorAll(selector);
                 for (const element of elements) {
                     if (element.offsetParent !== null &&
                         element.offsetHeight > 20 &&
                         !element.disabled &&
                         !element.readOnly) {
-                        console.log('找到输入框：', selector, element);
+                        console.log('找到后备输入框：', selector, element);
                         return element;
                     }
                 }
@@ -206,7 +225,36 @@
         }
 
         clickSendButton() {
-            // 多种策略查找发送按钮
+            // 首先尝试 Cursor 特定的发送按钮
+            const cursorSendBtn = document.querySelector('.anysphere-icon-button .codicon-arrow-up-two')?.parentElement;
+            if (cursorSendBtn && cursorSendBtn.offsetParent !== null && !cursorSendBtn.disabled) {
+                console.log('✅ 找到 Cursor 特定发送按钮');
+                cursorSendBtn.click();
+                return true;
+            }
+
+            // 更多 Cursor 按钮选择器
+            const cursorButtonSelectors = [
+                '.anysphere-icon-button .codicon-arrow-up-two',
+                '.codicon-arrow-up-two',
+                'button .codicon-arrow-up-two',
+                '[class*="anysphere-icon-button"]',
+                'button[class*="send"]'
+            ];
+
+            for (const selector of cursorButtonSelectors) {
+                const element = document.querySelector(selector);
+                if (element) {
+                    const button = element.closest('button') || element.parentElement;
+                    if (button && button.offsetParent !== null && !button.disabled) {
+                        console.log('✅ 找到 Cursor 按钮：', selector);
+                        button.click();
+                        return true;
+                    }
+                }
+            }
+
+            // 通用发送按钮选择器
             const buttonSelectors = [
                 // 基于文本内容
                 'button:contains("发送")',
@@ -379,7 +427,7 @@
             // 定期检查聊天界面（降低频率，减少重复）
             setInterval(() => {
                 this.scanChatInterface();
-            }, 10000); // 从2000改为10000毫秒（10秒）
+            }, 10000); // 从 2000 改为 10000 毫秒（10 秒）
 
             // 初始扫描
             setTimeout(() => {
