@@ -9,8 +9,8 @@ const os = require('os');
 // 配置
 const CONFIG = {
     host: '0.0.0.0',
-    httpPort: 3459,
-    wsPort: 3460,
+    httpPort: 3461,
+    wsPort: 3462,
     timeout: 90000
 };
 

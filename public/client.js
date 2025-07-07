@@ -15,6 +15,7 @@ class CursorRemoteClient {
         this.initTabs();
         this.loadInjectScript();
         this.initAIDemo();
+        this.initMarkdownRenderer();
 
         // 确保DOM元素准备好后再连接WebSocket
         setTimeout(() => {
@@ -186,7 +187,7 @@ class CursorRemoteClient {
             this.ws.close();
         }
 
-        const wsUrl = 'ws://localhost:3460?type=web';
+                        const wsUrl = 'ws://localhost:3462?type=web';
         console.log('🔌 尝试连接WebSocket:', wsUrl);
         this.updateSyncStatus('connecting');
 
@@ -795,13 +796,53 @@ class CursorRemoteClient {
         messageElement.className = `chat-message ${sender}`;
 
         const timestamp = new Date().toLocaleTimeString();
+        const formattedMessage = this.formatMessageContent(message);
+
         messageElement.innerHTML = `
-            <div>${message}</div>
+            <div class="message-content markdown-content">${formattedMessage}</div>
             <div class="message-timestamp">${timestamp}</div>
         `;
 
         messagesContainer.appendChild(messageElement);
+
+        // 🎨 渲染Emoji表情
+        this.renderEmojis(messageElement);
+
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    // 初始化Markdown渲染器
+    initMarkdownRenderer() {
+        // 等待库加载完成
+        setTimeout(() => {
+            if (typeof marked !== 'undefined') {
+                // 配置marked
+                marked.setOptions({
+                    breaks: true,
+                    gfm: true,
+                    highlight: function(code, lang) {
+                        if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
+                            try {
+                                return hljs.highlight(code, { language: lang }).value;
+                            } catch (err) {}
+                        }
+                        return code;
+                    }
+                });
+                console.log('✅ Markdown渲染器初始化完成');
+            }
+
+            // 初始化Mermaid
+            if (typeof mermaid !== 'undefined') {
+                mermaid.initialize({
+                    startOnLoad: true,
+                    theme: 'default',
+                    securityLevel: 'loose',
+                    fontFamily: 'monospace'
+                });
+                console.log('✅ Mermaid图表渲染器初始化完成');
+            }
+        }, 500);
     }
 
     // 初始化AI演示消息
@@ -810,67 +851,446 @@ class CursorRemoteClient {
         setTimeout(() => {
             const messagesContainer = document.getElementById('messages-container');
             if (messagesContainer) {
+                const welcomeMarkdown = `
+# 👋 欢迎使用 AI 助手！
+
+现在您可以在这里看到**Cursor中的AI对话内容**了。
+
+## ✨ 功能特性
+
+- 🔄 在Cursor中与AI对话
+- 📱 消息会自动同步到这里
+- 🔍 支持搜索和管理功能
+- 📝 **支持Markdown渲染**
+- 📊 **支持Mermaid图表**
+- 🎨 **支持Emoji表情** 😊
+
+## 🚀 快速开始
+
+\`\`\`javascript
+// 在Cursor控制台中运行注入脚本
+console.log("Hello from Cursor! 🎯");
+\`\`\`
+
+> 💡 **提示**: 现在消息显示效果更加美观了！
+                `;
+
                 const welcomeMessage = document.createElement('div');
                 welcomeMessage.className = 'chat-message ai';
                 welcomeMessage.innerHTML = `
-                    <div>👋 欢迎使用 AI 助手！</div>
-                    <div>现在您可以在这里看到Cursor中的AI对话内容了。</div>
-                    <div>• 在Cursor中与AI对话</div>
-                    <div>• 消息会自动同步到这里</div>
-                    <div>• 支持搜索和管理功能</div>
+                    <div class="message-content markdown-content">${this.renderMarkdown(welcomeMarkdown)}</div>
                     <div class="message-timestamp">${new Date().toLocaleTimeString()}</div>
                 `;
                 messagesContainer.appendChild(welcomeMessage);
+
+                // 渲染Emoji
+                this.renderEmojis(welcomeMessage);
             }
         }, 1000);
     }
 
-    // 显示从Cursor同步过来的消息
+        // 显示从Cursor同步过来的消息
     displayCursorMessage(messageData) {
         const messagesContainer = document.getElementById('messages-container');
         if (!messagesContainer) return;
+
+        console.log('🎯 接收到Cursor消息:', {
+            type: messageData.type,
+            hasRichContent: messageData.hasRichContent,
+            contentLength: messageData.content?.length,
+            hasHtml: !!messageData.html,
+            hasMarkdown: !!messageData.markdown
+        });
 
         const messageElement = document.createElement('div');
         messageElement.className = `chat-message ${messageData.type} cursor-sync`;
         messageElement.dataset.messageId = messageData.id;
 
         const timestamp = new Date(messageData.timestamp).toLocaleTimeString();
-        const content = this.formatMessageContent(messageData.content);
+
+        // 🎨 使用新的格式化方法，传入完整的消息数据
+        const content = this.formatMessageContent(messageData);
+
+        // 🏷️ 添加富文本指示器
+        const richContentBadge = messageData.hasRichContent ?
+            '<span class="rich-content-badge">📝 富文本</span>' : '';
 
         messageElement.innerHTML = `
             <div class="message-header">
                 <span class="sync-indicator">🔄</span>
-                <span class="message-type">${messageData.type === 'user' ? '用户' : 'AI'}</span>
+                <span class="message-type">${messageData.type === 'user' ? '👤 用户' : '🤖 AI'}</span>
                 <span class="sync-label">来自 Cursor</span>
+                ${richContentBadge}
             </div>
-            <div class="message-content">${content}</div>
+            <div class="message-content markdown-content">${content}</div>
             <div class="message-timestamp">${timestamp}</div>
         `;
 
         messagesContainer.appendChild(messageElement);
+
+        // 🎨 渲染Emoji表情
+        this.renderEmojis(messageElement);
+
+        // 📊 处理Mermaid图表（如果有的话）
+        setTimeout(() => {
+            const mermaidElements = messageElement.querySelectorAll('.mermaid');
+            mermaidElements.forEach((element) => {
+                if (typeof mermaid !== 'undefined') {
+                    try {
+                        mermaid.init(undefined, element);
+                    } catch (error) {
+                        console.warn('Mermaid初始化失败:', error);
+                    }
+                }
+            });
+        }, 200);
+
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
-        // 显示通知
-        this.showMessage(`同步了一条${messageData.type === 'user' ? '用户' : 'AI'}消息`, 'info');
+        // 显示更详细的通知
+        const contentType = messageData.hasRichContent ? '富文本' : '普通文本';
+        this.showMessage(`同步了一条${messageData.type === 'user' ? '用户' : 'AI'}消息 (${contentType})`, 'info');
     }
 
-    // 格式化消息内容
-    formatMessageContent(content) {
-        // 处理长消息
-        if (content.length > 1000) {
-            return content.substring(0, 1000) + '...';
+    // 🎨 渲染Markdown内容
+    renderMarkdown(content) {
+        if (!content || typeof marked === 'undefined') {
+            return this.escapeHtml(content || '');
         }
 
-        // 处理代码块
-        content = content.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+        try {
+            // 预处理Mermaid图表
+            content = this.extractMermaidDiagrams(content);
 
-        // 处理行内代码
-        content = content.replace(/`([^`]+)`/g, '<code>$1</code>');
+            // 渲染Markdown
+            let html = marked.parse(content);
 
-        // 处理换行
-        content = content.replace(/\n/g, '<br>');
+            // 后处理数学公式
+            html = this.renderMathFormulas(html);
 
-        return content;
+            return html;
+        } catch (error) {
+            console.error('Markdown渲染错误:', error);
+            return this.escapeHtml(content);
+        }
+    }
+
+    // 📊 提取并渲染Mermaid图表
+    extractMermaidDiagrams(content) {
+        const mermaidRegex = /```mermaid\n([\s\S]*?)```/g;
+        let mermaidCounter = 0;
+
+        return content.replace(mermaidRegex, (match, diagram) => {
+            const diagramId = `mermaid-${Date.now()}-${mermaidCounter++}`;
+
+            // 延迟渲染Mermaid图表
+            setTimeout(() => {
+                const element = document.getElementById(diagramId);
+                if (element && typeof mermaid !== 'undefined') {
+                    try {
+                        mermaid.render(`mermaid-svg-${diagramId}`, diagram.trim(), (svgCode) => {
+                            element.innerHTML = svgCode;
+                        });
+                    } catch (error) {
+                        console.error('Mermaid渲染错误:', error);
+                        element.innerHTML = `<pre><code>${this.escapeHtml(diagram)}</code></pre>`;
+                    }
+                }
+            }, 100);
+
+            return `<div class="mermaid-container"><div id="${diagramId}" class="mermaid">${this.escapeHtml(diagram.trim())}</div></div>`;
+        });
+    }
+
+    // 🔢 渲染数学公式
+    renderMathFormulas(html) {
+        if (typeof katex === 'undefined') return html;
+
+        try {
+            // 处理行内数学公式 $...$
+            html = html.replace(/\$([^$]+)\$/g, (match, formula) => {
+                try {
+                    return katex.renderToString(formula, { displayMode: false });
+                } catch (error) {
+                    return match;
+                }
+            });
+
+            // 处理块级数学公式 $$...$$
+            html = html.replace(/\$\$([\s\S]+?)\$\$/g, (match, formula) => {
+                try {
+                    return katex.renderToString(formula, { displayMode: true });
+                } catch (error) {
+                    return match;
+                }
+            });
+        } catch (error) {
+            console.error('数学公式渲染错误:', error);
+        }
+
+        return html;
+    }
+
+    // 🎨 渲染Emoji表情
+    renderEmojis(element) {
+        if (typeof twemoji !== 'undefined' && element) {
+            try {
+                twemoji.parse(element, {
+                    className: 'emoji',
+                    folder: 'svg',
+                    ext: '.svg'
+                });
+            } catch (error) {
+                console.error('Emoji渲染错误:', error);
+            }
+        }
+    }
+
+    // 🔒 HTML转义
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+        // 格式化消息内容（增强的格式处理）
+    formatMessageContent(messageData) {
+        // 如果传入的是字符串，兼容旧格式
+        if (typeof messageData === 'string') {
+            return this.formatLongText(messageData);
+        }
+
+        // 如果是消息对象，优先使用富文本格式
+        if (messageData && typeof messageData === 'object') {
+            const content = messageData.content || '';
+            const html = messageData.html || '';
+            const markdown = messageData.markdown || '';
+            const hasRichContent = messageData.hasRichContent || false;
+
+            console.log('📝 处理消息格式:', {
+                hasRichContent,
+                hasHtml: !!html,
+                hasMarkdown: !!markdown,
+                contentPreview: content.substring(0, 100) + '...'
+            });
+
+            // 优先级：Markdown > HTML > 纯文本
+            if (hasRichContent && markdown && markdown !== content) {
+                console.log('✅ 使用Markdown格式');
+                return this.renderMarkdown(markdown);
+            } else if (hasRichContent && html && this.hasRichFormatting(html)) {
+                console.log('✅ 使用HTML格式');
+                return this.sanitizeAndRenderHTML(html);
+            } else {
+                console.log('📄 使用智能格式化的纯文本');
+                return this.formatLongText(content);
+            }
+        }
+
+        return '';
+    }
+
+    // 🎨 智能格式化长文本（新增方法）
+    formatLongText(text) {
+        if (!text) return '';
+
+        // 预处理：识别和保护特殊格式
+        const processedText = this.preprocessText(text);
+
+        // 如果包含Markdown标记，直接渲染Markdown
+        if (this.containsMarkdownSyntax(processedText)) {
+            return this.renderMarkdown(processedText);
+        }
+
+        // 否则进行智能段落化处理
+        return this.convertToReadableFormat(processedText);
+    }
+
+    // 🔍 预处理文本，识别特殊格式（保守版）
+    preprocessText(text) {
+        // 只处理明确需要分段的格式，避免过度分割
+        let processed = text
+            // 只在连续编号列表之间添加换行，且确保是真正的列表
+            .replace(/(\d+\.\s+[^\n]{20,}?)(\s{2,})(\d+\.\s+)/g, '$1\n\n$3')
+            // 只在明确的功能列表块之间添加换行
+            .replace(/([✅❌🔥📊🎯🚀🔧⚡💡🎨📝🔍🛡️][^\n✅❌🔥📊🎯🚀🔧⚡💡🎨📝🔍🛡️]{30,}?)(\s{2,})([✅❌🔥📊🎯🚀🔧⚡💡🎨📝🔍🛡️])/g, '$1\n\n$3')
+            // 处理Markdown标题
+            .replace(/(#{1,6}\s+[^\n]+)(\s+)(#{1,6}\s+)/g, '$1\n\n$3')
+            // 仅在长句子后的明确段落转换处添加换行
+            .replace(/([。！？]\s*)([A-Z\u4e00-\u9fa5]{1}[^。！？]{50,})/g, '$1\n\n$2');
+
+        return processed;
+    }
+
+    // 🔍 检查是否包含Markdown语法
+    containsMarkdownSyntax(text) {
+        const markdownPatterns = [
+            /#{1,6}\s+/,          // 标题
+            /\*{1,2}[^*]+\*{1,2}/, // 加粗/斜体
+            /`[^`]+`/,            // 行内代码
+            /```[\s\S]*?```/,     // 代码块
+            /^\s*[-*+]\s+/m,      // 列表
+            /^\s*\d+\.\s+/m,      // 有序列表
+            /\[.*?\]\(.*?\)/,     // 链接
+            /^\s*>\s+/m           // 引用
+        ];
+
+        return markdownPatterns.some(pattern => pattern.test(text));
+    }
+
+    // 🎨 转换为可读格式
+    convertToReadableFormat(text) {
+        // 1. 分割成逻辑段落
+        const paragraphs = this.splitIntoLogicalParagraphs(text);
+
+        // 2. 格式化每个段落
+        const formattedParagraphs = paragraphs.map(paragraph => {
+            return this.formatParagraph(paragraph);
+        });
+
+        // 3. 组合成最终HTML
+        return formattedParagraphs.join('\n\n');
+    }
+
+        // 📄 分割成逻辑段落（优化版）
+    splitIntoLogicalParagraphs(text) {
+        // 首先按明确的段落分隔符分割
+        const majorParagraphs = text.split(/\n\s*\n/);
+
+        const finalParagraphs = [];
+
+        majorParagraphs.forEach(paragraph => {
+            const trimmed = paragraph.trim();
+            if (trimmed.length < 20) return; // 过滤太短的段落
+
+            // 检查是否是功能列表块（连续的特殊符号开头的行）
+            if (this.isFeatureListBlock(trimmed)) {
+                // 按行分割功能列表
+                const lines = trimmed.split(/\n/);
+                lines.forEach(line => {
+                    const cleanLine = line.trim();
+                    if (cleanLine.length > 10 && /^[✅❌🔥📊🎯🚀🔧⚡💡🎨📝🔍🛡️]/.test(cleanLine)) {
+                        finalParagraphs.push(cleanLine);
+                    }
+                });
+            } else if (this.isNumberedListBlock(trimmed)) {
+                // 按编号分割列表
+                const items = trimmed.split(/(?=\d+\.\s+)/);
+                items.forEach(item => {
+                    const cleanItem = item.trim();
+                    if (cleanItem.length > 10) {
+                        finalParagraphs.push(cleanItem);
+                    }
+                });
+            } else {
+                                 // 普通段落，保持完整性，减少不必要的分割
+                 if (trimmed.length > 200) {
+                     // 只有很长的段落才尝试分割
+                     const sentences = this.splitBySentenceEndings(trimmed);
+                     if (sentences.length > 1 && sentences.every(s => s.length > 50)) {
+                         sentences.forEach(sentence => {
+                             finalParagraphs.push(sentence);
+                         });
+                     } else {
+                         // 如果分割后的句子太短，保持原段落
+                         finalParagraphs.push(trimmed);
+                     }
+                 } else {
+                     // 短段落保持完整
+                     finalParagraphs.push(trimmed);
+                 }
+            }
+        });
+
+        return finalParagraphs.filter(p => p.length > 10);
+    }
+
+    // 🔍 检查是否是功能列表块
+    isFeatureListBlock(text) {
+        const lines = text.split(/\n/);
+        let featureLines = 0;
+        lines.forEach(line => {
+            if (/^[✅❌🔥📊🎯🚀🔧⚡💡🎨📝🔍🛡️]/.test(line.trim())) {
+                featureLines++;
+            }
+        });
+        return featureLines >= 2 && featureLines / lines.length > 0.5;
+    }
+
+    // 🔍 检查是否是编号列表块
+    isNumberedListBlock(text) {
+        const numberedItems = text.match(/\d+\.\s+/g);
+        return numberedItems && numberedItems.length >= 2;
+    }
+
+        // 📄 按句子结束分割（超保守策略）
+    splitBySentenceEndings(text) {
+        // 只在非常明确的主题转换点分割
+        const majorBreaks = text.split(/([。！？])\s*(?=[A-Z\u4e00-\u9fa5][^a-z，。]{20,})/);
+        const result = [];
+
+        for (let i = 0; i < majorBreaks.length; i += 2) {
+            const sentence = majorBreaks[i];
+            const punctuation = majorBreaks[i + 1] || '';
+            if (sentence && sentence.trim().length > 80) { // 确保是足够长的有意义句子
+                result.push((sentence + punctuation).trim());
+            }
+        }
+
+        // 如果没有找到合适的分割点，或分割后段落太少，保持原文
+        return result.length >= 2 ? result : [text];
+    }
+
+    // 🎨 格式化单个段落
+    formatParagraph(paragraph) {
+        if (!paragraph || paragraph.length < 10) return '';
+
+        // 检查段落类型并应用相应格式
+        if (/^\d+\.\s+/.test(paragraph)) {
+            // 编号列表项
+            return `<div class="numbered-item">${this.escapeHtml(paragraph)}</div>`;
+        } else if (/^[✅❌🔥📊🎯🚀🔧⚡💡🎨📝🔍🛡️]/.test(paragraph)) {
+            // 特殊符号开头的功能点
+            return `<div class="feature-item">${this.escapeHtml(paragraph)}</div>`;
+        } else if (/[：:]$/.test(paragraph.trim())) {
+            // 以冒号结尾的标题
+            return `<div class="section-title">${this.escapeHtml(paragraph)}</div>`;
+        } else {
+            // 普通段落
+            return `<div class="text-paragraph">${this.escapeHtml(paragraph)}</div>`;
+        }
+    }
+
+    // 🧹 安全渲染HTML内容
+    sanitizeAndRenderHTML(html) {
+        if (!html) return '';
+
+        // 创建临时容器来安全处理HTML
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html;
+
+        // 移除可能的脚本标签
+        const scripts = tempDiv.querySelectorAll('script');
+        scripts.forEach(script => script.remove());
+
+        // 处理代码块，确保语法高亮
+        const codeBlocks = tempDiv.querySelectorAll('pre code');
+        codeBlocks.forEach(codeBlock => {
+            if (typeof hljs !== 'undefined') {
+                hljs.highlightElement(codeBlock);
+            }
+        });
+
+        return tempDiv.innerHTML;
+    }
+
+    // 🎨 检查HTML是否包含富格式
+    hasRichFormatting(html) {
+        const richTags = ['pre', 'code', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                         'blockquote', 'ul', 'ol', 'li', 'table', 'tr', 'td', 'th',
+                         'strong', 'b', 'em', 'i', 'a', 'img'];
+
+        return richTags.some(tag => html.includes(`<${tag}`));
     }
 
     // 更新同步状态
