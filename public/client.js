@@ -1074,20 +1074,22 @@ console.log("Hello from Cursor! 🎯");
                 contentPreview: content.substring(0, 100) + '...'
             });
 
-            // 优先级：Markdown > HTML > 纯文本
-            if (hasRichContent && markdown && markdown !== content) {
+            // 🎯 新的优先级：HTML > Markdown > 纯文本
+            // 既然都是网页环境，直接使用HTML避免转换损失
+            if (hasRichContent && html && this.hasRichFormatting(html)) {
+                console.log('✅ 使用原始HTML格式 (避免转换损失)');
+                return this.sanitizeAndRenderHTML(html);
+            } else if (hasRichContent && markdown && markdown !== content) {
                 console.log('✅ 使用Markdown格式');
                 return this.renderMarkdown(markdown);
-            } else if (hasRichContent && html && this.hasRichFormatting(html)) {
-                console.log('✅ 使用HTML格式');
-                return this.sanitizeAndRenderHTML(html);
             } else {
                 console.log('📄 使用智能格式化的纯文本');
                 return this.formatLongText(content);
             }
         }
 
-        return '';
+        // 默认使用长文本格式化
+        return this.formatLongText(messageData);
     }
 
     // 🎨 智能格式化长文本（新增方法）
@@ -1261,27 +1263,90 @@ console.log("Hello from Cursor! 🎯");
         }
     }
 
-    // 🧹 安全渲染HTML内容
+    // 🧹 安全渲染HTML内容（优化版）
     sanitizeAndRenderHTML(html) {
         if (!html) return '';
 
+        console.log('🎨 直接渲染HTML，保持原始格式');
+
         // 创建临时容器来安全处理HTML
         const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = html;
 
-        // 移除可能的脚本标签
-        const scripts = tempDiv.querySelectorAll('script');
-        scripts.forEach(script => script.remove());
+        try {
+            tempDiv.innerHTML = html;
 
-        // 处理代码块，确保语法高亮
-        const codeBlocks = tempDiv.querySelectorAll('pre code');
-        codeBlocks.forEach(codeBlock => {
-            if (typeof hljs !== 'undefined') {
-                hljs.highlightElement(codeBlock);
-            }
-        });
+            // 安全处理：移除潜在危险的标签和属性
+            const dangerousTags = ['script', 'iframe', 'object', 'embed', 'form'];
+            dangerousTags.forEach(tagName => {
+                const elements = tempDiv.querySelectorAll(tagName);
+                elements.forEach(el => el.remove());
+            });
 
-        return tempDiv.innerHTML;
+            // 移除危险的事件属性
+            const allElements = tempDiv.querySelectorAll('*');
+            allElements.forEach(el => {
+                // 移除所有 on* 事件属性
+                Array.from(el.attributes).forEach(attr => {
+                    if (attr.name.startsWith('on')) {
+                        el.removeAttribute(attr.name);
+                    }
+                });
+                // 移除 javascript: 链接
+                if (el.href && el.href.startsWith('javascript:')) {
+                    el.removeAttribute('href');
+                }
+            });
+
+            // 优化代码块显示
+            const codeBlocks = tempDiv.querySelectorAll('pre code');
+            codeBlocks.forEach(codeBlock => {
+                // 添加代码块样式类
+                codeBlock.classList.add('hljs');
+
+                // 如果有语法高亮库，应用高亮
+                if (typeof hljs !== 'undefined') {
+                    try {
+                        hljs.highlightElement(codeBlock);
+                    } catch (error) {
+                        console.warn('代码高亮失败:', error);
+                    }
+                }
+            });
+
+            // 优化表格样式
+            const tables = tempDiv.querySelectorAll('table');
+            tables.forEach(table => {
+                table.classList.add('ai-response-table');
+            });
+
+            // 优化列表样式
+            const lists = tempDiv.querySelectorAll('ul, ol');
+            lists.forEach(list => {
+                list.classList.add('ai-response-list');
+            });
+
+            // 优化引用块样式
+            const blockquotes = tempDiv.querySelectorAll('blockquote');
+            blockquotes.forEach(blockquote => {
+                blockquote.classList.add('ai-response-quote');
+            });
+
+            // 确保链接在新窗口打开
+            const links = tempDiv.querySelectorAll('a[href]');
+            links.forEach(link => {
+                if (!link.getAttribute('target')) {
+                    link.setAttribute('target', '_blank');
+                    link.setAttribute('rel', 'noopener noreferrer');
+                }
+            });
+
+            return tempDiv.innerHTML;
+
+        } catch (error) {
+            console.error('HTML渲染错误:', error);
+            // 如果HTML处理失败，回退到安全的文本显示
+            return this.escapeHtml(tempDiv.textContent || html);
+        }
     }
 
     // 🎨 检查HTML是否包含富格式

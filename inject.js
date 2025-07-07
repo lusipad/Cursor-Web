@@ -647,259 +647,134 @@
             };
         }
 
-        // 🎨 智能提取富文本内容
+        // 🎨 智能提取富文本内容（HTML整体输出优化版）
         extractRichContent(element) {
-            // 尝试多种方法提取富文本内容
-            const methods = [
-                () => this.extractFromCursorMessage(element),
-                () => this.extractFromMarkdownElements(element),
-                () => this.extractFromCodeElements(element),
-                () => this.extractPlainText(element)
-            ];
+            // 🎯 HTML优先策略：直接获取完整的HTML结构
+            try {
+                // 1. 首先尝试获取完整的HTML结构
+                const fullHtml = element.outerHTML || element.innerHTML || '';
+                const textContent = element.textContent || element.innerText || '';
 
-            for (const method of methods) {
-                try {
-                    const result = method();
-                    if (result && result.text.trim()) {
-                        return result;
-                    }
-                } catch (error) {
-                    console.warn('提取方法失败:', error);
-                }
-            }
-
-            return {
-                text: element.textContent || element.innerText || '',
-                html: element.outerHTML || '',
-                markdown: '',
-                hasRichContent: false
-            };
-        }
-
-        // 🎯 从Cursor特定结构提取消息
-        extractFromCursorMessage(element) {
-            // 查找Cursor消息的主要内容容器
-            const contentSelectors = [
-                '.message-content',
-                '.chat-message-content',
-                '[data-message-content]',
-                '.ai-message-content',
-                '.user-message-content',
-                '.prose', // Cursor可能使用的富文本类
-                '[contenteditable]'
-            ];
-
-            for (const selector of contentSelectors) {
-                const contentEl = element.querySelector(selector) ||
-                                 (element.matches(selector) ? element : null);
-
-                if (contentEl) {
-                    const html = contentEl.outerHTML || '';
-                    const text = contentEl.textContent || contentEl.innerText;
-                    const markdown = this.htmlToMarkdown(html);
+                // 2. 检查是否包含真正的富文本标签
+                if (this.hasRichFormatting(fullHtml) && textContent.trim().length > 50) {
+                    console.log('🎨 检测到富文本HTML结构:', {
+                        htmlLength: fullHtml.length,
+                        textLength: textContent.length,
+                        htmlPreview: fullHtml.substring(0, 200) + '...'
+                    });
 
                     return {
-                        text: text.trim(),
-                        html: html,
-                        markdown: markdown,
-                        hasRichContent: this.hasRichFormatting(html)
+                        text: textContent.trim(),
+                        html: this.cleanHtml(fullHtml), // 清理但保持结构
+                        markdown: this.htmlToMarkdown(fullHtml),
+                        hasRichContent: true
                     };
                 }
-            }
 
-            return null;
-        }
+                // 3. 尝试从子元素中提取富文本内容
+                const richChildElements = element.querySelectorAll('pre, code, table, ul, ol, blockquote, h1, h2, h3, h4, h5, h6, strong, em, b, i');
+                if (richChildElements.length > 0 && textContent.trim().length > 50) {
+                    // 构建包含富文本子元素的HTML
+                    const richHtml = Array.from(richChildElements).map(el => el.outerHTML).join('\n');
 
-        // 📝 从Markdown元素提取
-        extractFromMarkdownElements(element) {
-            const markdownElements = element.querySelectorAll('pre, code, h1, h2, h3, h4, h5, h6, blockquote, ul, ol, table');
+                    console.log('🎨 从子元素提取富文本:', {
+                        richElements: richChildElements.length,
+                        htmlLength: richHtml.length,
+                        textLength: textContent.length
+                    });
 
-            if (markdownElements.length > 0) {
-                const html = element.outerHTML || '';
-                const text = element.textContent || element.innerText;
-                const markdown = this.htmlToMarkdown(html);
-
-                return {
-                    text: text.trim(),
-                    html: html,
-                    markdown: markdown,
-                    hasRichContent: true
-                };
-            }
-
-            return null;
-        }
-
-        // 💻 从代码元素提取
-        extractFromCodeElements(element) {
-            const codeElements = element.querySelectorAll('pre, code, .hljs, .language-');
-
-            if (codeElements.length > 0) {
-                const html = element.outerHTML || '';
-                const text = element.textContent || element.innerText;
-
-                // 保持代码块的格式
-                let markdown = '';
-                codeElements.forEach(codeEl => {
-                    const lang = this.detectCodeLanguage(codeEl);
-                    const code = codeEl.textContent || codeEl.innerText;
-
-                    if (codeEl.tagName === 'PRE') {
-                        markdown += `\n\`\`\`${lang}\n${code}\n\`\`\`\n`;
-                    } else {
-                        markdown += `\`${code}\``;
-                    }
-                });
-
-                return {
-                    text: text.trim(),
-                    html: html,
-                    markdown: markdown || this.htmlToMarkdown(html),
-                    hasRichContent: true
-                };
-            }
-
-            return null;
-        }
-
-        // 📄 提取纯文本
-        extractPlainText(element) {
-            const text = element.textContent || element.innerText || '';
-
-            return {
-                text: text.trim(),
-                html: this.textToHtml(text),
-                markdown: text.trim(),
-                hasRichContent: false
-            };
-        }
-
-        // 🔍 检测代码语言
-        detectCodeLanguage(element) {
-            const classList = element.className || '';
-            const langMatch = classList.match(/language-(\w+)/);
-            if (langMatch) return langMatch[1];
-
-            const parent = element.parentElement;
-            if (parent) {
-                const parentClass = parent.className || '';
-                const parentLangMatch = parentClass.match(/language-(\w+)/);
-                if (parentLangMatch) return parentLangMatch[1];
-            }
-
-            return '';
-        }
-
-        // 🎨 检查是否有富格式
-        hasRichFormatting(html) {
-            const richTags = ['pre', 'code', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-                             'blockquote', 'ul', 'ol', 'li', 'table', 'tr', 'td', 'th',
-                             'strong', 'b', 'em', 'i', 'a', 'img'];
-
-            return richTags.some(tag => html.includes(`<${tag}`));
-        }
-
-                // 🔄 HTML转Markdown（改进版）
-        htmlToMarkdown(html) {
-            if (!html || typeof html !== 'string') return '';
-
-            try {
-                let markdown = html;
-
-                // 先解码HTML实体（安全方式）
-                markdown = this.safeGetTextContent(html);
-
-                // 如果没有HTML标签，直接返回清理后的文本
-                if (!html.includes('<')) {
-                    return markdown.trim();
+                    return {
+                        text: textContent.trim(),
+                        html: `<div class="rich-content">${richHtml}</div>`,
+                        markdown: this.htmlToMarkdown(richHtml),
+                        hasRichContent: true
+                    };
                 }
 
-                // 重新使用原始HTML进行转换
-                markdown = html;
+                // 4. 检查是否是纯文本但格式良好的内容
+                if (textContent.trim().length > 100 && (
+                    textContent.includes('\n\n') || // 有段落结构
+                    /```/.test(textContent) ||      // 包含代码块
+                    /\|.*\|/.test(textContent) ||   // 包含表格
+                    /^\d+\.|\*|\-/.test(textContent) // 包含列表
+                )) {
+                    console.log('🎨 检测到结构化文本内容');
 
-                // 标题转换（更安全的方式）
-                markdown = markdown.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '\n# $1\n');
-                markdown = markdown.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '\n## $1\n');
-                markdown = markdown.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '\n### $1\n');
-                markdown = markdown.replace(/<h4[^>]*>(.*?)<\/h4>/gi, '\n#### $1\n');
-                markdown = markdown.replace(/<h5[^>]*>(.*?)<\/h5>/gi, '\n##### $1\n');
-                markdown = markdown.replace(/<h6[^>]*>(.*?)<\/h6>/gi, '\n###### $1\n');
+                    return {
+                        text: textContent.trim(),
+                        html: `<div class="structured-text">${this.textToHtml(textContent.trim())}</div>`,
+                        markdown: textContent.trim(),
+                        hasRichContent: true
+                    };
+                }
 
-                // 粗体和斜体
-                markdown = markdown.replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**');
-                markdown = markdown.replace(/<b[^>]*>(.*?)<\/b>/gi, '**$1**');
-                markdown = markdown.replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*');
-                markdown = markdown.replace(/<i[^>]*>(.*?)<\/i>/gi, '*$1*');
-
-                // 代码块（先处理pre code组合）
-                markdown = markdown.replace(/<pre[^>]*><code[^>]*>(.*?)<\/code><\/pre>/gi, (match, code) => {
-                    return '\n```\n' + code.trim() + '\n```\n';
-                });
-
-                // 行内代码
-                markdown = markdown.replace(/<code[^>]*>(.*?)<\/code>/gi, '`$1`');
-
-                // 引用
-                markdown = markdown.replace(/<blockquote[^>]*>(.*?)<\/blockquote>/gi, '> $1');
-
-                // 列表处理
-                markdown = markdown.replace(/<ul[^>]*>(.*?)<\/ul>/gi, (match, content) => {
-                    return content.replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n');
-                });
-
-                markdown = markdown.replace(/<ol[^>]*>(.*?)<\/ol>/gi, (match, content) => {
-                    let counter = 1;
-                    return content.replace(/<li[^>]*>(.*?)<\/li>/gi, () => `${counter++}. $1\n`);
-                });
-
-                // 链接
-                markdown = markdown.replace(/<a[^>]*href=["']([^"']*)["'][^>]*>(.*?)<\/a>/gi, '[$2]($1)');
-
-                // 换行和段落
-                markdown = markdown.replace(/<br\s*\/?>/gi, '\n');
-                markdown = markdown.replace(/<p[^>]*>(.*?)<\/p>/gi, '$1\n\n');
-
-                // 清理所有剩余的HTML标签
-                markdown = markdown.replace(/<[^>]+>/g, '');
-
-                // 清理多余的空白
-                markdown = markdown.replace(/\n{3,}/g, '\n\n');
-                markdown = markdown.replace(/^\s+|\s+$/g, '');
-
-                return markdown;
+                // 5. 默认纯文本处理
+                return {
+                    text: textContent.trim(),
+                    html: '',
+                    markdown: '',
+                    hasRichContent: false
+                };
 
             } catch (error) {
-                console.error('HTML转Markdown错误:', error);
-                // 如果转换失败，返回纯文本（安全方式）
-                return this.safeGetTextContent(html);
+                console.warn('提取富文本内容失败:', error);
+                return {
+                    text: element.textContent || element.innerText || '',
+                    html: '',
+                    markdown: '',
+                    hasRichContent: false
+                };
             }
         }
 
-        // 📝 文本转HTML
-        textToHtml(text) {
-            return text.replace(/\n/g, '<br>');
+        // 🧹 清理HTML但保持结构
+        cleanHtml(html) {
+            if (!html) return '';
+
+            try {
+                // 创建临时容器
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = html;
+
+                // 移除危险元素
+                const dangerousTags = ['script', 'iframe', 'object', 'embed', 'form', 'input'];
+                dangerousTags.forEach(tag => {
+                    const elements = tempDiv.querySelectorAll(tag);
+                    elements.forEach(el => el.remove());
+                });
+
+                // 移除事件属性但保留样式和结构
+                const allElements = tempDiv.querySelectorAll('*');
+                allElements.forEach(el => {
+                    Array.from(el.attributes).forEach(attr => {
+                        if (attr.name.startsWith('on')) {
+                            el.removeAttribute(attr.name);
+                        }
+                    });
+                });
+
+                // 返回清理后的HTML
+                return tempDiv.innerHTML;
+            } catch (error) {
+                console.warn('HTML清理失败:', error);
+                return html;
+            }
         }
 
-        // 🔒 安全的HTML解析（避免TrustedHTML错误）
-        safeGetTextContent(html) {
-            if (!html || typeof html !== 'string') return '';
+        // 📝 文本转HTML（增强版）
+        textToHtml(text) {
+            if (!text) return '';
 
-            // 直接使用正则表达式清理，不使用innerHTML
-            let text = html
-                .replace(/<script[^>]*>.*?<\/script>/gi, '') // 移除脚本
-                .replace(/<style[^>]*>.*?<\/style>/gi, '')   // 移除样式
-                .replace(/<[^>]+>/g, '')                     // 移除所有HTML标签
-                .replace(/&quot;/g, '"')                     // 解码常见HTML实体
-                .replace(/&apos;/g, "'")
-                .replace(/&lt;/g, '<')
-                .replace(/&gt;/g, '>')
-                .replace(/&amp;/g, '&')
-                .replace(/&nbsp;/g, ' ')
-                .replace(/&[a-zA-Z0-9#]+;/g, ' ')           // 清理其他HTML实体
-                .replace(/\s+/g, ' ')                       // 合并多个空格
-                .trim();
-
-            return text;
+            return text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;')
+                .replace(/\n\n/g, '</p><p>')
+                .replace(/\n/g, '<br>')
+                .replace(/^/, '<p>')
+                .replace(/$/, '</p>');
         }
 
         hashText(text) {
@@ -1042,10 +917,9 @@
             // 📊 按时间排序
             this.aiMessageBuffer.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
-            // 🔗 智能合并算法 + 噪音过滤
-            const uniqueContents = [];
-            const contentHashes = new Set();
-            let latestTimestamp = this.aiMessageBuffer[0].timestamp;
+            // 🎨 HTML整体输出策略：分离HTML内容和纯文本内容
+            const htmlMessages = [];
+            const textMessages = [];
             let filteredCount = 0;
 
             for (const message of this.aiMessageBuffer) {
@@ -1057,57 +931,46 @@
                     continue;
                 }
 
-                const contentHash = this.hashText(content);
+                // 🎯 检测是否包含HTML内容
+                const hasHtmlStructure = message.html && this.hasRichFormatting(message.html);
+                const hasMarkdownStructure = message.markdown && message.markdown !== content;
 
-                if (content && !contentHashes.has(contentHash)) {
-                    contentHashes.add(contentHash);
-                    uniqueContents.push(content);
-                    latestTimestamp = message.timestamp;
+                if (hasHtmlStructure) {
+                    // 📝 保留HTML格式的消息
+                    htmlMessages.push({
+                        content: content,
+                        html: message.html,
+                        markdown: message.markdown,
+                        timestamp: message.timestamp,
+                        hasRichContent: true
+                    });
+                } else if (hasMarkdownStructure) {
+                    // 📝 保留Markdown格式的消息
+                    htmlMessages.push({
+                        content: content,
+                        html: '',
+                        markdown: message.markdown,
+                        timestamp: message.timestamp,
+                        hasRichContent: true
+                    });
+                } else {
+                    // 📄 纯文本消息
+                    textMessages.push({
+                        content: content,
+                        timestamp: message.timestamp
+                    });
                 }
             }
 
             // 📈 统计信息
             const originalCount = this.aiMessageBuffer.length;
-            const validCount = uniqueContents.length;
+            console.log(`🧹 AI消息分类统计: ${originalCount}条原始 -> ${filteredCount}条噪音 -> ${htmlMessages.length}条富文本 + ${textMessages.length}条纯文本`);
 
-            console.log(`🧹 AI消息过滤统计: ${originalCount}条原始 -> ${filteredCount}条噪音 -> ${validCount}条有效`);
-
-            if (uniqueContents.length > 0) {
-                // 🎨 智能合并：用段落分隔而不是简单空格连接
-                const mergedContent = uniqueContents.join('\n\n');
-                const finalHash = this.hashText(mergedContent);
-
-                // 最终去重检查
-                if (!this.sentMessages.has(finalHash)) {
-                    this.sentMessages.add(finalHash);
-
-                    const mergedMessage = {
-                        id: finalHash,
-                        content: mergedContent,
-                        type: 'ai',
-                        timestamp: latestTimestamp,
-                        hasRichContent: false, // 明确标记为非富文本
-                        element: `<merged-ai-response length="${mergedContent.length}">${mergedContent}</merged-ai-response>`
-                    };
-
-            if (window.wsManager) {
-                window.wsManager.send({
-                            type: 'cursor_message',
-                            data: mergedMessage
-                        });
-
-                        console.log('📤 发送合并AI消息到 Web 界面:', {
-                            length: mergedContent.length,
-                            preview: mergedContent.substring(0, 100) + '...',
-                            原始片段数: originalCount,
-                            过滤噪音: filteredCount,
-                            有效内容: validCount,
-                            合并效果: `${originalCount}条 -> 1条 (去除${filteredCount}条噪音)`
-                        });
-                    }
-
-                    this.lastAIFlushTime = Date.now();
-                }
+            // 🎨 优先处理HTML富文本内容（这是核心！）
+            if (htmlMessages.length > 0) {
+                this.sendHtmlMessage(htmlMessages, originalCount, filteredCount);
+            } else if (textMessages.length > 0) {
+                this.sendTextMessage(textMessages, originalCount, filteredCount);
             } else {
                 console.log('📭 所有AI消息都被过滤，无内容发送');
             }
@@ -1117,208 +980,214 @@
             this.bufferTimer = null;
         }
 
-        // 🧠 判断是否为噪音消息（超级增强版）
-        isNoisyMessage(text) {
-            const trimmedText = text.trim();
+        // 🎨 发送HTML格式消息（核心方法）
+        sendHtmlMessage(htmlMessages, originalCount, filteredCount) {
+            // 🔗 智能HTML合并：保持HTML结构
+            let mergedHtml = '';
+            let mergedMarkdown = '';
+            let mergedContent = '';
+            let latestTimestamp = htmlMessages[0].timestamp;
 
-            // 🔥 激进长度过滤：少于100个字符直接过滤
-            if (trimmedText.length < 100) {
-                return true;
-            }
+            htmlMessages.forEach((msg, index) => {
+                // 更新时间戳
+                latestTimestamp = msg.timestamp;
 
-            // 🚫 重复内容检测：检查是否有重复的文本片段
-            const words = trimmedText.split(/[\s\n\r]+/);
-            const wordCounts = {};
-            let maxRepeatCount = 0;
-            let totalRepeats = 0;
-
-            words.forEach(word => {
-                if (word.length > 2) { // 只统计长度超过2的词
-                    wordCounts[word] = (wordCounts[word] || 0) + 1;
-                    if (wordCounts[word] > 1) {
-                        maxRepeatCount = Math.max(maxRepeatCount, wordCounts[word]);
-                        totalRepeats++;
-                    }
+                // 合并内容
+                if (msg.html && this.hasRichFormatting(msg.html)) {
+                    // 保持HTML结构，用div包装分隔
+                    mergedHtml += (index > 0 ? '\n\n' : '') + `<div class="ai-message-section">${msg.html}</div>`;
+                    mergedContent += (index > 0 ? '\n\n' : '') + msg.content;
+                } else if (msg.markdown) {
+                    // 保持Markdown结构
+                    mergedMarkdown += (index > 0 ? '\n\n' : '') + msg.markdown;
+                    mergedContent += (index > 0 ? '\n\n' : '') + msg.content;
+                } else {
+                    // 纯文本作为段落
+                    mergedHtml += (index > 0 ? '\n\n' : '') + `<p>${this.escapeHtml(msg.content)}</p>`;
+                    mergedContent += (index > 0 ? '\n\n' : '') + msg.content;
                 }
             });
 
-            // 如果有词重复超过3次，或重复词过多，认为是重复内容
-            if (maxRepeatCount > 3 || totalRepeats > words.length * 0.3) {
-                return true;
+            // 🎯 如果有HTML内容，包装成完整的HTML文档结构
+            if (mergedHtml) {
+                mergedHtml = `<div class="ai-response-container">${mergedHtml}</div>`;
             }
 
-            // 🔍 内容质量检查：字符多样性
-            const uniqueChars = new Set(trimmedText.toLowerCase()).size;
-            if (uniqueChars < 15) {  // 字符种类太少，可能是重复内容
-                return true;
+            const finalHash = this.hashText(mergedContent);
+
+            // 最终去重检查
+            if (!this.sentMessages.has(finalHash)) {
+                this.sentMessages.add(finalHash);
+
+                const mergedMessage = {
+                    id: finalHash,
+                    content: mergedContent,
+                    html: mergedHtml,
+                    markdown: mergedMarkdown,
+                    type: 'ai',
+                    timestamp: latestTimestamp,
+                    hasRichContent: true, // 🎯 标识为富文本！
+                    element: `<ai-rich-response html-length="${mergedHtml.length}" markdown-length="${mergedMarkdown.length}">${mergedContent}</ai-rich-response>`
+                };
+
+                if (window.wsManager) {
+                    window.wsManager.send({
+                        type: 'cursor_message',
+                        data: mergedMessage
+                    });
+
+                    console.log('🎨 发送HTML富文本消息到 Web 界面:', {
+                        类型: '富文本内容',
+                        html长度: mergedHtml.length,
+                        markdown长度: mergedMarkdown.length,
+                        内容长度: mergedContent.length,
+                        原始片段数: originalCount,
+                        过滤噪音: filteredCount,
+                        富文本片段: htmlMessages.length,
+                        hasRichContent: true,
+                        htmlPreview: mergedHtml.substring(0, 150) + '...',
+                        合并效果: `${originalCount}条 -> 1条富文本 (去除${filteredCount}条噪音)`
+                    });
+                }
+
+                this.lastAIFlushTime = Date.now();
             }
+        }
 
-            // 📝 检查是否包含实质内容：必须有完整句子或段落
-            const hasSentence = /[.!?。！？]\s*[A-Z\u4e00-\u9fa5]/.test(trimmedText);  // 有句子结构
-            const hasMultipleWords = trimmedText.split(/\s+/).length >= 20;  // 至少20个词
-            const hasChineseContent = /[\u4e00-\u9fa5]{30,}/.test(trimmedText);  // 至少30个中文字符
-            const hasEnglishContent = /[a-zA-Z\s]{60,}/.test(trimmedText);  // 至少60个英文字符
-            const hasCompleteThought = /[，。！？；：,;:.!?]\s*[A-Z\u4e00-\u9fa5]/.test(trimmedText);  // 完整思想
+        // 📄 发送纯文本消息
+        sendTextMessage(textMessages, originalCount, filteredCount) {
+            // 🔗 普通文本合并
+            const mergedContent = textMessages.map(msg => msg.content).join('\n\n');
+            const finalHash = this.hashText(mergedContent);
+            const latestTimestamp = textMessages[textMessages.length - 1].timestamp;
 
-            if (!hasSentence && !hasMultipleWords && !hasChineseContent && !hasEnglishContent && !hasCompleteThought) {
-                return true;  // 缺乏实质内容
+            if (!this.sentMessages.has(finalHash)) {
+                this.sentMessages.add(finalHash);
+
+                const mergedMessage = {
+                    id: finalHash,
+                    content: mergedContent,
+                    html: '',
+                    markdown: '',
+                    type: 'ai',
+                    timestamp: latestTimestamp,
+                    hasRichContent: false,
+                    element: `<ai-text-response length="${mergedContent.length}">${mergedContent}</ai-text-response>`
+                };
+
+                if (window.wsManager) {
+                    window.wsManager.send({
+                        type: 'cursor_message',
+                        data: mergedMessage
+                    });
+
+                    console.log('📄 发送纯文本消息到 Web 界面:', {
+                        类型: '纯文本内容',
+                        长度: mergedContent.length,
+                        原始片段数: originalCount,
+                        过滤噪音: filteredCount,
+                        文本片段: textMessages.length,
+                        hasRichContent: false,
+                        preview: mergedContent.substring(0, 100) + '...',
+                        合并效果: `${originalCount}条 -> 1条文本 (去除${filteredCount}条噪音)`
+                    });
+                }
+
+                this.lastAIFlushTime = Date.now();
             }
+        }
 
-            // 🎯 意义内容比例检查
-            const chineseChars = (trimmedText.match(/[\u4e00-\u9fa5]/g) || []).length;
-            const englishWords = (trimmedText.match(/[a-zA-Z]+/g) || []).length;
-            const totalMeaningful = chineseChars + englishWords * 3;
-            const meaningfulRatio = totalMeaningful / trimmedText.length;
+        // 🔒 HTML转义辅助方法
+        escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
 
-            if (meaningfulRatio < 0.6) { // 要求至少60%的有意义内容
-                return true;
-            }
+        // 🧠 判断是否为噪音消息（只用明确模式过滤，不再用字数过滤）
+        isNoisyMessage(text) {
+            const trimmedText = text.trim();
 
-            // 🚫 超级增强的噪音模式匹配
-            const noisyPatterns = [
-                // === 基础噪音模式 ===
-                /^\/\/ .{1,50}$/,              // 短注释
-                /^textApply$/,                // textApply
-                /^type: ["'].*["']$/,         // 单独的type字段
-                /^markdown: ["'].*["']$/,     // 单独的markdown字段
-                /^hasRichContent:/,           // hasRichContent字段
-                /^: [A-Za-z]+ >/,            // 短标签
-                /^\w+Apply$/,                 // 各种Apply
-                /^CursorRemote/,             // CursorRemote开头的短消息
-
-                // === 重复性内容检测 ===
-                /.*Terminal.*Terminal.*/,     // 包含多个Terminal的重复文本
-                /.*node app\.js.*node app\.js/,  // 重复的命令
-                /.*app\.js.*app\.js.*app\.js/,   // 多次重复app.js
-                /.*更新README.*更新README/,    // 重复的任务文本
-                /(.+)\1{2,}/,                 // 任何文本重复3次以上
-                /(Terminal|node|app\.js){3,}/, // 特定词汇重复3次以上
-
-                // === 生成状态和控制信息 ===
-                /^Generating.*Stop.*Ctrl\+Shift.*⌫/,  // 生成控制文本
-                /Generating.*StopCtrl\+Shift/,        // 生成停止快捷键
-                /Stop.*Ctrl\+Shift.*⌫/,              // 停止快捷键
-                /^21:\d{2}:\d{2}$/,                  // 时间戳
-                /^\d{2}:\d{2}:\d{2}$/,               // 时间格式
-
-                // === 单独的词汇和短语 ===
-                /^来自 Cursor$/,              // 来源标识
-                /^更新README文档$/,           // 单独的任务文本
-                /^AI助手里的文字$/,           // 界面相关文本
-                /^处理AI聊天区域$/,           // 任务相关文本
-                /^文字颜色和格式问题$/,        // 问题描述文本
-                /^看不清字$/,                // 用户反馈
-                /^继续$/,                    // 简单指令
-                /^好的$/,                    // 简单回应
-                /^强调了120字符最小长度和100\+种$/,  // 技术描述片段
-                /^展示了73%的噪音消息减少效果$/,    // 效果描述片段
-                /^过滤器效果极差$/,                // 问题反馈
-                /^和AI生成的差距非常大$/,          // 比较描述
-                /^重复消息\+未合并$/,             // 问题描述
-                /^不是动态刷新$/,                // 问题描述
-                /^格式完全对不上$/,              // 格式问题
-
-                // === 代码片段和技术内容 ===
-                /^[\w\s]{1,60}$/,            // 极短的单词组合
-                /^content = content\.replace/,// 代码片段
-                /^return content;/,          // 代码片段
-                /^typeof marked ===/,        // 代码片段
-                /^renderMarkdown\(/,         // 方法调用
-                /^extractMermaidDiagrams/,   // 方法调用
-                /^displayCursorMessage/,     // 方法调用
-                /^\$\d+$/,                   // 单独的变量引用
-                /^const\s+\w+\s*=/,         // 变量声明
-                /^if\s*\(/,                 // if语句
-                /^function\s*\(/,           // 函数声明
-                /^return\s+/,               // return语句
-                /^let\s+\w+\s*=/,          // let声明
-                /^var\s+\w+\s*=/,          // var声明
-
-                // === CSS 和样式相关 ===
-                /^border-/,               // CSS属性
-                /^background:/,           // CSS属性
-                /^margin/,                // CSS属性
-                /^padding/,               // CSS属性
-                /^color:/,                // CSS属性
-                /^font-/,                 // CSS属性
-                /^\.[\w-]+\s*\{/,        // CSS类选择器
-                /^@\w+/,                  // CSS @ 规则
-                /^:\w+/,                  // CSS 伪选择器
-                /^rgba?\(/,              // CSS颜色值
-                /^\d+px|\d+rem|\d+em/,   // CSS尺寸值
-
-                // === 系统和界面消息 ===
-                /^Loading\.{3}$/,          // Loading...
-                /^Error:/,                 // 错误消息开头
-                /^Updating/,              // 更新消息
-                /^To-dos?\s+\d+/,        // Todo列表消息
-                /^\d+\s*of\s*\d+/,       // 计数消息
-                /^Successfully/,          // 成功消息
-                /^Requested\s+to/,        // 请求消息
-                /^Connection\s+failed/,   // 连接失败
-                /^Command\s+output/,      // 命令输出
-                /^\d+\s*hidden\s*lines$/i,  // hidden lines
-
-                // === 混乱的组合文本 ===
-                /^Image\w*\s*node/,      // Image开头的混乱文本
-                /^\w+\.js\w*Terminal/,   // 终端相关混乱文本
-                /^Terminal\w*node/,      // Terminal node组合
-                /^node\w*Terminal/,      // node Terminal组合
-
-                // === 标点符号和特殊字符 ===
-                /^[{}\[\];,]+$/,           // 纯标点符号
-                /^\.\w+/,                  // 点号开头的属性
-                /^#\w+/,                   // 选择器
-                /^\w+\s*\{\s*$/,          // CSS/JS块开始
-                /^\s*\}\s*$/,             // CSS/JS块结束
-                /^[⌫⌘⇧⌃]+$/,            // 特殊按键符号
-
-                // === 中文短语和片段 ===
-                /^你看日志都/,             // 中文片段
-                /^颜色调整下/,             // 中文片段
-                /^我看不到内容了$/,         // 中文片段
-                /^现在让我/,              // 中文开头
-                /^让我/,                  // 中文开头
-                /^所有innerHTML都被替换了/, // 中文技术内容
-                /^好的，我来/,             // 中文回应开头
-                /^完成！/,                // 中文完成提示
-                /^已经/,                  // 中文状态词
-
-                // === 表情符号和标签 ===
-                /^🎯 高质量$/,              // 质量标签
-                /^📝 富文本$/,             // 标签
-                /^✅ [^,]{1,20}$/,        // 短的完成标签
-                /^🔧 [^,]{1,20}$/,        // 短的工具标签
-                /^⚡ [^,]{1,20}$/,        // 短的快速标签
-                /^🚀 [^,]{1,20}$/,        // 短的启动标签
-
-                // === DOM 和浏览器相关 ===
-                /^console\./,              // console调用
-                /^window\./,               // window调用
-                /^document\./,             // document调用
-                /^\w+Element/,             // DOM元素变量
-                /^\w+\.forEach/,           // forEach调用
-                /^\w+\.length/,            // length属性
-
-                // === 注释和标题 ===
-                /^\/\/ 在Cursor/,            // 调试注释
-                /^\/\/ 处理/,               // 处理注释
-                /^\/\/ 清空/,               // 清空注释
-                /^\/\/ 追加/,               // 追加注释
-                /^🤔 判断是否应该合并消息$/,    // 方法名
-                /^🔄 HTML转Markdown$/,      // 标题
-
-                // === 终端和命令相关 ===
-                /^Ctrl\+Shift/,          // 快捷键
-                /^\d+ files edited/,         // 文件编辑统计
-                /^Command/,              // 命令相关
-                /^Process/,              // 进程相关
-                /^Running/,              // 运行状态
-                /^Starting/,             // 启动状态
-                /^Stopping/              // 停止状态
+            // 只用明确的噪音模式过滤
+            const systemPatterns = [
+                /Apply/i,
+                /javascriptApply/i,
+                /textApply/i,
+                /codeApply/i,
+                /markdownApply/i,
+                /^const\s+\w+\s*=/,
+                /^function\s*\(/,
+                /^if\s*\(/,
+                /^return\s+/,
+                /^let\s+\w+\s*=/,
+                /^var\s+\w+\s*=/,
+                /=>\s*{/,
+                /console\./,
+                /document\./,
+                /window\./,
+                /querySelector/,
+                /addEventListener/,
+                /innerHTML|outerHTML/,
+                /hasRichContent|hasRichFormatting/,
+                /extractRichContent/,
+                /formatMessageContent/,
+                /sanitizeAndRenderHTML/,
+                /Generating.*Stop.*Ctrl/i,
+                /StopCtrl\+Shift/i,
+                /Planning next moves/i,
+                /Command line:/i,
+                /Process ID.*PID/i,
+                /来自 Cursor$/,
+                /^Image/,
+                /Terminal.*node/i,
+                /Console.*标/,
+                /powershell.*exe/i,
+                /使用原始HTML格式.*避免转换损失/,
+                /直接渲染HTML.*保持原始格式/,
+                /在浏览器控制台查看日志/,
+                /按.*F12.*开发者工具/,
+                /当AI响应时.*应该看到/,
+                /Shift\+Delete/,
+                /JavaScript.*错误/,
+                /包含HTML的消息/,
+                /HTML整体输出/,
+                /优化策略|处理思路|核心思想/,
+                /^border-|^background:|^margin|^padding|^color:/,
+                /^\.[\w-]+\s*\{/,
+                /rgba?\(|#[0-9a-fA-F]{3,6}/,
+                /mergedHtml|mergedMarkdown|mergedContent/,
+                /richTags|contentHashes|messageData/,
+                /flushAIMessages|sendHtmlMessage/,
+                /cleanHtml|textToHtml|escapeHtml/,
             ];
+            for (const pattern of systemPatterns) {
+                if (pattern.test(trimmedText)) return true;
+            }
 
-            return noisyPatterns.some(pattern => pattern.test(trimmedText));
+            // 代码块检测
+            const codePatterns = [
+                /```[\s\S]*```/,
+                /`[^`]{10,}`/,
+                /{[\s\S]*}/,
+                /\([^)]{50,}\)/,
+                /\[[^\]]{30,}\]/,
+            ];
+            let codeMatchCount = 0;
+            for (const pattern of codePatterns) {
+                if (pattern.test(trimmedText)) codeMatchCount++;
+            }
+            if (codeMatchCount >= 2) return true;
+
+            // 技术关键词过滤（可选）
+            const techKeywords = ['JavaScript', 'HTML', 'CSS', 'function', 'method', 'variable', 'array', 'object', 'DOM', 'API'];
+            let techKeywordCount = 0;
+            for (const keyword of techKeywords) {
+                if (trimmedText.toLowerCase().includes(keyword.toLowerCase())) techKeywordCount++;
+            }
+            if (techKeywordCount > 5 && trimmedText.length < 500) return true;
+
+            // 其余一律保留
+            return false;
         }
 
         // 兼容旧版本
@@ -1329,6 +1198,49 @@
                 type: 'ai',
                 timestamp: new Date().toISOString()
             });
+        }
+
+        // 🎨 检查是否有富格式
+        hasRichFormatting(html) {
+            const richTags = ['pre', 'code', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                             'blockquote', 'ul', 'ol', 'li', 'table', 'tr', 'td', 'th',
+                             'strong', 'b', 'em', 'i', 'a', 'img'];
+
+            return richTags.some(tag => html.includes(`<${tag}`));
+        }
+
+        // 🔄 HTML转Markdown（简化版，专注于保持结构）
+        htmlToMarkdown(html) {
+            if (!html || typeof html !== 'string') return '';
+
+            try {
+                let markdown = html;
+
+                // 基本标签转换
+                markdown = markdown.replace(/<h([1-6])[^>]*>(.*?)<\/h[1-6]>/gi, (match, level, content) => {
+                    const hashes = '#'.repeat(parseInt(level));
+                    return `\n${hashes} ${content}\n`;
+                });
+
+                markdown = markdown.replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**');
+                markdown = markdown.replace(/<b[^>]*>(.*?)<\/b>/gi, '**$1**');
+                markdown = markdown.replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*');
+                markdown = markdown.replace(/<i[^>]*>(.*?)<\/i>/gi, '*$1*');
+
+                // 代码块
+                markdown = markdown.replace(/<pre[^>]*><code[^>]*>(.*?)<\/code><\/pre>/gi, '\n```\n$1\n```\n');
+                markdown = markdown.replace(/<code[^>]*>(.*?)<\/code>/gi, '`$1`');
+
+                // 清理HTML标签
+                markdown = markdown.replace(/<[^>]+>/g, '');
+                markdown = markdown.replace(/\n{3,}/g, '\n\n');
+                markdown = markdown.trim();
+
+                return markdown;
+            } catch (error) {
+                console.warn('HTML转Markdown失败:', error);
+                return html.replace(/<[^>]+>/g, '');
+            }
         }
     }
 

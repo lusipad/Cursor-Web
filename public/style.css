@@ -667,8 +667,6 @@ button:disabled {
     min-width: 300px;
 }
 
-
-
 .search-container {
     display: flex;
     align-items: center;
@@ -1298,5 +1296,142 @@ button:disabled {
     .mermaid-container {
         padding: 12px;
         margin: 16px 0;
+    }
+}
+
+/* 🎨 优化HTML渲染的专用样式类 */
+
+/* AI响应表格样式 */
+.ai-response-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.ai-response-table th,
+.ai-response-table td {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+}
+
+.ai-response-table th {
+    background: rgba(102, 126, 234, 0.2);
+    font-weight: 600;
+    color: #e2e8f0;
+}
+
+.ai-response-table tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.ai-response-table tr:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+/* AI响应列表样式 */
+.ai-response-list {
+    margin: 16px 0;
+    padding-left: 20px;
+    color: #ffffff;
+}
+
+.ai-response-list li {
+    margin: 8px 0;
+    line-height: 1.6;
+    color: #e2e8f0;
+}
+
+.ai-response-list li::marker {
+    color: #667eea;
+}
+
+/* 有序列表特殊样式 */
+.ai-response-list.ordered {
+    counter-reset: list-counter;
+}
+
+.ai-response-list.ordered li {
+    counter-increment: list-counter;
+    position: relative;
+}
+
+.ai-response-list.ordered li::before {
+    content: counter(list-counter) ".";
+    color: #667eea;
+    font-weight: 600;
+    margin-right: 8px;
+}
+
+/* AI响应引用块样式 */
+.ai-response-quote {
+    margin: 16px 0;
+    padding: 16px 20px;
+    background: rgba(102, 126, 234, 0.1);
+    border-left: 4px solid #667eea;
+    border-radius: 0 8px 8px 0;
+    color: #e2e8f0;
+    font-style: italic;
+    position: relative;
+}
+
+.ai-response-quote::before {
+    content: """;
+    font-size: 48px;
+    color: #667eea;
+    position: absolute;
+    top: -10px;
+    left: 10px;
+    opacity: 0.3;
+    font-family: serif;
+}
+
+.ai-response-quote p {
+    margin: 0;
+    position: relative;
+    z-index: 1;
+}
+
+/* 代码块增强样式 */
+.ai-response-table pre,
+.ai-response-list pre,
+.ai-response-quote pre {
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 6px;
+    padding: 12px;
+    margin: 8px 0;
+    overflow-x: auto;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .ai-response-table {
+        font-size: 14px;
+    }
+
+    .ai-response-table th,
+    .ai-response-table td {
+        padding: 8px 12px;
+    }
+
+    .ai-response-quote {
+        padding: 12px 16px;
+        margin: 12px 0;
+    }
+
+    .ai-response-quote::before {
+        font-size: 36px;
+        top: -8px;
+        left: 8px;
+    }
+
+    .ai-response-list {
+        padding-left: 16px;
     }
 }
