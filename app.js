@@ -213,67 +213,80 @@ class CursorRemoteServer {
     }
 
     handleCursorClient(ws) {
-        console.log('Cursor 客户端已连接');
+        console.log('🎯 Cursor客户端已连接');
         this.cursorClient = ws;
+
+        ws.on('close', () => {
+            console.log('❌ Cursor客户端断开连接');
+            this.cursorClient = null;
+        });
 
         ws.on('message', (message) => {
             try {
                 const data = JSON.parse(message);
-                console.log('收到 Cursor 消息：', data.type);
 
-                // 处理响应
-                if (data.requestId && this.pendingRequests.has(data.requestId)) {
-                    const { resolve } = this.pendingRequests.get(data.requestId);
-                    this.pendingRequests.delete(data.requestId);
-                    resolve(data);
+                // 🔍 消息质量分析
+                if (data.type === 'cursor_message' && data.data) {
+                    const content = data.data.content || '';
+                    const messageType = data.data.type || 'unknown';
+
+                    // 📊 生成消息统计信息
+                    const stats = {
+                        type: messageType,
+                        length: content.length,
+                        preview: content.substring(0, 50) + (content.length > 50 ? '...' : ''),
+                        状态: content.length > 100 ? '✅ 已合并' :
+                             content.length > 50 ? '📝 正常' : '⚠️ 短消息',
+                        质量: content.includes('textApply') ? '🔧 系统' :
+                             content.length > 200 ? '🎯 高质量' :
+                             content.length > 50 ? '📖 标准' : '❓ 待评估'
+                    };
+
+                    // 时间戳格式化
+                    const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+                    console.log(`[${timestamp}] 📨 收到Cursor消息:`, stats);
                 }
 
-                // 转发AI回复给网页客户端
-                if (data.type === 'ai_response') {
-                    this.broadcastToWebClients(data);
-                }
-
-                // 转发Cursor同步消息给网页客户端
-                if (data.type === 'cursor_message') {
-                    console.log('📨 收到Cursor消息:', data.data.type, data.data.content.substring(0, 50) + '...');
-                    this.broadcastToWebClients({
-                        type: 'cursor_sync',
-                        data: data.data
-                    });
-                }
+                this.broadcastToWebClients(data);
             } catch (error) {
-                console.error('处理 Cursor 消息错误：', error);
+                console.error('❌ 处理Cursor消息失败:', error);
             }
         });
 
-        ws.on('close', () => {
-            console.log('Cursor 客户端断开连接');
-            if (this.cursorClient === ws) {
-                this.cursorClient = null;
-            }
+        ws.on('error', (error) => {
+            console.error('❌ Cursor WebSocket错误:', error);
+            this.cursorClient = null;
         });
-
-        // 心跳检测
-        const pingInterval = setInterval(() => {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'ping' }));
-            } else {
-                clearInterval(pingInterval);
-            }
-        }, 30000);
     }
 
     broadcastToWebClients(data) {
+        if (this.webClients.size === 0) {
+            return; // 没有Web客户端连接时不输出日志
+        }
+
+        const message = JSON.stringify(data);
+        let activeClients = 0;
+
         this.webClients.forEach(client => {
             if (client.readyState === WebSocket.OPEN) {
                 try {
-                    client.send(JSON.stringify(data));
+                    client.send(message);
+                    activeClients++;
                 } catch (error) {
-                    console.error('发送消息给网页客户端失败：', error);
+                    console.error('❌ 发送消息到Web客户端失败:', error);
                     this.webClients.delete(client);
                 }
+            } else {
+                this.webClients.delete(client);
             }
         });
+
+        // 只有处理cursor_message时才输出广播日志
+        if (data.type === 'cursor_message' && activeClients > 0) {
+            const content = data.data?.content || '';
+            const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+            console.log(`[${timestamp}] 📡 已广播到 ${activeClients} 个Web客户端: ${content.substring(0, 80)}${content.length > 80 ? '...' : ''}`);
+        }
     }
 
     forwardToCursor(data) {

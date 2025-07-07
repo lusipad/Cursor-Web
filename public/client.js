@@ -235,10 +235,11 @@ class CursorRemoteClient {
                 this.displayAIResponse(data.data);
                 break;
             case 'cursor_sync':
+            case 'cursor_message':  // 🔧 修复：处理服务器发送的cursor_message消息
                 this.displayCursorMessage(data.data);
                 break;
             default:
-                console.log('未知消息类型:', data.type);
+                console.log('未知消息类型:', data.type, data);
         }
     }
 

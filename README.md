@@ -1,72 +1,131 @@
-# 🚀 Cursor Remote Control v2.0 - 简化版
+# 🚀 Cursor Remote Control v2.0
 
-通过Web界面远程控制Cursor IDE的AI聊天功能。
+> **智能AI对话同步系统** - Web界面与Cursor编辑器之间的双向通信平台
 
-## 📁 项目结构
+[![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
+[![WebSocket](https://img.shields.io/badge/WebSocket-Real--time-blue.svg)](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)
+[![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
 
-```
-claude-web/
-├── app.js              # 主服务器文件
-├── inject.js           # Cursor注入脚本
-├── client.js           # 前端客户端脚本
-├── public/
-│   ├── index.html      # 主页面
-│   └── style.css       # 样式文件
-├── package.json        # 项目配置
-└── README.md          # 说明文档
+## ✨ 核心特性
+
+### 🤖 智能消息合并系统
+- **AI消息智能缓冲**: 8秒缓冲窗口，将分片AI回复合并为完整对话
+- **用户消息实时传输**: 立即发送，保持对话完整性
+- **双重去重机制**: 内容哈希 + 缓冲区去重，彻底防止重复消息
+- **质量评估系统**: 自动评估消息质量（🎯高质量、📖标准、⚠️短消息）
+
+### 🔄 双向通信
+- **Web → Cursor**: 粘贴事件模拟，完美兼容Cursor AI界面
+- **Cursor → Web**: 实时同步AI对话，智能过滤UI元素
+- **动态刷新**: 支持AI回复的增量式显示（开发中）
+
+### 🛡️ 高级过滤算法
+- **UI元素过滤**: 自动识别并过滤Cursor界面元素
+- **代码片段过滤**: 智能识别技术内容，只保留有意义对话
+- **内容质量检测**: 要求60%以上中文/英文内容，过滤无效消息
+
+## 🖥️ 系统架构
+
+```mermaid
+graph TB
+    A[Web界面] <-->|WebSocket| B[Node.js服务器]
+    B <-->|注入脚本| C[Cursor编辑器]
+    B --> D[消息合并引擎]
+    B --> E[质量评估系统]
+    D --> F[智能去重]
+    E --> G[内容过滤]
 ```
 
 ## 🚀 快速开始
 
-### 1. 安装依赖
+### 环境要求
+- Node.js 18+
+- Cursor编辑器
+- 现代浏览器（支持WebSocket）
 
+### 安装步骤
+
+1. **克隆项目**
+```bash
+git clone <repository-url>
+cd cursor-remote-control
+```
+
+2. **安装依赖**
 ```bash
 npm install
 ```
 
-### 2. 启动服务器
-
+3. **启动服务器**
 ```bash
-npm start
+node app.js
 ```
 
-### 3. 访问控制面板
+4. **访问Web界面**
+```
+本地访问: http://localhost:3459
+远程访问: http://[你的IP]:3459
+```
 
-打开浏览器访问：`http://localhost:3459`
+5. **注入脚本到Cursor**
+在Cursor的开发者控制台中运行：
+```javascript
+fetch('http://localhost:3459/inject-script.js')
+  .then(r => r.text())
+  .then(eval);
+```
 
-### 4. 注入脚本到Cursor
+## 📊 消息合并效果
 
-1. 在Cursor中打开AI聊天面板
-2. 通过菜单栏打开开发者工具：**Help → Toggle Developer Tools**
-3. 切换到Console标签
-4. 复制并粘贴控制面板中的注入脚本
-5. 看到"WebSocket连接成功"即可开始使用
+### 优化前 vs 优化后
 
-## 🎯 功能特性
+**优化前**：
+```
+[20:35:23] Planning next moves现在我要替
+[20:35:23] 换processBufferedMessages方
+[20:35:23] // 清空AI消息缓冲区
+[20:35:23] originalPieces: this.aiMessageBuffer.length
+[20:35:23] 合并效果: `${this.aiMessageBuffer.length}条 -> 1条`
+... (45条分片消息)
+```
 
-- **🌐 Web控制面板** - 现代化的Web界面
-- **🔄 实时连接** - WebSocket双向通信
-- **📁 工作空间管理** - 动态切换工作目录
-- **🌿 Git分支管理** - 查看和切换Git分支
-- **🤖 AI对话** - 远程发送AI指令
-- **📱 响应式设计** - 支持移动设备
-- **🔧 自动重连** - 网络断开自动重连
+**优化后**：
+```
+[20:47:25] 📤 发送合并AI消息到 Web 界面: {
+  length: 2267,
+  preview: '据用户规则，我需要用中文回应。现在我要完善Cursor Remote Control系统的消息合并功能...',
+  原始片段数: 45,
+  合并效果: '45条 -> 1条'
+}
+```
 
-## 🛠️ API接口
+## 🎯 日志系统
 
-| 接口 | 方法 | 描述 |
-|------|------|------|
-| `/health` | GET | 健康检查 |
-| `/inject-script.js` | GET | 获取注入脚本 |
-| `/api/workspace` | POST | 设置工作空间 |
-| `/api/git/branches` | GET | 获取分支列表 |
-| `/api/git/checkout` | POST | 切换分支 |
-| `/api/ai/chat` | POST | AI对话 |
+### 实时监控
+- **📥 AI消息已加入缓冲区**: 显示进入合并队列的消息
+- **📤 发送合并AI消息**: 显示最终合并结果和统计
+- **🧹 清理消息缓存**: 内存管理，防止泄漏
+- **📡 已广播到 N 个Web客户端**: 确认消息送达
+
+### 质量评估指标
+- **🎯 高质量**: 内容丰富(>200字符)，信息量大
+- **📖 标准**: 正常对话(50-200字符)
+- **⚠️ 短消息**: 简短回复(<50字符)
+- **🔧 系统**: 包含技术操作的系统消息
 
 ## 🔧 配置选项
 
-服务器配置在`app.js`中：
+### inject.js 配置
+```javascript
+const CONFIG = {
+    bufferTimeout: 8000,      // AI消息合并窗口(毫秒)
+    maxCacheSize: 50,         // 最大缓存消息数
+    minMessageLength: 15,     // 最小消息长度
+    contentQualityRatio: 0.6  // 内容质量阈值
+};
+```
 
+### app.js 服务器配置
 ```javascript
 const CONFIG = {
     host: '0.0.0.0',
@@ -76,204 +135,99 @@ const CONFIG = {
 };
 ```
 
-## 📋 使用步骤
+## 📁 项目结构
 
-1. **启动服务器**
-   ```bash
-   npm start
-   ```
-
-2. **打开控制面板**
-   - 访问 `http://localhost:3459`
-
-3. **注入脚本**
-   - 在Cursor中打开AI聊天面板
-   - 菜单栏：**Help → Toggle Developer Tools**
-   - 切换到Console标签
-   - 复制控制面板中的注入脚本
-   - 在Console中粘贴执行
-
-4. **开始使用**
-   - 设置工作空间路径
-   - 管理Git分支
-   - 发送AI对话指令
-
-## 🎨 界面预览
-
-控制面板包含4个主要功能区：
-
-- **工作空间** - 设置项目路径和注入脚本
-- **Git管理** - 查看和切换分支
-- **AI助手** - 远程AI对话
-- **API文档** - 接口说明
-
-## 🔄 开发模式
-
-```bash
-# 开发模式（自动重启）
-npm run dev
-
-# 使用旧版服务器
-npm run legacy
+```
+cursor-remote-control/
+├── app.js              # Node.js服务器主文件
+├── inject.js            # Cursor注入脚本
+├── public/
+│   ├── index.html       # Web界面
+│   ├── client.js        # 前端逻辑
+│   └── style.css        # 样式文件
+├── package.json         # 项目配置
+└── README.md           # 项目文档
 ```
 
-## 🌟 主要改进
+## 🔍 功能详解
 
-v2.0相比之前版本的主要改进：
+### 智能消息合并算法
+1. **用户消息处理**: 立即发送，保持对话时序
+2. **AI消息缓冲**: 收集8秒内的所有分片
+3. **内容去重**: 基于哈希的智能去重
+4. **质量评估**: 多维度内容质量检测
+5. **合并输出**: 生成完整、高质量的回复
 
-- **简化架构** - 从20+个文件减少到6个核心文件
-- **合并功能** - 前后端逻辑集中管理
-- **优化性能** - 减少HTTP请求和资源占用
-- **增强稳定性** - 改进错误处理和重连机制
-- **提升体验** - 现代化UI和响应式设计
+### Cursor集成特性
+- **选择器优化**: 专门适配Cursor的DOM结构
+- **粘贴事件模拟**: 完美兼容Cursor输入机制
+- **UI元素过滤**: 智能识别Cursor界面组件
+- **实时监听**: MutationObserver监听对话变化
 
-## 🐛 故障排除
+### Web界面功能
+- **实时连接状态**: 动态显示连接状态
+- **消息历史**: 完整的对话记录
+- **发送功能**: 向Cursor发送消息
+- **响应式设计**: 适配各种屏幕尺寸
 
-### 连接问题
-- 确保端口3459和3460没有被占用
-- 检查防火墙设置
-- 尝试使用`127.0.0.1`替代`localhost`
+## 🛠️ 开发 & 调试
 
-### 注入脚本问题
-- 确保先打开Cursor的AI聊天面板
-- 通过菜单栏打开开发者工具：**Help → Toggle Developer Tools**
-- 在Console标签中粘贴脚本
-- 检查WebSocket连接状态
-- 查看控制台错误信息
+### 调试接口
+在浏览器控制台中：
+```javascript
+// 查看系统状态
+window.CursorRemoteDebug.status()
 
-### 功能异常
-- 检查工作空间路径是否正确
-- 确认Git仓库状态
-- 查看服务器日志
+// 发送测试消息
+window.CursorRemoteDebug.sendTest("测试消息")
 
-## 💡 重要提示
+// 访问内部组件
+window.CursorRemoteDebug.wsManager
+window.CursorRemoteDebug.aiListener
+```
 
-### Cursor开发者工具打开方式
-- **不是F12**，而是通过菜单栏：**Help → Toggle Developer Tools**
-- 或者使用快捷键：**Ctrl+Shift+I** (Windows/Linux) 或 **Cmd+Option+I** (Mac)
+### 日志分析
+- 服务器日志显示消息处理详情
+- 合并效果统计(N条 -> 1条)
+- 质量评估结果
+- 广播状态确认
 
-### 注入脚本执行步骤
-1. 打开Cursor AI聊天面板
-2. 菜单栏：**Help → Toggle Developer Tools**
-3. 点击**Console**标签
-4. 粘贴注入脚本并按Enter执行
-5. 看到"✅ WebSocket连接成功"即可
+## 🤝 贡献指南
 
-## 📜 许可证
+1. Fork 本项目
+2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 打开 Pull Request
 
-MIT License
+## 📝 更新日志
 
-## 🤝 贡献
+### v2.0.0 - 智能消息合并版本
+- ✨ 全新智能消息合并系统
+- 🚀 双重去重机制
+- 📊 实时质量评估
+- 🎯 优化的过滤算法
+- 🔧 增强的日志系统
+- 💫 完美的Cursor集成
 
-欢迎提交Issue和Pull Request！
+### v1.0.0 - 基础版本
+- 🔄 基本双向通信
+- 🌐 Web界面
+- 📡 WebSocket连接
+
+## 📄 许可证
+
+本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
+
+## 🙋‍♂️ 支持 & 反馈
+
+如有问题或建议，请：
+- 📧 提交 Issue
+- 💬 发起 Discussion
+- 🔀 提交 Pull Request
 
 ---
 
-**注意：** 本工具仅用于学习和开发目的，请遵守相关使用条款。 
+**🎉 感谢使用 Cursor Remote Control v2.0！**
 
-# Cursor Remote Control v2.0
-
-一个现代化的Cursor远程控制Web应用，具有完整的AI助手界面。
-
-## 功能特性
-
-### 🎯 核心功能
-- **工作空间管理** - 设置和管理项目工作空间
-- **Git集成** - 分支查看、切换和管理
-- **Cursor注入** - 通过WebSocket连接Cursor
-- **现代化AI界面** - 类似VSCode的AI聊天体验
-
-### 🤖 AI 双向对话同步
-- **双向实时同步** - Cursor ↔ Web界面的完整双向通信
-- **智能消息识别** - 自动区分用户消息和AI回复
-- **消息自动发送** - Web界面消息自动输入到Cursor并发送
-- **状态实时反馈** - 显示发送状态和连接状态
-- **暗色主题设计** - 现代化的专业界面
-- **消息格式化** - 支持代码块和语法高亮
-- **历史管理功能** - 搜索、清空和管理对话记录
-- **多重状态指示** - 清楚标识消息来源和状态
-
-### 🎨 界面特色
-- **响应式设计** - 适配移动端和桌面端
-- **流畅动画** - 平滑的过渡效果
-- **现代化图标** - 使用Emoji和符号图标
-- **分离式容器** - 独立的聊天容器设计
-- **搜索高亮** - 搜索结果高亮显示
-
-## 快速开始
-
-### 1. 启动服务器
-```bash
-# 安装依赖
-npm install
-
-# 启动服务器
-npm start
-```
-
-### 2. 访问Web界面
-打开浏览器访问: `http://localhost:3459`
-
-### 3. 连接Cursor
-1. 在Cursor中打开AI聊天面板
-2. 菜单栏：**Help → Toggle Developer Tools**
-3. 切换到**Console**标签
-4. 复制网页上显示的注入脚本并粘贴到Console中
-5. 按Enter执行，看到"✅ WebSocket连接成功"即可
-
-### 4. 双向AI对话同步
-1. 切换到Web界面的"AI助手"标签页
-2. **从Cursor到Web**: Cursor中的AI对话会自动同步到Web界面
-3. **从Web到Cursor**: 在Web界面输入消息，自动发送到Cursor中
-4. 同步的消息会有特殊标识（🔄 来自 Cursor）
-5. 发送状态会显示实时反馈（📤 发送到 Cursor）
-6. 可以搜索和管理所有同步的对话
-
-### 5. 高级功能
-- **搜索对话**: 点击搜索按钮🔍搜索历史消息
-- **清空对话**: 点击垃圾桶图标🗑️清空当前对话
-- **新建对话**: 点击加号➕开始新的对话
-- **图片上传**: 点击相机图标📷上传图片
-
-## 技术栈
-- **前端**: HTML5, CSS3, JavaScript (ES6+)
-- **后端**: Node.js, Express
-- **通信**: WebSocket
-- **UI**: 现代化暗色主题设计
-
-## 项目结构
-```
-claude-web/
-├── app.js              # 主服务器文件（WebSocket + HTTP）
-├── inject.js           # Cursor注入脚本（双向通信）
-├── public/
-│   ├── index.html     # 主页面（现代化UI）
-│   ├── style.css      # 样式文件（暗色主题）
-│   └── client.js      # 前端逻辑（双向同步）
-├── package.json       # 项目配置
-├── README.md         # 说明文档
-└── TESTING.md        # 测试指南
-```
-
-## 开发说明
-
-### 自定义样式
-所有AI界面相关的样式都在`public/style.css`中以`ai-`前缀定义。
-
-### 添加新功能
-在`public/client.js`的`CursorRemoteClient`类中添加新方法。
-
-### 修改界面
-在`public/index.html`中修改AI助手标签页的HTML结构。
-
-## 浏览器支持
-- Chrome 60+
-- Firefox 55+
-- Safari 12+
-- Edge 79+
-
-## 许可证
-MIT License
-
-## 贡献
-欢迎提交Issue和Pull Request！ 
+*让AI对话更智能，让开发更高效！*

@@ -399,6 +399,30 @@
             this.observer = null;
             this.processedMessages = new Set();
             this.lastMessageCount = 0;
+
+            // 🔄 新的智能合并策略
+            this.aiMessageBuffer = []; // AI消息缓冲区
+            this.userMessageBuffer = []; // 用户消息缓冲区
+            this.bufferTimer = null;
+            this.bufferTimeout = 5000; // 5秒缓冲窗口（减少等待时间）
+            this.sentMessages = new Set(); // 防重复发送的哈希集合
+            this.lastAIFlushTime = 0;
+            this.lastAIMessageTime = 0; // 最后AI消息时间
+
+            // 会话管理 - 用于动态刷新
+            this.currentAISession = null;
+            this.sessionTimeout = null;
+
+            // 定期清理缓存（防内存泄漏）
+            setInterval(() => {
+                if (this.sentMessages.size > 50) {
+                    console.log('🧹 清理消息缓存: 保留最近50条');
+                    const messages = Array.from(this.sentMessages);
+                    this.sentMessages.clear();
+                    messages.slice(-50).forEach(hash => this.sentMessages.add(hash));
+                }
+            }, 60000);
+
             this.start();
         }
 
@@ -424,10 +448,10 @@
                 characterData: true
             });
 
-            // 定期检查聊天界面（降低频率，减少重复）
+            // 定期检查聊天界面（降低频率）
             setInterval(() => {
                 this.scanChatInterface();
-            }, 10000); // 从 2000 改为 10000 毫秒（10 秒）
+            }, 15000); // 15秒检查一次
 
             // 初始扫描
             setTimeout(() => {
@@ -447,7 +471,6 @@
         }
 
         findChatContainer() {
-            // 根据提供的 HTML 结构查找聊天容器
             const selectors = [
                 '.composer-bar .conversations',
                 '.messages-container',
@@ -513,92 +536,90 @@
         }
 
         isValidMessage(element) {
-            const text = element.textContent || element.innerText;
-            if (!text || text.trim().length < 10) return false;
+            const text = element.textContent || element.innerText || '';
+            const trimmedText = text.trim();
 
-            // 过滤掉系统消息和界面元素
-            const excludePatterns = [
-                'Load older messages',
-                'file-input',
-                'button',
-                'textarea',
-                'input',
-                'Copy',
-                'Send',
-                'Enter',
-                'Ctrl',
-                'placeholder',
-                'class=',
-                'id=',
-                'style=',
-                'onClick=',
-                'addEventListener',
-                'querySelector',
-                'getElementById',
-                'console.log',
-                'function',
-                'const ',
-                'let ',
-                'var ',
-                'return',
-                'if (',
-                'for (',
-                'while (',
-                '{ }',
-                '[]',
-                '()',
-                '+=',
-                '=>',
-                'import',
-                'export',
-                'require',
-                'module',
-                'npm',
-                'yarn',
-                'git',
-                'localhost',
-                'http://',
-                'https://',
-                'ws://',
-                '127.0.0.1',
-                '3459',
-                '3460',
-                'WebSocket',
-                'connectWebSocket',
-                'updateSyncStatus',
-                'updateWorkspaceInfo',
-                'checkServerStatus',
-                'serverAddress',
-                'this.connectWebSocket',
-                'this.updateConnectionStatus',
-                'this.serverAddress',
-                'this.updateWorkspaceInfo',
-                'client.js',
-                'inject.js',
-                'app.js',
-                'public/',
-                'node_modules',
-                'package.json'
+            // 🔍 更严格的长度要求 - 提高到30字符
+            if (!trimmedText || trimmedText.length < 30) {
+                return false;
+            }
+
+            // 🚫 Cursor UI 特定元素过滤
+            const uiElements = [
+                'Chat', 'Loading Chat', 'ChatLoading Chat',
+                'Planning next moves', 'Planning next moves用户说',
+                'Press desired key combination and then press ENTER.',
+                'Drag a view here to display.',
+                'Create a new chat', 'Plan, search, build anything',
+                'Plan, search, build anythingRecommended', 'Recommended',
+                'Ask Cursor questions about your codebase',
+                'Ask, learn, brainstorm', 'Add Context',
+                'Generating.', 'Generating.Stop', 'Stop',
+                'Load older messages', 'New Chat',
+                'Settings', 'Help', 'Feedback',
+                'textApply', 'javascriptApply', 'Apply',
+                'hidden lines', 'Output'
             ];
 
-            // 检查是否包含代码或技术内容
-            for (const pattern of excludePatterns) {
-                if (text.includes(pattern)) {
+            // 精确匹配UI元素
+            for (const uiElement of uiElements) {
+                if (trimmedText === uiElement ||
+                    trimmedText.startsWith(uiElement + ' ') ||
+                    trimmedText.endsWith(' ' + uiElement) ||
+                    trimmedText.includes(uiElement + '用户说') ||
+                    trimmedText.includes(uiElement + 'Output')) {
                     return false;
                 }
             }
 
-            // 检查是否主要是标点符号和数字
-            const textOnly = text.replace(/[^\u4e00-\u9fa5\w\s]/g, '');
-            if (textOnly.length < text.length * 0.5) {
+            // 🚫 过滤代码片段和技术内容
+            const codePatterns = [
+                /^\d+\s+hidden\s+lines?$/i,
+                /^function\s*\w*\s*\(/,
+                /^class\s+\w+/,
+                /^const\s+\w+\s*=/,
+                /^let\s+\w+\s*=/,
+                /^var\s+\w+\s*=/,
+                /^import\s+.+from/,
+                /^export\s+(default\s+)?/,
+                /^\s*\/\/.*$/,
+                /^\s*\/\*.*\*\/\s*$/,
+                /^if\s*\(/,
+                /^for\s*\(/,
+                /^while\s*\(/,
+                /^return\s+/,
+                /^console\./,
+                /document\./,
+                /window\./,
+                /getElementsBy/,
+                /querySelector/,
+                /addEventListener/,
+                /WebSocket/,
+                /^\s*[{}\[\]()]+\s*$/,
+                /^\s*[;,.:]+\s*$/,
+                /^[\w-]+\.(js|ts|css|html|json)$/,
+                /node_modules/,
+                /package\.json/,
+                /localhost:\d+/,
+                /127\.0\.0\.1/,
+                /http:\/\/|https:\/\/|ws:\/\//
+            ];
+
+            for (const pattern of codePatterns) {
+                if (pattern.test(trimmedText)) {
+                    return false;
+                }
+            }
+
+            // 🔤 内容质量检测 - 要求60%以上中文/英文内容
+            const validChars = trimmedText.match(/[\u4e00-\u9fa5a-zA-Z\s]/g) || [];
+            const validRatio = validChars.length / trimmedText.length;
+
+            if (validRatio < 0.6) {
                 return false;
             }
 
-            // 检查是否是时间戳格式
-            if (/^\d{2}:\d{2}:\d{2}$/.test(text.trim())) {
-                return false;
-            }
-
+            // ✅ 通过所有过滤条件
             return true;
         }
 
@@ -606,10 +627,8 @@
             const text = element.textContent || element.innerText;
             const cleanText = text.trim();
 
-            // 使用内容哈希作为ID，确保相同内容不会重复发送
+            // 使用内容哈希作为 ID
             const messageId = this.hashText(cleanText);
-
-            // 尝试确定消息类型
             const messageType = this.detectMessageType(element);
 
             return {
@@ -627,7 +646,7 @@
             for (let i = 0; i < text.length; i++) {
                 const char = text.charCodeAt(i);
                 hash = ((hash << 5) - hash) + char;
-                hash = hash & hash; // 转换为32位整数
+                hash = hash & hash;
             }
             return hash.toString();
         }
@@ -635,8 +654,9 @@
         detectMessageType(element) {
             const className = element.className || '';
             const innerHTML = element.innerHTML || '';
+            const text = element.textContent || '';
 
-            // 检查是否是用户消息
+            // 检查用户消息特征
             if (className.includes('user') ||
                 className.includes('human') ||
                 innerHTML.includes('user-message') ||
@@ -644,7 +664,7 @@
                 return 'user';
             }
 
-            // 检查是否是AI回复
+            // 检查AI回复特征
             if (className.includes('ai') ||
                 className.includes('assistant') ||
                 className.includes('bot') ||
@@ -653,9 +673,10 @@
                 return 'ai';
             }
 
-            // 基于内容和位置推测
-            const text = element.textContent || '';
-            if (text.includes('我是') || text.includes('我可以') || text.includes('根据')) {
+            // 基于内容推断
+            if (text.includes('我是') || text.includes('我可以') ||
+                text.includes('根据') || text.includes('据用户规则') ||
+                text.length > 100) {
                 return 'ai';
             }
 
@@ -663,7 +684,6 @@
         }
 
         checkForNewMessages(node) {
-            // 检查新添加的节点是否是消息
             if (this.isValidMessage(node)) {
                 const messageData = this.parseMessage(node);
                 if (messageData && !this.processedMessages.has(messageData.id)) {
@@ -684,16 +704,131 @@
         }
 
         sendMessage(messageData) {
-            if (window.wsManager) {
-                window.wsManager.send({
-                    type: 'cursor_message',
-                    data: messageData
-                });
-                console.log('📤 发送消息到 Web 界面：', messageData.type, messageData.content.substring(0, 50) + '...');
+            // 双重去重检查
+            const messageHash = this.hashText(messageData.content);
+            if (this.sentMessages.has(messageHash)) {
+                console.log('🚫 跳过重复消息:', messageData.content.substring(0, 30) + '...');
+                return;
+            }
+
+            const currentTime = Date.now();
+
+            if (messageData.type === 'user') {
+                // 💬 用户消息：立即发送，不合并
+                this.userMessageBuffer.push(messageData);
+                this.flushUserMessages();
+            } else if (messageData.type === 'ai') {
+                // 🤖 AI消息：智能缓冲合并
+
+                // 预处理去重：避免相同内容重复加入缓冲区
+                const isDuplicate = this.aiMessageBuffer.some(msg =>
+                    this.hashText(msg.content) === messageHash
+                );
+
+                if (isDuplicate) {
+                    console.log('🔄 缓冲区内检测到重复，跳过:', messageData.content.substring(0, 30) + '...');
+                    return;
+                }
+
+                this.aiMessageBuffer.push(messageData);
+                console.log('📥 AI消息已加入缓冲区:', messageData.content.substring(0, 50) + '...');
+
+                // 重置合并定时器
+                if (this.bufferTimer) {
+                    clearTimeout(this.bufferTimer);
+                }
+
+                this.bufferTimer = setTimeout(() => {
+                    this.flushAIMessages();
+                }, this.bufferTimeout);
             }
         }
 
-        // 兼容旧版本的方法
+        flushUserMessages() {
+            if (this.userMessageBuffer.length === 0) return;
+
+            // 用户消息逐条发送
+            for (const message of this.userMessageBuffer) {
+                const messageHash = this.hashText(message.content);
+
+                if (!this.sentMessages.has(messageHash)) {
+                    this.sentMessages.add(messageHash);
+
+                    if (window.wsManager) {
+                        window.wsManager.send({
+                            type: 'cursor_message',
+                            data: message
+                        });
+                        console.log('📤 发送用户消息到 Web 界面:', message.content.substring(0, 80) + '...');
+                    }
+                }
+            }
+
+            this.userMessageBuffer = [];
+        }
+
+        flushAIMessages() {
+            if (this.aiMessageBuffer.length === 0) return;
+
+            // 📊 按时间排序
+            this.aiMessageBuffer.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+            // 🔗 智能合并算法
+            const uniqueContents = [];
+            const contentHashes = new Set();
+            let latestTimestamp = this.aiMessageBuffer[0].timestamp;
+
+            for (const message of this.aiMessageBuffer) {
+                const content = message.content.trim();
+                const contentHash = this.hashText(content);
+
+                if (content && !contentHashes.has(contentHash)) {
+                    contentHashes.add(contentHash);
+                    uniqueContents.push(content);
+                    latestTimestamp = message.timestamp;
+                }
+            }
+
+            if (uniqueContents.length > 0) {
+                const mergedContent = uniqueContents.join(' ');
+                const finalHash = this.hashText(mergedContent);
+
+                // 最终去重检查
+                if (!this.sentMessages.has(finalHash)) {
+                    this.sentMessages.add(finalHash);
+
+                    const mergedMessage = {
+                        id: finalHash,
+                        content: mergedContent,
+                        type: 'ai',
+                        timestamp: latestTimestamp,
+                        element: `<merged-ai-response length="${mergedContent.length}">${mergedContent}</merged-ai-response>`
+                    };
+
+                    if (window.wsManager) {
+                        window.wsManager.send({
+                            type: 'cursor_message',
+                            data: mergedMessage
+                        });
+
+                        console.log('📤 发送合并AI消息到 Web 界面:', {
+                            length: mergedContent.length,
+                            preview: mergedContent.substring(0, 100) + '...',
+                            原始片段数: this.aiMessageBuffer.length,
+                            合并效果: `${this.aiMessageBuffer.length}条 -> 1条`
+                        });
+                    }
+
+                    this.lastAIFlushTime = Date.now();
+                }
+            }
+
+            // 清空缓冲区
+            this.aiMessageBuffer = [];
+            this.bufferTimer = null;
+        }
+
+        // 兼容旧版本
         sendAIResponse(text) {
             this.sendMessage({
                 id: Date.now() + Math.random(),
