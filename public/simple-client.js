@@ -178,7 +178,10 @@ class SimpleWebClient {
     // 显示聊天内容
     displayContent(contentData) {
         const container = document.getElementById('messages-container');
-        if (!container) return;
+        if (!container) {
+            console.error('❌ 未找到 messages-container');
+            return;
+        }
 
         const { html, timestamp } = contentData;
 
@@ -200,14 +203,38 @@ class SimpleWebClient {
             }
 
             // 更新内容
-            contentArea.innerHTML = this.sanitizeHTML(html);
+            const sanitizedHtml = this.sanitizeHTML(html);
+            contentArea.innerHTML = sanitizedHtml;
+
+            // 🎯 自动去除所有 max-height 和 overflow: hidden 样式
+            this.removeHeightRestrictions(contentArea);
 
             // 添加时间戳
             this.updateTimestamp(new Date(timestamp));
 
+            // 🔄 自动滚动到底部
+            this.scrollToBottom(container);
+
             console.log('✅ 内容已更新，长度:', html.length);
+            console.log('📊 内容预览:', html.substring(0, 200) + '...');
+            console.log('📏 容器高度:', container.scrollHeight, 'px');
+            console.log('📏 视口高度:', container.clientHeight, 'px');
+            console.log('📏 滚动位置:', container.scrollTop, 'px');
+
             this.updateStatus('已连接 - 同步正常', 'connected');
         }
+    }
+
+    // 滚动到底部
+    scrollToBottom(container) {
+        setTimeout(() => {
+            try {
+                container.scrollTop = container.scrollHeight;
+                console.log('📜 已滚动到底部，新位置:', container.scrollTop);
+            } catch (error) {
+                console.warn('滚动失败:', error);
+            }
+        }, 100); // 延迟确保内容已渲染
     }
 
     // 简单的HTML清理
@@ -217,6 +244,44 @@ class SimpleWebClient {
             .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
             .replace(/on\w+="[^"]*"/gi, '')
             .replace(/javascript:/gi, '');
+    }
+
+    // 移除高度限制样式
+    removeHeightRestrictions(element) {
+        if (!element) return;
+
+        // 递归处理所有子元素
+        const allElements = [element, ...element.querySelectorAll('*')];
+
+        allElements.forEach(el => {
+            const style = el.style;
+
+            // 移除 max-height 限制
+            if (style.maxHeight && style.maxHeight !== 'none') {
+                console.log('🔓 移除 max-height 限制:', style.maxHeight, '-> none');
+                style.maxHeight = 'none';
+            }
+
+            // 移除 overflow: hidden 限制
+            if (style.overflow === 'hidden') {
+                console.log('🔓 移除 overflow: hidden 限制');
+                style.overflow = 'visible';
+            }
+
+            // 移除 overflow-y: hidden 限制
+            if (style.overflowY === 'hidden') {
+                console.log('🔓 移除 overflow-y: hidden 限制');
+                style.overflowY = 'visible';
+            }
+
+            // 移除 overflow-x: hidden 限制
+            if (style.overflowX === 'hidden') {
+                console.log('🔓 移除 overflow-x: hidden 限制');
+                style.overflowX = 'visible';
+            }
+        });
+
+        console.log('🎯 已移除所有高度限制样式，确保内容完整显示');
     }
 
     // 更新时间戳
@@ -281,4 +346,42 @@ window.addEventListener('error', (event) => {
     console.error('🔥 页面错误:', event.error);
 });
 
+// 添加调试功能
+window.debugWebClient = () => {
+    if (!window.simpleClient) {
+        console.log('❌ simpleClient 未初始化');
+        return;
+    }
+
+    const client = window.simpleClient;
+    const container = document.getElementById('messages-container');
+    const contentArea = container?.querySelector('.sync-content');
+
+    console.log('🔍 Web 客户端调试信息：');
+    console.log('  - WebSocket 状态:', client.ws?.readyState || '未连接');
+    console.log('  - 当前内容长度:', client.currentContent?.length || 0);
+    console.log('  - 容器元素:', container);
+    console.log('  - 内容区域:', contentArea);
+
+    if (container) {
+        console.log('  - 容器高度:', container.scrollHeight, 'px');
+        console.log('  - 视口高度:', container.clientHeight, 'px');
+        console.log('  - 滚动位置:', container.scrollTop, 'px');
+        console.log('  - 是否有滚动条:', container.scrollHeight > container.clientHeight);
+    }
+
+    if (contentArea) {
+        console.log('  - 内容区域高度:', contentArea.scrollHeight, 'px');
+        console.log('  - 内容区域内容长度:', contentArea.innerHTML.length);
+        console.log('  - 内容预览:', contentArea.innerHTML.substring(0, 300) + '...');
+    }
+
+    // 手动触发滚动到底部
+    if (container) {
+        container.scrollTop = container.scrollHeight;
+        console.log('📜 手动滚动到底部');
+    }
+};
+
 console.log('✅ Simple Client JS 加载完成');
+console.log('💡 调试命令：debugWebClient() - 查看 Web 客户端状态');

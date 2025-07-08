@@ -1,282 +1,387 @@
-// 🚀 Claude Web 统一服务器
-// 基于 simple-server.js 和 cursor-clean.js 的重构版本
+console.log('🚀 Simple Claude Web Client 开始初始化...');
 
-const express = require('express');
-const http = require('http');
-const WebSocket = require('ws');
-const path = require('path');
+class SimpleWebClient {
+    constructor() {
+        this.ws = null;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 5;
+        this.reconnectDelay = 3000;
+        this.heartbeatInterval = null;
+        this.currentContent = '';
+        this.hasReceivedContent = false;
+        this.lastContentTime = null;
+        this.statusCheckInterval = null;
 
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
-
-// 全局状态
-let currentContent = '';
-let connectedClients = new Set();
-
-// 中间件配置
-app.use(express.json({ limit: '50mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
-
-// CORS 支持
-app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
-    if (req.method === 'OPTIONS') {
-        res.sendStatus(200);
-        return;
+        this.init();
     }
-    next();
-});
 
-// =============================================================================
-// HTTP API 路由
-// =============================================================================
+    init() {
+        console.log('🔧 初始化简化客户端...');
+        this.connectWebSocket();
+        this.startContentPolling();
+        this.startStatusCheck();
+    }
 
-// 主页
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// 健康检查
-app.get('/health', (req, res) => {
-    res.json({
-        status: 'ok',
-        url: `http://localhost:3000`,
-        hasContent: !!currentContent,
-        connectedClients: connectedClients.size,
-        timestamp: Date.now()
-    });
-});
-
-// 测试连接
-app.get('/api/test', (req, res) => {
-    console.log('📞 收到测试请求');
-    res.json({
-        success: true,
-        message: 'Claude Web 服务器运行正常',
-        timestamp: Date.now()
-    });
-});
-
-// 接收内容
-app.post('/api/content', (req, res) => {
-    try {
-        const { type, data } = req.body;
-
-        if (type === 'html_content' && data && data.html) {
-            currentContent = data.html;
-            console.log(`📥 收到内容：${currentContent.length} 字符`);
-
-            // 广播给所有 WebSocket 客户端
-            broadcastToClients({
-                type: 'html_content',
-                data: data
-            });
-
-            res.json({
-                success: true,
-                message: '内容已更新',
-                contentLength: currentContent.length,
-                timestamp: Date.now()
-            });
-        } else {
-            res.status(400).json({
-                success: false,
-                message: '无效的请求格式'
-            });
+    // 连接 WebSocket
+    connectWebSocket() {
+        if (this.ws) {
+            this.ws.close();
         }
-    } catch (error) {
-        console.error('❌ 处理内容失败：', error);
-        res.status(500).json({
-            success: false,
-            message: '服务器错误'
+
+        const wsUrl = 'ws://localhost:3000';
+        console.log('🔌 尝试连接 WebSocket:', wsUrl);
+        this.updateStatus('正在连接...', 'connecting');
+
+        this.ws = new WebSocket(wsUrl);
+
+        this.ws.onopen = () => {
+            console.log('✅ WebSocket 连接成功');
+            this.reconnectAttempts = 0;
+            if (this.hasReceivedContent) {
+                this.updateStatus('已连接 - 同步正常', 'connected');
+            } else {
+                this.updateStatus('已连接 - 等待 Cursor 内容', 'waiting');
+            }
+            this.startHeartbeat();
+        };
+
+        this.ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                console.log('📥 收到消息：', data.type);
+
+                if (data.type === 'html_content') {
+                    this.hasReceivedContent = true;
+                    this.lastContentTime = Date.now();
+                    this.displayContent(data.data);
+                }
+                if (data.type === 'clear_content') {
+                    this.currentContent = '';
+                    const contentArea = document.querySelector('.sync-content');
+                    if (contentArea) contentArea.innerHTML = '';
+                    const ts = document.querySelector('.last-update');
+                    if (ts) ts.textContent = '';
+                }
+            } catch (error) {
+                console.error('WebSocket 消息处理错误：', error);
+            }
+        };
+
+        this.ws.onclose = (event) => {
+            console.log('❌ WebSocket 连接关闭：', event.code);
+            this.stopHeartbeat();
+            this.stopStatusCheck();
+
+            if (event.code !== 1000) {
+                this.updateStatus('连接断开', 'disconnected');
+                this.attemptReconnect();
+            }
+        };
+
+        this.ws.onerror = (error) => {
+            console.error('⚠️ WebSocket 错误：', error);
+            this.updateStatus('连接错误', 'error');
+        };
+    }
+
+    // 心跳检测
+    startHeartbeat() {
+        this.heartbeatInterval = setInterval(() => {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify({ type: 'ping' }));
+            }
+        }, 30000);
+    }
+
+    stopHeartbeat() {
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
+        }
+    }
+
+    stopStatusCheck() {
+        if (this.statusCheckInterval) {
+            clearInterval(this.statusCheckInterval);
+            this.statusCheckInterval = null;
+        }
+    }
+
+    // 重连机制
+    attemptReconnect() {
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.reconnectAttempts++;
+            console.log(`🔄 尝试重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+
+            setTimeout(() => {
+                this.connectWebSocket();
+            }, this.reconnectDelay);
+        } else {
+            console.log('❌ 重连失败，已达到最大尝试次数');
+            this.updateStatus('连接失败', 'error');
+        }
+    }
+
+    // 轮询获取内容（备用方案）
+    startContentPolling() {
+        setInterval(async () => {
+            try {
+                const response = await fetch('/api/content');
+                const result = await response.json();
+
+                if (result.success && result.data && result.data.html !== this.currentContent) {
+                    console.log('📡 HTTP 轮询获取到新内容');
+                    this.hasReceivedContent = true;
+                    this.lastContentTime = Date.now();
+                    this.displayContent(result.data);
+                }
+            } catch (error) {
+                // 静默处理错误，避免控制台噪音
+            }
+        }, 10000); // 每 10 秒检查一次
+    }
+
+    // 状态检查 - 判断 Cursor 是否真正在同步
+    startStatusCheck() {
+        this.statusCheckInterval = setInterval(() => {
+            this.checkCursorStatus();
+        }, 15000); // 每 15 秒检查一次
+    }
+
+    checkCursorStatus() {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            return; // WebSocket 未连接，不需要检查
+        }
+
+        const now = Date.now();
+        const timeSinceLastContent = this.lastContentTime ? now - this.lastContentTime : null;
+
+        if (!this.hasReceivedContent) {
+            this.updateStatus('已连接 - 等待 Cursor 内容', 'waiting');
+        } else if (timeSinceLastContent && timeSinceLastContent > 60000) {
+            // 超过 1 分钟没有新内容，可能 Cursor 已关闭
+            this.updateStatus('已连接 - Cursor 可能已关闭', 'inactive');
+        } else {
+            this.updateStatus('已连接 - 同步正常', 'connected');
+        }
+    }
+
+    // 更新状态显示
+    updateStatus(message, type) {
+        const statusEl = document.getElementById('status');
+        if (statusEl) {
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+    }
+
+    // 显示聊天内容
+    displayContent(contentData) {
+        const container = document.getElementById('messages-container');
+        if (!container) {
+            console.error('❌ 未找到 messages-container');
+            return;
+        }
+
+        const { html, timestamp } = contentData;
+
+        if (html && html !== this.currentContent) {
+            this.currentContent = html;
+
+            // 清除欢迎消息
+            const welcome = container.querySelector('.welcome-message');
+            if (welcome) {
+                welcome.remove();
+            }
+
+            // 创建内容区域
+            let contentArea = container.querySelector('.sync-content');
+            if (!contentArea) {
+                contentArea = document.createElement('div');
+                contentArea.className = 'sync-content';
+                container.appendChild(contentArea);
+            }
+
+            // 更新内容
+            const sanitizedHtml = this.sanitizeHTML(html);
+            contentArea.innerHTML = sanitizedHtml;
+
+            // 🎯 自动去除所有 max-height 和 overflow: hidden 样式
+            this.removeHeightRestrictions(contentArea);
+
+            // 添加时间戳
+            this.updateTimestamp(new Date(timestamp));
+
+            // 🔄 自动滚动到底部
+            this.scrollToBottom(container);
+
+            console.log('✅ 内容已更新，长度：', html.length);
+            console.log('📊 内容预览：', html.substring(0, 200) + '...');
+            console.log('📏 容器高度：', container.scrollHeight, 'px');
+            console.log('📏 视口高度：', container.clientHeight, 'px');
+            console.log('📏 滚动位置：', container.scrollTop, 'px');
+
+            this.updateStatus('已连接 - 同步正常', 'connected');
+        }
+    }
+
+    // 滚动到底部
+    scrollToBottom(container) {
+        setTimeout(() => {
+            try {
+                container.scrollTop = container.scrollHeight;
+                console.log('📜 已滚动到底部，新位置：', container.scrollTop);
+            } catch (error) {
+                console.warn('滚动失败：', error);
+            }
+        }, 100); // 延迟确保内容已渲染
+    }
+
+    // 简单的 HTML 清理
+    sanitizeHTML(html) {
+        // 移除可能的恶意脚本
+        return html
+            .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+            .replace(/on\w+="[^"]*"/gi, '')
+            .replace(/javascript:/gi, '');
+    }
+
+    // 移除高度限制样式
+    removeHeightRestrictions(element) {
+        if (!element) return;
+
+        // 递归处理所有子元素
+        const allElements = [element, ...element.querySelectorAll('*')];
+
+        allElements.forEach(el => {
+            const style = el.style;
+
+            // 移除 max-height 限制
+            if (style.maxHeight && style.maxHeight !== 'none') {
+                console.log('🔓 移除 max-height 限制：', style.maxHeight, '-> none');
+                style.maxHeight = 'none';
+            }
+
+            // 移除 overflow: hidden 限制
+            if (style.overflow === 'hidden') {
+                console.log('🔓 移除 overflow: hidden 限制');
+                style.overflow = 'visible';
+            }
+
+            // 移除 overflow-y: hidden 限制
+            if (style.overflowY === 'hidden') {
+                console.log('🔓 移除 overflow-y: hidden 限制');
+                style.overflowY = 'visible';
+            }
+
+            // 移除 overflow-x: hidden 限制
+            if (style.overflowX === 'hidden') {
+                console.log('🔓 移除 overflow-x: hidden 限制');
+                style.overflowX = 'visible';
+            }
+        });
+
+        console.log('🎯 已移除所有高度限制样式，确保内容完整显示');
+    }
+
+    // 更新时间戳
+    updateTimestamp(date) {
+        let timestampEl = document.querySelector('.last-update');
+        if (!timestampEl) {
+            timestampEl = document.createElement('div');
+            timestampEl.className = 'last-update';
+            document.querySelector('.header').appendChild(timestampEl);
+        }
+
+        timestampEl.textContent = `最后更新：${date.toLocaleTimeString()}`;
+    }
+}
+
+// 页面加载完成后初始化
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('📄 页面加载完成，启动简化客户端...');
+    window.simpleClient = new SimpleWebClient();
+
+    // 发送消息功能
+    const sendForm = document.getElementById('send-form');
+    const sendInput = document.getElementById('send-input');
+    const clearBtn = document.getElementById('clear-btn');
+    if (sendForm && sendInput) {
+        sendForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const msg = sendInput.value.trim();
+            if (msg && window.simpleClient && window.simpleClient.ws && window.simpleClient.ws.readyState === WebSocket.OPEN) {
+                window.simpleClient.ws.send(JSON.stringify({ type: 'user_message', data: msg }));
+                sendInput.value = '';
+            }
+        });
+        sendInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendForm.dispatchEvent(new Event('submit'));
+            }
+        });
+    }
+    // 清除按钮功能
+    if (clearBtn && sendInput) {
+        clearBtn.addEventListener('click', () => {
+            sendInput.value = '';
+            sendInput.focus();
+            // 清空聊天内容区域
+            const contentArea = document.querySelector('.sync-content');
+            if (contentArea) contentArea.innerHTML = '';
+            // 清空时间戳
+            const ts = document.querySelector('.last-update');
+            if (ts) ts.textContent = '';
+            // 通知服务器清空内容
+            if (window.simpleClient && window.simpleClient.ws && window.simpleClient.ws.readyState === WebSocket.OPEN) {
+                window.simpleClient.ws.send(JSON.stringify({ type: 'clear_content' }));
+            }
         });
     }
 });
 
-// 获取当前内容
-app.get('/api/content', (req, res) => {
-    res.json({
-        success: true,
-        data: {
-            html: currentContent,
-            timestamp: Date.now(),
-            hasContent: !!currentContent
-        }
-    });
+// 全局错误处理
+window.addEventListener('error', (event) => {
+    console.error('🔥 页面错误：', event.error);
 });
 
-// 服务器状态
-app.get('/api/status', (req, res) => {
-    res.json({
-        status: 'running',
-        hasContent: !!currentContent,
-        contentLength: currentContent.length,
-        connectedClients: connectedClients.size,
-        uptime: process.uptime(),
-        timestamp: Date.now()
-    });
-});
-
-// =============================================================================
-// WebSocket 处理
-// =============================================================================
-
-wss.on('connection', (ws, req) => {
-    const clientIP = req.socket.remoteAddress;
-    console.log(`📱 新 WebSocket 客户端连接：${clientIP}`);
-
-    connectedClients.add(ws);
-
-    // 发送当前内容（如果有）
-    if (currentContent) {
-        try {
-            ws.send(JSON.stringify({
-                type: 'html_content',
-                data: {
-                    html: currentContent,
-                    timestamp: Date.now()
-                }
-            }));
-        } catch (error) {
-            console.error('❌ 发送当前内容失败：', error);
-        }
+// 添加调试功能
+window.debugWebClient = () => {
+    if (!window.simpleClient) {
+        console.log('❌ simpleClient 未初始化');
+        return;
     }
 
-    // 处理消息
-    ws.on('message', (data) => {
-        try {
-            const message = JSON.parse(data.toString());
+    const client = window.simpleClient;
+    const container = document.getElementById('messages-container');
+    const contentArea = container?.querySelector('.sync-content');
 
-            switch (message.type) {
-                case 'html_content':
-                    currentContent = message.data.html;
-                    console.log(`📋 WebSocket 更新内容：${currentContent.length} 字符`);
-                    broadcastToClients(message, ws);
-                    break;
+    console.log('🔍 Web 客户端调试信息：');
+    console.log('  - WebSocket 状态：', client.ws?.readyState || '未连接');
+    console.log('  - 当前内容长度：', client.currentContent?.length || 0);
+    console.log('  - 容器元素：', container);
+    console.log('  - 内容区域：', contentArea);
 
-                case 'user_message':
-                    console.log('💬 转发用户消息：', message.data);
-                    broadcastToClients({
-                        type: 'user_message',
-                        data: message.data,
-                        timestamp: Date.now()
-                    }, ws);
-                    break;
-
-                case 'ping':
-                    ws.send(JSON.stringify({
-                        type: 'pong',
-                        timestamp: Date.now()
-                    }));
-                    break;
-
-                case 'clear_content':
-                    currentContent = '';
-                    console.log('🧹 清空内容');
-                    broadcastToClients({ type: 'clear_content' });
-                    break;
-
-                default:
-                    console.log('❓ 未知消息类型：', message.type);
-            }
-        } catch (error) {
-            console.error('❌ WebSocket 消息处理错误：', error);
-        }
-    });
-
-    // 连接关闭
-    ws.on('close', (code) => {
-        connectedClients.delete(ws);
-        console.log(`📱 WebSocket 客户端断开：${clientIP} (${code})`);
-    });
-
-    // 错误处理
-    ws.on('error', (error) => {
-        console.error('❌ WebSocket 错误：', error);
-        connectedClients.delete(ws);
-    });
-});
-
-// 广播函数
-function broadcastToClients(message, sender) {
-    const messageStr = JSON.stringify(message);
-    let broadcastCount = 0;
-
-    connectedClients.forEach(client => {
-        if (client !== sender && client.readyState === WebSocket.OPEN) {
-            try {
-                client.send(messageStr);
-                broadcastCount++;
-            } catch (error) {
-                console.error('❌ 广播失败：', error);
-                connectedClients.delete(client);
-            }
-        }
-    });
-
-    if (broadcastCount > 0) {
-        console.log(`📢 消息已广播给 ${broadcastCount} 个客户端`);
+    if (container) {
+        console.log('  - 容器高度：', container.scrollHeight, 'px');
+        console.log('  - 视口高度：', container.clientHeight, 'px');
+        console.log('  - 滚动位置：', container.scrollTop, 'px');
+        console.log('  - 是否有滚动条：', container.scrollHeight > container.clientHeight);
     }
-}
 
-// 定期清理断开的连接
-setInterval(() => {
-    const activeClients = new Set();
-    connectedClients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-            activeClients.add(client);
-        }
-    });
-
-    if (connectedClients.size !== activeClients.size) {
-        console.log(`🧹 清理断开连接：${connectedClients.size} -> ${activeClients.size}`);
-        connectedClients = activeClients;
+    if (contentArea) {
+        console.log('  - 内容区域高度：', contentArea.scrollHeight, 'px');
+        console.log('  - 内容区域内容长度：', contentArea.innerHTML.length);
+        console.log('  - 内容预览：', contentArea.innerHTML.substring(0, 300) + '...');
     }
-}, 30000);
 
-// =============================================================================
-// 启动服务器
-// =============================================================================
+    // 手动触发滚动到底部
+    if (container) {
+        container.scrollTop = container.scrollHeight;
+        console.log('📜 手动滚动到底部');
+    }
+};
 
-const PORT = 3000;
-server.listen(PORT, () => {
-    console.log('🚀 Claude Web 服务器已启动！');
-    console.log(`📍 访问地址：http://localhost:${PORT}`);
-    console.log(`🔌 WebSocket：ws://localhost:${PORT}`);
-    console.log(`📡 API 端点：http://localhost:${PORT}/api/`);
-    console.log('');
-    console.log('💡 API 端点：');
-    console.log('  - 测试连接：GET /api/test');
-    console.log('  - 发送内容：POST /api/content');
-    console.log('  - 获取内容：GET /api/content');
-    console.log('  - 服务器状态：GET /api/status');
-    console.log('');
-    console.log('🎯 等待 Cursor 同步数据...');
-});
-
-// 优雅关闭
-process.on('SIGINT', () => {
-    console.log('\n🛑 正在关闭服务器...');
-
-    // 通知所有客户端
-    connectedClients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-            try {
-                client.send(JSON.stringify({
-                    type: 'server_shutdown',
-                    message: '服务器正在关闭'
-                }));
-            } catch (error) {
-                // 忽略错误
-            }
-        }
-    });
-
-    server.close(() => {
-        console.log('✅ 服务器已关闭');
-        process.exit(0);
-    });
-});
+console.log('✅ Simple Client JS 加载完成');
+console.log('💡 调试命令：debugWebClient() - 查看 Web 客户端状态');
