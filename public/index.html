@@ -3,235 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cursor Remote Control v2.0</title>
+    <title>Claude Web - Cursor 聊天同步</title>
     <link rel="stylesheet" href="style.css">
-
-    <!-- 📝 Markdown和Mermaid渲染库 -->
-    <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css">
-
-    <!-- 🎨 Emoji表情支持 -->
-    <script src="https://cdn.jsdelivr.net/npm/twemoji@14.0.2/dist/twemoji.min.js"></script>
-
-    <!-- 📊 数学公式渲染 -->
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
 </head>
 <body>
     <div class="container">
         <header class="header">
-            <h1>🎯 Cursor Remote Control v2.0</h1>
-            <div class="status-bar">
-                <span id="connection-status" class="status-indicator">🔴 未连接</span>
-                <span id="cursor-status" class="status-indicator">🔴 Cursor 未连接</span>
-                <span class="sync-status status-indicator">
-                    <span id="sync-indicator">🔄</span>
-                    <span id="sync-status-text">连接中...</span>
-                </span>
-            </div>
+            <h1>Claude Web</h1>
+            <div id="status" class="status disconnected">等待连接...</div>
         </header>
 
-        <main class="main-content">
-            <div class="tabs">
-                <button class="tab-button active" data-tab="workspace">工作空间</button>
-                <button class="tab-button" data-tab="git">Git 管理</button>
-                <button class="tab-button" data-tab="ai">AI 助手</button>
-                <button class="tab-button" data-tab="api">API 文档</button>
-            </div>
-
-            <!-- 工作空间 -->
-            <div id="workspace" class="tab-content active">
-                <div class="section">
-                    <h3>工作空间设置</h3>
-                    <div class="form-group">
-                        <input type="text" id="workspace-path" placeholder="输入工作空间路径..." />
-                        <button id="set-workspace-btn">设置工作空间</button>
-                    </div>
-                    <div id="workspace-info" class="info-box"></div>
-                </div>
-
-                <div class="section">
-                    <h3>Cursor 注入脚本</h3>
-                    <p><strong>📋 操作步骤：</strong></p>
-                    <ol style="margin: 10px 0; padding-left: 20px;">
-                        <li>在Cursor中打开AI聊天面板</li>
-                        <li>菜单栏：<strong>Help → Toggle Developer Tools</strong></li>
-                        <li>切换到<strong>Console</strong>标签</li>
-                        <li>复制以下代码并粘贴到Console中</li>
-                        <li>按Enter执行，看到"✅ WebSocket连接成功"即可</li>
-                    </ol>
-                    <div class="code-box">
-                        <pre id="inject-script-code">// 正在加载注入脚本...</pre>
-                        <button id="copy-script-btn">复制脚本</button>
-                    </div>
-                    <div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 5px; border-left: 4px solid #ffc107;">
-                        <strong>💡 重要提示：</strong>不是F12，而是通过菜单栏打开开发者工具！
-                    </div>
-                </div>
-            </div>
-
-            <!-- Git 管理 -->
-            <div id="git" class="tab-content">
-                <div class="section">
-                    <h3>Git 分支管理</h3>
-                    <button id="refresh-branches-btn">刷新分支</button>
-                    <div id="branches-list" class="branches-list"></div>
-                </div>
-            </div>
-
-            <!-- AI 助手 -->
-            <div id="ai" class="tab-content">
-                <div class="ai-chat-container">
-                    <!-- 聊天头部 -->
-                    <div class="ai-chat-header">
-                        <div class="ai-title">
-                            <span class="ai-icon">🧠</span>
-                            <span>AI 助手</span>
-                            <div class="sync-status">
-                                <span id="sync-indicator" class="sync-status-indicator">🔄</span>
-                                <span id="sync-status-text">同步中...</span>
-                            </div>
-                        </div>
-                        <div class="ai-controls">
-                            <button id="clear-chat-btn" class="control-btn" title="清空对话">
-                                <span class="icon">🗑️</span>
-                            </button>
-                            <button id="search-chat-btn" class="control-btn" title="搜索对话">
-                                <span class="icon">🔍</span>
-                            </button>
-                            <button id="new-chat-btn" class="control-btn" title="新建对话">
-                                <span class="icon">➕</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- 模型选择器 -->
-                    <div class="model-selector">
-                        <div class="model-info">
-                            <span class="model-icon">🧠</span>
-                            <select id="model-select">
-                                <option value="claude-4-sonnet">claude-4-sonnet</option>
-                                <option value="claude-3-haiku">claude-3-haiku</option>
-                                <option value="gpt-4">gpt-4</option>
-                                <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <!-- 聊天消息区域 -->
-                    <div class="ai-chat-messages" id="ai-chat-messages">
-                        <div class="load-more-container">
-                            <button id="load-more-btn" class="load-more-btn">加载更多消息</button>
-                        </div>
-                        <div class="messages-container" id="messages-container">
-                            <!-- 消息将在这里动态添加 -->
-                        </div>
-                    </div>
-
-                    <!-- 聊天输入区域 -->
-                    <div class="ai-chat-input">
-                        <div class="input-container">
-                            <div class="input-wrapper">
-                                <textarea
-                                    id="ai-message"
-                                    placeholder="输入您的问题... (Ctrl+Enter 发送)"
-                                    rows="1"
-                                    maxlength="10000"
-                                ></textarea>
-                                <div class="input-actions">
-                                    <button id="attach-image-btn" class="action-btn" title="添加图片">
-                                        <span class="icon">📷</span>
-                                    </button>
-                                    <button id="send-ai-btn" class="send-btn" title="发送消息">
-                                        <span class="icon">↑</span>
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="input-footer">
-                                <div class="input-info">
-                                    <span id="char-count">0/10000</span>
-                                </div>
-                                <div class="input-hint">
-                                    <span>开始新的对话以获得更好的结果</span>
-                                    <button id="start-new-chat" class="new-chat-link">新建对话</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 搜索框 -->
-                    <div id="search-widget" class="search-widget" style="display: none;">
-                        <div class="search-container">
-                            <input type="text" id="search-input" placeholder="搜索对话..." />
-                            <div class="search-controls">
-                                <button id="search-case-btn" class="search-control-btn" title="区分大小写">
-                                    <span class="icon">Aa</span>
-                                </button>
-                                <button id="search-word-btn" class="search-control-btn" title="整词匹配">
-                                    <span class="icon">W</span>
-                                </button>
-                                <button id="search-regex-btn" class="search-control-btn" title="正则表达式">
-                                    <span class="icon">.*</span>
-                                </button>
-                            </div>
-                            <div class="search-navigation">
-                                <span id="search-results">0/0</span>
-                                <button id="search-prev-btn" class="search-nav-btn" title="上一个">
-                                    <span class="icon">↑</span>
-                                </button>
-                                <button id="search-next-btn" class="search-nav-btn" title="下一个">
-                                    <span class="icon">↓</span>
-                                </button>
-                                <button id="search-close-btn" class="search-nav-btn" title="关闭">
-                                    <span class="icon">✕</span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 隐藏的文件输入 -->
-                    <input type="file" id="file-input" accept="image/*" style="display: none;" />
-                </div>
-            </div>
-
-            <!-- API 文档 -->
-            <div id="api" class="tab-content">
-                <div class="section">
-                    <h3>API 接口文档</h3>
-                    <div class="api-doc">
-                        <div class="api-item">
-                            <h4>健康检查</h4>
-                            <code>GET /health</code>
-                            <p>检查服务器状态和连接信息</p>
-                        </div>
-                        <div class="api-item">
-                            <h4>注入脚本</h4>
-                            <code>GET /inject-script.js</code>
-                            <p>获取 Cursor 注入脚本</p>
-                        </div>
-                        <div class="api-item">
-                            <h4>工作空间设置</h4>
-                            <code>POST /api/workspace</code>
-                            <p>设置工作空间路径</p>
-                        </div>
-                        <div class="api-item">
-                            <h4>Git 分支</h4>
-                            <code>GET /api/git/branches</code>
-                            <p>获取所有分支信息</p>
-                        </div>
-                        <div class="api-item">
-                            <h4>AI 对话</h4>
-                            <code>POST /api/ai/chat</code>
-                            <p>发送AI对话请求</p>
-                        </div>
-                    </div>
+        <main class="main">
+            <div id="messages-container" class="messages-container">
+                <div class="welcome-message">
+                    <h2>欢迎使用 Claude Web</h2>
+                    <p>状态说明：</p>
+                    <p>🟡 <strong>已连接 - 等待Cursor内容</strong>：需要在Cursor中运行注入脚本</p>
+                    <p>🟢 <strong>已连接 - 同步正常</strong>：内容同步工作正常</p>
+                    <br>
+                    <p class="instruction">使用方法：在 Cursor 开发者工具中运行 cursor-fixed.js 脚本</p>
+                    <p class="instruction">脚本会同步整个Cursor页面内容到此页面</p>
                 </div>
             </div>
         </main>
     </div>
 
-    <script src="client.js"></script>
+    <script src="simple-client.js"></script>
 </body>
 </html>

@@ -187,7 +187,7 @@ class CursorRemoteClient {
             this.ws.close();
         }
 
-                        const wsUrl = 'ws://localhost:3462?type=web';
+        const wsUrl = 'ws://localhost:3000?type=web';
         console.log('🔌 尝试连接WebSocket:', wsUrl);
         this.updateSyncStatus('connecting');
 
@@ -203,7 +203,11 @@ class CursorRemoteClient {
         this.ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                this.handleWebSocketMessage(data);
+                if (data.type === 'html_content') {
+                    this.displayContent(data.data);
+                } else {
+                    this.handleWebSocketMessage(data);
+                }
             } catch (error) {
                 console.error('WebSocket 消息处理错误:', error);
             }
@@ -889,7 +893,7 @@ console.log("Hello from Cursor! 🎯");
         }, 1000);
     }
 
-        // 显示从Cursor同步过来的消息
+    // 显示从Cursor同步过来的消息
     displayCursorMessage(messageData) {
         const messagesContainer = document.getElementById('messages-container');
         if (!messagesContainer) return;
@@ -1053,7 +1057,7 @@ console.log("Hello from Cursor! 🎯");
         return div.innerHTML;
     }
 
-        // 格式化消息内容（增强的格式处理）
+    // 格式化消息内容（增强的格式处理）
     formatMessageContent(messageData) {
         // 如果传入的是字符串，兼容旧格式
         if (typeof messageData === 'string') {
@@ -1154,7 +1158,7 @@ console.log("Hello from Cursor! 🎯");
         return formattedParagraphs.join('\n\n');
     }
 
-        // 📄 分割成逻辑段落（优化版）
+    // 📄 分割成逻辑段落（优化版）
     splitIntoLogicalParagraphs(text) {
         // 首先按明确的段落分隔符分割
         const majorParagraphs = text.split(/\n\s*\n/);
@@ -1185,22 +1189,22 @@ console.log("Hello from Cursor! 🎯");
                     }
                 });
             } else {
-                                 // 普通段落，保持完整性，减少不必要的分割
-                 if (trimmed.length > 200) {
-                     // 只有很长的段落才尝试分割
-                     const sentences = this.splitBySentenceEndings(trimmed);
-                     if (sentences.length > 1 && sentences.every(s => s.length > 50)) {
-                         sentences.forEach(sentence => {
-                             finalParagraphs.push(sentence);
-                         });
-                     } else {
-                         // 如果分割后的句子太短，保持原段落
-                         finalParagraphs.push(trimmed);
-                     }
-                 } else {
-                     // 短段落保持完整
-                     finalParagraphs.push(trimmed);
-                 }
+                // 普通段落，保持完整性，减少不必要的分割
+                if (trimmed.length > 200) {
+                    // 只有很长的段落才尝试分割
+                    const sentences = this.splitBySentenceEndings(trimmed);
+                    if (sentences.length > 1 && sentences.every(s => s.length > 50)) {
+                        sentences.forEach(sentence => {
+                            finalParagraphs.push(sentence);
+                        });
+                    } else {
+                        // 如果分割后的句子太短，保持原段落
+                        finalParagraphs.push(trimmed);
+                    }
+                } else {
+                    // 短段落保持完整
+                    finalParagraphs.push(trimmed);
+                }
             }
         });
 
@@ -1225,7 +1229,7 @@ console.log("Hello from Cursor! 🎯");
         return numberedItems && numberedItems.length >= 2;
     }
 
-        // 📄 按句子结束分割（超保守策略）
+    // 📄 按句子结束分割（超保守策略）
     splitBySentenceEndings(text) {
         // 只在非常明确的主题转换点分割
         const majorBreaks = text.split(/([。！？])\s*(?=[A-Z\u4e00-\u9fa5][^a-z，。]{20,})/);
@@ -1362,66 +1366,64 @@ console.log("Hello from Cursor! 🎯");
     updateSyncStatus(status) {
         console.log('🔄 更新同步状态:', status);
 
-        // 更新所有同步状态元素（顶部状态栏和AI助手标签页）
-        const syncStatuses = document.querySelectorAll('.sync-status');
-        const syncIndicators = document.querySelectorAll('#sync-indicator');
-        const syncStatusTexts = document.querySelectorAll('#sync-status-text');
-
-        if (syncIndicators.length === 0 || syncStatusTexts.length === 0) {
-            console.error('❌ 同步状态元素未找到');
-            return;
-        }
-
-        // 清除所有状态类
-        syncStatuses.forEach(syncStatus => {
-            syncStatus.classList.remove('connected', 'disconnected', 'error');
-        });
-
-        let indicator = '';
         let statusText = '';
         let statusClass = '';
 
         switch (status) {
             case 'connected':
-                indicator = '✅';
-                statusText = '同步已连接';
+                statusText = '🟢 WebSocket 已连接';
                 statusClass = 'connected';
                 break;
             case 'disconnected':
-                indicator = '❌';
-                statusText = '同步已断开';
+                statusText = '🔴 WebSocket 已断开';
                 statusClass = 'disconnected';
                 break;
             case 'error':
-                indicator = '⚠️';
-                statusText = '同步错误';
+                statusText = '⚠️ WebSocket 连接错误';
                 statusClass = 'disconnected';
                 break;
             case 'connecting':
-                indicator = '🔄';
-                statusText = '同步连接中...';
-                statusClass = '';
+                statusText = '🔄 WebSocket 连接中...';
+                statusClass = 'connecting';
                 break;
             default:
-                indicator = '🔄';
-                statusText = '同步中...';
-                statusClass = '';
+                statusText = '🔄 同步中...';
+                statusClass = 'connecting';
         }
 
-        // 更新所有指示器
-        syncIndicators.forEach(el => {
-            el.textContent = indicator;
-        });
+        // 使用现有的 updateStatus 函数
+        this.updateStatus(statusText, statusClass);
+    }
 
-        syncStatusTexts.forEach(el => {
-            el.textContent = statusText;
-        });
+    displayContent(contentData) {
+        if (contentData && contentData.html) {
+            // 直接显示HTML内容
+            const messagesContainer = document.getElementById('messages-container');
+            if (messagesContainer) {
+                messagesContainer.innerHTML = contentData.html;
+            }
 
-        // 添加状态类
-        if (statusClass) {
-            syncStatuses.forEach(syncStatus => {
-                syncStatus.classList.add(statusClass);
-            });
+            // 更新时间戳
+            const timestamp = new Date(contentData.timestamp).toLocaleTimeString();
+            this.updateStatus(`已同步 ${timestamp}`, 'connected');
+
+            // 滚动到底部
+            this.scrollToBottom();
+        }
+    }
+
+    scrollToBottom() {
+        const messagesContainer = document.getElementById('messages-container');
+        if (messagesContainer) {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+    }
+
+    updateStatus(message, type) {
+        const statusElement = document.getElementById('status');
+        if (statusElement) {
+            statusElement.textContent = message;
+            statusElement.className = `status ${type}`;
         }
     }
 }

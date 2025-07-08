@@ -1,401 +1,293 @@
-// 🚀 Cursor Remote Control v2.0 - 简化版服务器
+// Claude Web 服务器 - 支持 WebSocket 和调试
 const express = require('express');
-const WebSocket = require('ws');
-const cors = require('cors');
-const { exec } = require('child_process');
-const fs = require('fs');
-const os = require('os');
+const { createServer } = require('http');
+const { WebSocketServer } = require('ws');
+const path = require('path');
 
-// 配置
-const CONFIG = {
-    host: '0.0.0.0',
-    httpPort: 3461,
-    wsPort: 3462,
-    timeout: 90000
-};
+const app = express();
+const server = createServer(app);
+const wss = new WebSocketServer({ server });
 
-// 获取本机IP
-function getLocalIP() {
-    const interfaces = os.networkInterfaces();
-    for (const name of Object.keys(interfaces)) {
-        for (const interface of interfaces[name]) {
-            if (interface.family === 'IPv4' && !interface.internal) {
-                return interface.address;
-            }
-        }
+let currentChatContent = '';
+let connectedClients = new Set();
+
+// 中间件
+app.use(express.json({ limit: '50mb' }));
+app.use(express.static(path.join(__dirname, 'public')));
+
+// CORS 支持
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+
+    if (req.method === 'OPTIONS') {
+        res.sendStatus(200);
+        return;
     }
-    return 'localhost';
-}
+    next();
+});
 
-class CursorRemoteServer {
-    constructor() {
-        this.app = express();
-        this.wss = null;
-        this.httpServer = null;
-        this.cursorClient = null;
-        this.webClients = new Set();
-        this.pendingRequests = new Map();
-        this.workspacePath = process.cwd();
-    }
+// 主页路由
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
-    init() {
-        this.setupMiddleware();
-        this.setupRoutes();
-        this.setupWebSocket();
-        this.setupErrorHandling();
-    }
+// 健康检查端点
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        localUrl: `http://localhost:3000`,
+        cursorConnected: !!currentChatContent,
+        workspace: process.cwd(),
+        timestamp: Date.now(),
+        connectedClients: connectedClients.size
+    });
+});
 
-    setupMiddleware() {
-        this.app.use(cors());
-        this.app.use(express.json());
-        this.app.use(express.static('public'));
+// HTTP API 路由
+// 测试连接
+app.get('/api/test', (req, res) => {
+    console.log('📡 HTTP API 测试请求');
+    res.json({
+        status: 'ok',
+        message: 'Claude Web 服务器运行正常',
+        timestamp: Date.now(),
+        method: 'http'
+    });
+});
 
-        // 请求日志
-        this.app.use((req, res, next) => {
-            console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-            next();
-        });
-    }
+// 接收聊天内容
+app.post('/api/content', (req, res) => {
+    try {
+        const { type, data } = req.body;
 
-    setupRoutes() {
-        // 健康检查
-        this.app.get('/health', (req, res) => {
-            const localIP = getLocalIP();
+        if (type === 'html_content' && data) {
+            currentChatContent = data.html;
+            console.log(`📥 HTTP 接收内容: ${data.html.length} 字符`);
+            console.log(`📊 来源: ${data.url || 'unknown'}`);
+
+            // 广播给所有 WebSocket 客户端
+            broadcastToWebSocketClients({
+                type: 'html_content',
+                data: data
+            });
+
             res.json({
-                status: 'ok',
-                httpPort: CONFIG.httpPort,
-                wsPort: CONFIG.wsPort,
-                cursorConnected: this.isCursorConnected(),
-                workspace: this.workspacePath,
-                localIp: localIP,
-                localUrl: `http://${localIP}:${CONFIG.httpPort}`,
-                wsUrl: `ws://${localIP}:${CONFIG.wsPort}`
+                success: true,
+                message: '内容接收成功',
+                contentLength: data.html.length,
+                timestamp: Date.now()
             });
-        });
-
-        // 注入脚本
-        this.app.get('/inject-script.js', (req, res) => {
-            res.setHeader('Content-Type', 'application/javascript');
-            res.setHeader('Access-Control-Allow-Origin', '*');
-
-            try {
-                let script = fs.readFileSync('inject.js', 'utf8');
-                const wsHost = req.headers.host ? req.headers.host.split(':')[0] : 'localhost';
-                script = script.replace(/ws:\/\/localhost:3460/g, `ws://${wsHost}:${CONFIG.wsPort}`);
-                res.send(script);
-            } catch (error) {
-                console.error('读取注入脚本失败:', error);
-                res.status(500).send('// 脚本加载失败');
-            }
-        });
-
-        // 工作空间设置
-        this.app.post('/api/workspace', (req, res) => {
-            const { path } = req.body;
-            if (!path || !fs.existsSync(path)) {
-                return res.status(400).json({ error: '路径不存在' });
-            }
-            this.workspacePath = path;
-            res.json({ success: true, workspace: this.workspacePath });
-        });
-
-        // Git 分支管理
-        this.app.get('/api/git/branches', (req, res) => {
-            exec('git branch -a', { cwd: this.workspacePath }, (error, stdout) => {
-                if (error) {
-                    return res.status(500).json({ success: false, error: error.message });
-                }
-
-                const branches = stdout.split('\n')
-                    .filter(branch => branch.trim())
-                    .map(branch => {
-                        const name = branch.trim().replace(/^\* /, '');
-                        const isCurrent = branch.startsWith('*');
-                        const isRemote = name.startsWith('remotes/');
-                        return { name, isCurrent, isRemote };
-                    });
-
-                res.json({ success: true, branches });
-            });
-        });
-
-        this.app.post('/api/git/checkout', (req, res) => {
-            const { branch } = req.body;
-            if (!branch) {
-                return res.status(400).json({ error: '需要提供分支名称' });
-            }
-
-            exec(`git checkout ${branch}`, { cwd: this.workspacePath }, (error, stdout, stderr) => {
-                if (error) {
-                    return res.status(500).json({
-                        success: false,
-                        error: `切换分支失败：${error.message}`
-                    });
-                }
-                res.json({ success: true, message: `成功切换到分支：${branch}` });
-            });
-        });
-
-        // AI 对话
-        this.app.post('/api/ai/chat', async (req, res) => {
-            const { message, context } = req.body;
-            if (!message) {
-                return res.status(400).json({ error: '需要提供消息内容' });
-            }
-
-            try {
-                const response = await this.sendToCursor({
-                    type: 'ai_chat',
-                    data: { message, context }
-                });
-                res.json({ success: true, response: response.data });
-            } catch (error) {
-                res.status(500).json({ success: false, error: error.message });
-            }
-        });
-    }
-
-    setupWebSocket() {
-        try {
-            this.wss = new WebSocket.Server({
-                port: CONFIG.wsPort,
-                host: CONFIG.host
-            });
-
-            this.wss.on('connection', (ws, req) => {
-                const url = new URL(req.url, `http://${req.headers.host}`);
-                const clientType = url.searchParams.get('type');
-
-                if (clientType === 'web') {
-                    this.handleWebClient(ws);
-                } else {
-                    this.handleCursorClient(ws);
-                }
-            });
-
-            this.wss.on('error', (error) => {
-                console.error('WebSocket服务器错误:', error);
-            });
-
-            this.wss.on('listening', () => {
-                console.log(`✅ WebSocket服务器启动成功，端口 ${CONFIG.wsPort}`);
-            });
-
-            console.log(`🔧 正在启动WebSocket服务器，端口 ${CONFIG.wsPort}...`);
-        } catch (error) {
-            console.error('❌ WebSocket服务器启动失败:', error);
-            throw error;
-        }
-    }
-
-    handleWebClient(ws) {
-        console.log('网页客户端已连接');
-        this.webClients.add(ws);
-
-        ws.on('close', () => {
-            console.log('网页客户端断开连接');
-            this.webClients.delete(ws);
-        });
-
-        ws.on('message', (message) => {
-            try {
-                const data = JSON.parse(message);
-                if (data.type === 'ping') {
-                    ws.send(JSON.stringify({ type: 'pong' }));
-                } else if (data.type === 'send_to_cursor') {
-                    // 转发消息到Cursor
-                    this.forwardToCursor(data);
-                }
-            } catch (error) {
-                console.error('处理网页客户端消息错误：', error);
-            }
-        });
-    }
-
-    handleCursorClient(ws) {
-        console.log('🎯 Cursor客户端已连接');
-        this.cursorClient = ws;
-
-        ws.on('close', () => {
-            console.log('❌ Cursor客户端断开连接');
-            this.cursorClient = null;
-        });
-
-        ws.on('message', (message) => {
-            try {
-                const data = JSON.parse(message);
-
-                // 🔍 消息质量分析
-                if (data.type === 'cursor_message' && data.data) {
-                    const content = data.data.content || '';
-                    const messageType = data.data.type || 'unknown';
-
-                    // 📊 生成消息统计信息
-                    const stats = {
-                        type: messageType,
-                        length: content.length,
-                        preview: content.substring(0, 50) + (content.length > 50 ? '...' : ''),
-                        状态: content.length > 100 ? '✅ 已合并' :
-                             content.length > 50 ? '📝 正常' : '⚠️ 短消息',
-                        质量: content.includes('textApply') ? '🔧 系统' :
-                             content.length > 200 ? '🎯 高质量' :
-                             content.length > 50 ? '📖 标准' : '❓ 待评估'
-                    };
-
-                    // 时间戳格式化
-                    const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-                    console.log(`[${timestamp}] 📨 收到Cursor消息:`, stats);
-                }
-
-                this.broadcastToWebClients(data);
-            } catch (error) {
-                console.error('❌ 处理Cursor消息失败:', error);
-            }
-        });
-
-        ws.on('error', (error) => {
-            console.error('❌ Cursor WebSocket错误:', error);
-            this.cursorClient = null;
-        });
-    }
-
-    broadcastToWebClients(data) {
-        if (this.webClients.size === 0) {
-            return; // 没有Web客户端连接时不输出日志
-        }
-
-        const message = JSON.stringify(data);
-        let activeClients = 0;
-
-        this.webClients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
-                try {
-                    client.send(message);
-                    activeClients++;
-                } catch (error) {
-                    console.error('❌ 发送消息到Web客户端失败:', error);
-                    this.webClients.delete(client);
-                }
-            } else {
-                this.webClients.delete(client);
-            }
-        });
-
-        // 只有处理cursor_message时才输出广播日志
-        if (data.type === 'cursor_message' && activeClients > 0) {
-            const content = data.data?.content || '';
-            const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-            console.log(`[${timestamp}] 📡 已广播到 ${activeClients} 个Web客户端: ${content.substring(0, 80)}${content.length > 80 ? '...' : ''}`);
-        }
-    }
-
-    forwardToCursor(data) {
-        if (this.isCursorConnected()) {
-            try {
-                console.log('📤 转发消息到Cursor:', data.data.message.substring(0, 50) + '...');
-                this.cursorClient.send(JSON.stringify({
-                    type: 'web_message',
-                    data: data.data
-                }));
-            } catch (error) {
-                console.error('转发消息到Cursor失败：', error);
-            }
         } else {
-            console.warn('Cursor未连接，无法转发消息');
+            res.status(400).json({
+                success: false,
+                message: '无效的请求数据'
+            });
+        }
+    } catch (error) {
+        console.log('❌ HTTP API 错误:', error.message);
+        res.status(500).json({
+            success: false,
+            message: '服务器内部错误',
+            error: error.message
+        });
+    }
+});
+
+// 获取当前内容
+app.get('/api/content', (req, res) => {
+    res.json({
+        success: true,
+        data: {
+            html: currentChatContent,
+            timestamp: Date.now(),
+            hasContent: !!currentChatContent
+        }
+    });
+});
+
+// 服务器状态
+app.get('/api/status', (req, res) => {
+    res.json({
+        status: 'running',
+        connectedClients: connectedClients.size,
+        hasContent: !!currentChatContent,
+        contentLength: currentChatContent.length,
+        uptime: process.uptime(),
+        timestamp: Date.now()
+    });
+});
+
+// WebSocket 连接处理
+wss.on('connection', (ws, req) => {
+    const clientIP = req.socket.remoteAddress;
+    console.log(`📱 新 WebSocket 客户端连接：${clientIP}`);
+
+    connectedClients.add(ws);
+
+    // 发送当前聊天内容（如果有）
+    if (currentChatContent) {
+        try {
+            ws.send(JSON.stringify({
+                type: 'html_content',
+                data: {
+                    html: currentChatContent,
+                    timestamp: Date.now()
+                }
+            }));
+            console.log('📤 向新 WebSocket 客户端发送当前内容');
+        } catch (error) {
+            console.log('❌ 发送失败：', error.message);
         }
     }
 
-    sendToCursor(message) {
-        return new Promise((resolve, reject) => {
-            if (!this.isCursorConnected()) {
-                reject(new Error('Cursor 未连接'));
-                return;
+    // 处理收到的消息
+    ws.on('message', (data) => {
+        try {
+            const message = JSON.parse(data.toString());
+            console.log(`📥 WebSocket 收到消息类型：${message.type}`);
+
+            switch (message.type) {
+                case 'html_content':
+                    // 更新聊天内容
+                    currentChatContent = message.data.html;
+                    console.log(`📋 WebSocket 更新聊天内容：${currentChatContent.length} 字符`);
+
+                    // 转发给所有连接的客户端
+                    broadcastToWebSocketClients(message, ws);
+                    break;
+
+                case 'test':
+                    console.log('🧪 WebSocket 收到测试消息：', message.content);
+                    // 转发测试消息
+                    broadcastToWebSocketClients({
+                        type: 'test_response',
+                        content: `服务器已收到测试消息：${message.content}`,
+                        timestamp: Date.now()
+                    }, ws);
+                    break;
+
+                case 'debug':
+                    console.log('🔍 WebSocket 收到调试信息：');
+                    console.log('  - 消息：', message.message);
+                    console.log('  - URL:', message.url);
+                    console.log('  - 时间戳：', new Date(message.timestamp));
+
+                    // 回复调试信息
+                    ws.send(JSON.stringify({
+                        type: 'debug_response',
+                        message: '服务器已收到调试信息',
+                        server_time: Date.now()
+                    }));
+                    break;
+
+                case 'ping':
+                    // 心跳响应
+                    ws.send(JSON.stringify({
+                        type: 'pong',
+                        timestamp: Date.now()
+                    }));
+                    break;
+
+                default:
+                    console.log('❓ 未知 WebSocket 消息类型：', message.type);
             }
 
-            const requestId = Math.random().toString(36).substring(7);
-            message.requestId = requestId;
-
-            const timeout = setTimeout(() => {
-                this.pendingRequests.delete(requestId);
-                reject(new Error('请求超时'));
-            }, CONFIG.timeout);
-
-            this.pendingRequests.set(requestId, {
-                resolve: (data) => {
-                    clearTimeout(timeout);
-                    resolve(data);
-                }
-            });
-
-            this.cursorClient.send(JSON.stringify(message));
-        });
-    }
-
-    isCursorConnected() {
-        return this.cursorClient && this.cursorClient.readyState === WebSocket.OPEN;
-    }
-
-    setupErrorHandling() {
-        this.app.use((error, req, res, next) => {
-            console.error('服务器错误:', error);
-            res.status(500).json({ error: '服务器内部错误' });
-        });
-
-        process.on('SIGINT', () => {
-            console.log('\n正在关闭服务器...');
-            this.close();
-            process.exit(0);
-        });
-    }
-
-    start() {
-        return new Promise((resolve, reject) => {
-            this.httpServer = this.app.listen(CONFIG.httpPort, CONFIG.host, () => {
-                const localIP = getLocalIP();
-                console.log(`
-╔════════════════════════════════════════╗
-║     Cursor Remote Control v2.0         ║
-╠════════════════════════════════════════╣
-║ 本机访问：http://localhost:${CONFIG.httpPort}        ║
-║ 远程访问：http://${localIP}:${CONFIG.httpPort}    ║
-║ WebSocket 端口：${CONFIG.wsPort}                 ║
-╠════════════════════════════════════════╣
-║ 🚀 服务器启动完成！                    ║
-╚════════════════════════════════════════╝
-                `);
-                resolve();
-            });
-
-            this.httpServer.on('error', reject);
-        });
-    }
-
-    close() {
-        if (this.httpServer) {
-            this.httpServer.close();
+        } catch (error) {
+            console.log('❌ WebSocket 消息解析错误：', error.message);
         }
-        if (this.wss) {
-            this.wss.close();
+    });
+
+    // 连接关闭处理
+    ws.on('close', (code, reason) => {
+        connectedClients.delete(ws);
+        console.log(`📱 WebSocket 客户端断开连接：${clientIP} (code: ${code})`);
+        console.log(`📊 当前 WebSocket 连接数：${connectedClients.size}`);
+    });
+
+    // 错误处理
+    ws.on('error', (error) => {
+        console.log('🔥 WebSocket 错误：', error.message);
+        connectedClients.delete(ws);
+    });
+});
+
+// 向所有 WebSocket 客户端广播消息（除了发送者）
+function broadcastToWebSocketClients(message, sender) {
+    const messageStr = JSON.stringify(message);
+    let broadcastCount = 0;
+
+    connectedClients.forEach(client => {
+        if (client !== sender && client.readyState === client.OPEN) {
+            try {
+                client.send(messageStr);
+                broadcastCount++;
+            } catch (error) {
+                console.log('❌ WebSocket 广播失败：', error.message);
+                connectedClients.delete(client);
+            }
         }
-        this.pendingRequests.clear();
+    });
+
+    if (broadcastCount > 0) {
+        console.log(`📢 消息已广播给 ${broadcastCount} 个 WebSocket 客户端`);
     }
 }
+
+// 定期清理断开的连接
+setInterval(() => {
+    const activeClients = new Set();
+
+    connectedClients.forEach(client => {
+        if (client.readyState === client.OPEN) {
+            activeClients.add(client);
+        }
+    });
+
+    if (connectedClients.size !== activeClients.size) {
+        console.log(`🧹 清理断开连接：${connectedClients.size} -> ${activeClients.size}`);
+        connectedClients = activeClients;
+    }
+}, 30000); // 每 30 秒清理一次
 
 // 启动服务器
-async function main() {
-    const server = new CursorRemoteServer();
+const PORT = 3000;
+server.listen(PORT, () => {
+    console.log('🚀 Claude Web 服务器已启动！');
+    console.log(`📍 本地访问：http://localhost:${PORT}`);
+    console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
+    console.log(`📡 HTTP API: http://localhost:${PORT}/api/`);
+    console.log('📊 服务器状态：等待连接...\n');
+    console.log('💡 支持的连接方式:');
+    console.log('  - WebSocket (推荐用于浏览器)');
+    console.log('  - HTTP API (适用于 Cursor 等受限环境)');
+    console.log('  - 测试连接: GET /api/test');
+    console.log('  - 发送内容: POST /api/content');
+    console.log('  - 获取状态: GET /api/status\n');
+});
 
-    try {
-        server.init();
-        await server.start();
-    } catch (error) {
-        console.error('启动失败:', error);
-        process.exit(1);
-    }
-}
+// 优雅关闭
+process.on('SIGINT', () => {
+    console.log('\n🛑 正在关闭服务器...');
 
-if (require.main === module) {
-    main();
-}
+    // 通知所有客户端
+    connectedClients.forEach(client => {
+        if (client.readyState === client.OPEN) {
+            try {
+                client.send(JSON.stringify({
+                    type: 'server_shutdown',
+                    message: '服务器正在关闭'
+                }));
+                client.close();
+            } catch (error) {
+                // 忽略关闭时的错误
+            }
+        }
+    });
 
-module.exports = CursorRemoteServer;
+    server.close(() => {
+        console.log('✅ 服务器已关闭');
+        process.exit(0);
+    });
+});

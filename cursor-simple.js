@@ -1,4 +1,4 @@
-/* style.css - 简化的Web端样式 */
+/* style.css - 简化的 Web 端样式 */
 
 * {
     margin: 0;
@@ -68,11 +68,6 @@ body {
     color: #ffffff;
 }
 
-.status.inactive {
-    background-color: #6b7280;
-    color: #ffffff;
-}
-
 .main {
     flex: 1;
     overflow: hidden;
@@ -110,128 +105,13 @@ body {
     font-style: italic;
 }
 
-/* 同步的Cursor聊天内容样式 */
+/* 同步的 Cursor 聊天内容样式 */
 .sync-content {
     animation: fadeIn 0.3s ease-in;
-    background: #000000 !important;
-    color: #ffffff !important;
 }
 
 .sync-content * {
-    color: #ffffff !important;
-    background-color: transparent !important;
-    font-size: 16px !important;
-    line-height: 1.6 !important;
-}
-
-.sync-content code,
-.sync-content pre {
-    background-color: rgba(255,255,255,0.1) !important;
-    color: #ffffff !important;
-    padding: 4px 8px !important;
-    border-radius: 4px !important;
-    font-family: Monaco, Consolas, monospace !important;
-}
-
-.sync-content a {
-    color: #00bfff !important;
-    text-decoration: underline !important;
-}
-
-.sync-content strong,
-.sync-content b {
-    color: #ffffff !important;
-    font-weight: 700 !important;
-}
-
-.sync-content h1,
-.sync-content h2,
-.sync-content h3,
-.sync-content h4,
-.sync-content h5,
-.sync-content h6 {
-    color: #ffffff !important;
-    font-weight: 600 !important;
-}
-
-.sync-content p,
-.sync-content div,
-.sync-content span {
-    color: #ffffff !important;
-}
-
-/* Cursor 聊天区域专用样式 */
-.cursor-additional-content {
-    margin-top: 20px;
-    border-top: 3px solid #22c55e;
-    padding-top: 20px;
-}
-
-.cursor-additional-content h3 {
-    background: #22c55e;
-    color: #ffffff;
-    padding: 12px 16px;
-    margin: 0 0 16px 0;
-    border-radius: 6px;
-    font-size: 16px;
-    font-weight: 600;
-}
-
-.cursor-chat-section {
-    margin: 16px 0;
-    padding: 16px;
-    background: #2d2d2d;
-    border: 2px solid #22c55e;
-    border-radius: 8px;
-    position: relative;
-}
-
-.cursor-chat-section::before {
-    content: "聊天区域 " attr(data-section);
-    position: absolute;
-    top: -12px;
-    left: 16px;
-    background: #22c55e;
-    color: #ffffff;
-    padding: 4px 8px;
-    font-size: 12px;
-    border-radius: 4px;
-    font-weight: 500;
-}
-
-.cursor-overlay-section {
-    margin: 16px 0;
-    padding: 16px;
-    background: #3b82f6;
-    border-radius: 8px;
-    position: relative;
-}
-
-.cursor-overlay-section::before {
-    content: "悬浮层内容";
-    position: absolute;
-    top: -12px;
-    left: 16px;
-    background: #3b82f6;
-    color: #ffffff;
-    padding: 4px 8px;
-    font-size: 12px;
-    border-radius: 4px;
-    font-weight: 500;
-}
-
-/* 聊天容器内的元素样式优化 */
-.cursor-chat-section [data-chat-container] {
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 6px;
-    margin: 8px 0;
-}
-
-.cursor-overlay-section [data-overlay] {
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    margin: 8px 0;
-    padding: 8px;
+    color: inherit !important;
 }
 
 /* 时间戳样式 */
@@ -292,4 +172,40 @@ body {
     .welcome-message h2 {
         font-size: 20px;
     }
+}
+
+    // 更新时间戳
+    updateTimestamp(date) {
+        let timestampEl = document.querySelector('.last-update');
+        if (!timestampEl) {
+            timestampEl = document.createElement('div');
+            timestampEl.className = 'last-update';
+            document.querySelector('.header').appendChild(timestampEl);
+        }
+
+        timestampEl.textContent = `最后更新：${date.toLocaleTimeString()}`;
+    }
+}
+
+// 页面加载完成后初始化
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('📄 页面加载完成，启动简化客户端...');
+    window.simpleClient = new SimpleWebClient();
+});
+
+// 全局错误处理
+window.addEventListener('error', (event) => {
+    console.error('🔥 页面错误：', event.error);
+});
+
+console.log('✅ Simple Client JS 加载完成');
+// 启动脚本
+if (window.SimpleCursorSync) {
+    console.log('⚠️ 脚本已在运行');
+    alert('脚本已在运行中！');
+} else {
+    setTimeout(() => {
+        window.SimpleCursorSync = new SimpleCursorSync();
+        alert('🚀 Cursor 同步脚本已启动！\n\n专门定位右侧聊天区域\n每 5 秒自动同步');
+    }, 1000);
 }
