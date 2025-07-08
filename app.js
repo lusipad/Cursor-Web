@@ -158,6 +158,16 @@ wss.on('connection', (ws, req) => {
                     broadcastToWebSocketClients(message, ws);
                     break;
 
+                case 'user_message':
+                    // 新增：转发用户消息给所有客户端（包括Cursor端）
+                    console.log('💬 Web端用户消息转发：', message.data);
+                    broadcastToWebSocketClients({
+                        type: 'user_message',
+                        data: message.data,
+                        timestamp: Date.now()
+                    }, ws);
+                    break;
+
                 case 'test':
                     console.log('🧪 WebSocket 收到测试消息：', message.content);
                     // 转发测试消息
@@ -188,6 +198,12 @@ wss.on('connection', (ws, req) => {
                         type: 'pong',
                         timestamp: Date.now()
                     }));
+                    break;
+
+                case 'clear_content':
+                    currentChatContent = '';
+                    console.log('🧹 收到清除内容请求，已清空内容');
+                    broadcastToWebSocketClients({ type: 'clear_content' });
                     break;
 
                 default:

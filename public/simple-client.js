@@ -55,6 +55,13 @@ class SimpleWebClient {
                     this.lastContentTime = Date.now();
                     this.displayContent(data.data);
                 }
+                if (data.type === 'clear_content') {
+                    this.currentContent = '';
+                    const contentArea = document.querySelector('.sync-content');
+                    if (contentArea) contentArea.innerHTML = '';
+                    const ts = document.querySelector('.last-update');
+                    if (ts) ts.textContent = '';
+                }
             } catch (error) {
                 console.error('WebSocket 消息处理错误:', error);
             }
@@ -229,6 +236,44 @@ class SimpleWebClient {
 document.addEventListener('DOMContentLoaded', () => {
     console.log('📄 页面加载完成，启动简化客户端...');
     window.simpleClient = new SimpleWebClient();
+
+    // 发送消息功能
+    const sendForm = document.getElementById('send-form');
+    const sendInput = document.getElementById('send-input');
+    const clearBtn = document.getElementById('clear-btn');
+    if (sendForm && sendInput) {
+        sendForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const msg = sendInput.value.trim();
+            if (msg && window.simpleClient && window.simpleClient.ws && window.simpleClient.ws.readyState === WebSocket.OPEN) {
+                window.simpleClient.ws.send(JSON.stringify({ type: 'user_message', data: msg }));
+                sendInput.value = '';
+            }
+        });
+        sendInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendForm.dispatchEvent(new Event('submit'));
+            }
+        });
+    }
+    // 清除按钮功能
+    if (clearBtn && sendInput) {
+        clearBtn.addEventListener('click', () => {
+            sendInput.value = '';
+            sendInput.focus();
+            // 清空聊天内容区域
+            const contentArea = document.querySelector('.sync-content');
+            if (contentArea) contentArea.innerHTML = '';
+            // 清空时间戳
+            const ts = document.querySelector('.last-update');
+            if (ts) ts.textContent = '';
+            // 通知服务器清空内容
+            if (window.simpleClient && window.simpleClient.ws && window.simpleClient.ws.readyState === WebSocket.OPEN) {
+                window.simpleClient.ws.send(JSON.stringify({ type: 'clear_content' }));
+            }
+        });
+    }
 });
 
 // 全局错误处理
