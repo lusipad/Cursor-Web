@@ -11,6 +11,7 @@ class SimpleWebClient {
         this.hasReceivedContent = false;
         this.lastContentTime = null;
         this.statusCheckInterval = null;
+        this.clearTimestamp = null; // 记录清理时间点
 
         this.init();
     }
@@ -185,6 +186,12 @@ class SimpleWebClient {
 
         const { html, timestamp } = contentData;
 
+        // 🕐 检查是否需要过滤时间点之前的内容
+        if (this.clearTimestamp && timestamp < this.clearTimestamp) {
+            console.log('⏰ 跳过清理时间点之前的内容:', new Date(timestamp).toLocaleTimeString());
+            return;
+        }
+
         if (html && html !== this.currentContent) {
             this.currentContent = html;
 
@@ -295,6 +302,48 @@ class SimpleWebClient {
 
         timestampEl.textContent = `最后更新: ${date.toLocaleTimeString()}`;
     }
+
+    // 显示清理确认信息
+    showClearNotification() {
+        // 创建或更新清理状态显示
+        let clearStatusEl = document.querySelector('.clear-status');
+        if (!clearStatusEl) {
+            clearStatusEl = document.createElement('div');
+            clearStatusEl.className = 'clear-status';
+            clearStatusEl.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #4CAF50;
+                color: white;
+                padding: 10px 15px;
+                border-radius: 5px;
+                font-size: 14px;
+                z-index: 1000;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+                animation: slideIn 0.3s ease-out;
+            `;
+            document.body.appendChild(clearStatusEl);
+        }
+
+        const clearTime = new Date(this.clearTimestamp).toLocaleTimeString();
+        clearStatusEl.textContent = `🧹 已清理 ${clearTime} 之前的所有消息`;
+        clearStatusEl.style.background = '#4CAF50';
+
+        // 3秒后自动隐藏
+        setTimeout(() => {
+            if (clearStatusEl && clearStatusEl.parentNode) {
+                clearStatusEl.style.animation = 'slideOut 0.3s ease-in';
+                setTimeout(() => {
+                    if (clearStatusEl && clearStatusEl.parentNode) {
+                        clearStatusEl.remove();
+                    }
+                }, 300);
+            }
+        }, 3000);
+
+        console.log('🧹 清理确认信息已显示');
+    }
 }
 
 // 页面加载完成后初始化
@@ -327,15 +376,30 @@ document.addEventListener('DOMContentLoaded', () => {
         clearBtn.addEventListener('click', () => {
             sendInput.value = '';
             sendInput.focus();
+
+            // 🕐 记录清理时间点
+            const now = Date.now();
+            if (window.simpleClient) {
+                window.simpleClient.clearTimestamp = now;
+                console.log('🧹 设置清理时间点:', new Date(now).toLocaleTimeString());
+            }
+
             // 清空聊天内容区域
             const contentArea = document.querySelector('.sync-content');
             if (contentArea) contentArea.innerHTML = '';
+
             // 清空时间戳
             const ts = document.querySelector('.last-update');
             if (ts) ts.textContent = '';
+
             // 通知服务器清空内容
             if (window.simpleClient && window.simpleClient.ws && window.simpleClient.ws.readyState === WebSocket.OPEN) {
                 window.simpleClient.ws.send(JSON.stringify({ type: 'clear_content' }));
+            }
+
+            // 显示清理确认信息
+            if (window.simpleClient) {
+                window.simpleClient.showClearNotification();
             }
         });
     }
@@ -383,5 +447,32 @@ window.debugWebClient = () => {
     }
 };
 
-console.log('✅ Simple Client JS 加载完成');
-console.log('💡 调试命令：debugWebClient() - 查看 Web 客户端状态');
+// 添加清理状态调试功能
+window.debugClearStatus = () => {
+    if (!window.simpleClient) {
+        console.log('❌ simpleClient 未初始化');
+        return;
+    }
+
+    const client = window.simpleClient;
+    console.log('🧹 清理状态调试信息：');
+    console.log('  - 清理时间点:', client.clearTimestamp ? new Date(client.clearTimestamp).toLocaleString() : '未设置');
+    console.log('  - 当前时间:', new Date().toLocaleString());
+
+    if (client.clearTimestamp) {
+        const timeDiff = Date.now() - client.clearTimestamp;
+        console.log('  - 距离清理时间:', Math.floor(timeDiff / 1000), '秒');
+        console.log('  - 是否已清理:', timeDiff > 0 ? '是' : '否');
+    }
+
+    // 显示当前清理状态
+    const clearStatusEl = document.querySelector('.clear-status');
+    console.log('  - 清理状态显示元素:', clearStatusEl);
+    if (clearStatusEl) {
+        console.log('  - 清理状态文本:', clearStatusEl.textContent);
+    }
+};
+
+    console.log('✅ Simple Client JS 加载完成');
+    console.log('💡 调试命令：debugWebClient() - 查看 Web 客户端状态');
+    console.log('💡 调试命令：debugClearStatus() - 查看清理状态');
