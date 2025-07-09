@@ -3,6 +3,112 @@
 
 console.log('🚀 Cursor 同步脚本启动...');
 
+// 🔧 全局 WebSocket 连接管理器
+class WebSocketManager {
+    constructor() {
+        this.ws = null;
+        this.isConnecting = false;
+        this.retryCount = 0;
+        this.maxRetries = 5;
+        this.serverUrl = 'http://localhost:3000';
+        this.onMessageCallback = null;
+    }
+
+    // 连接 WebSocket
+    connect(onMessage) {
+        console.log('🔌 WebSocket 管理器：开始连接...');
+
+        // 设置消息回调
+        this.onMessageCallback = onMessage;
+
+        // 如果正在连接，直接返回
+        if (this.isConnecting) {
+            console.log('⚠️ WebSocket 管理器：正在连接中，跳过重复请求');
+            return;
+        }
+
+        // 如果已经连接，直接返回
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            console.log('✅ WebSocket 管理器：已连接，无需重复连接');
+            return;
+        }
+
+        // 关闭现有连接
+        this.disconnect();
+
+        this.isConnecting = true;
+        console.log('🔌 WebSocket 管理器：建立新连接...');
+
+        try {
+            const wsUrl = this.serverUrl.replace('http', 'ws');
+            this.ws = new WebSocket(wsUrl);
+
+            this.ws.onopen = () => {
+                console.log('✅ WebSocket 管理器：连接成功');
+                this.isConnecting = false;
+                this.retryCount = 0;
+            };
+
+            this.ws.onmessage = (event) => {
+                if (this.onMessageCallback) {
+                    this.onMessageCallback(event);
+                }
+            };
+
+            this.ws.onclose = () => {
+                console.log('📱 WebSocket 管理器：连接关闭');
+                this.isConnecting = false;
+                this.ws = null;
+
+                // 自动重连
+                if (this.retryCount < this.maxRetries) {
+                    this.retryCount++;
+                    console.log(`🔄 WebSocket 管理器：自动重连 (${this.retryCount}/${this.maxRetries})...`);
+                    setTimeout(() => this.connect(this.onMessageCallback), 3000 * this.retryCount);
+                }
+            };
+
+            this.ws.onerror = (error) => {
+                console.error('❌ WebSocket 管理器：连接错误', error);
+                this.isConnecting = false;
+            };
+
+        } catch (error) {
+            console.error('❌ WebSocket 管理器：连接失败', error);
+            this.isConnecting = false;
+        }
+    }
+
+    // 断开连接
+    disconnect() {
+        if (this.ws) {
+            console.log('🔄 WebSocket 管理器：断开连接...');
+            this.ws.close();
+            this.ws = null;
+        }
+        this.isConnecting = false;
+    }
+
+    // 发送消息
+    send(message) {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify(message));
+            return true;
+        }
+        return false;
+    }
+
+    // 获取连接状态
+    getStatus() {
+        if (!this.ws) return '未连接';
+        const states = ['连接中', '已连接', '关闭中', '已关闭'];
+        return states[this.ws.readyState] || '未知';
+    }
+}
+
+// 全局 WebSocket 管理器实例
+window.webSocketManager = window.webSocketManager || new WebSocketManager();
+
 class CursorSync {
     constructor() {
         this.serverUrl = 'http://localhost:3000';
@@ -11,9 +117,6 @@ class CursorSync {
         this.syncInterval = null;
         this.retryCount = 0;
         this.maxRetries = 3;
-        this.ws = null;
-        this.wsRetryCount = 0;
-        this.wsMaxRetries = 5;
 
         this.init();
     }
@@ -54,7 +157,7 @@ class CursorSync {
     findChatArea() {
         console.log('🔍 查找聊天区域...');
 
-        // Cursor 聊天区域选择器
+        // Cursor 聊天区域选择器 - 更精确的选择器
         const selectors = [
             '[data-testid*="chat"]',
             '[data-testid*="conversation"]',
@@ -66,7 +169,13 @@ class CursorSync {
             'div[class*="conversation"]',
             'div[class*="message"]',
             '[role="main"]',
-            'main'
+            'main',
+            // 添加更多 Cursor 特定的选择器
+            '.aislash-chat-container',
+            '.aislash-conversation',
+            '[class*="aislash"]',
+            '[class*="chat"]',
+            '[class*="conversation"]'
         ];
 
         let bestElement = null;
@@ -87,7 +196,7 @@ class CursorSync {
             }
         }
 
-        if (bestElement && bestScore > 15) {
+        if (bestElement && bestScore > 10) {
             this.chatContainer = bestElement;
             console.log('✅ 找到聊天区域 (得分：' + bestScore + ')');
         } else {
@@ -106,20 +215,23 @@ class CursorSync {
 
             // 基础得分
             if (element.children.length >= 2) score += 10;
-            if (text.length >= 100) score += 15;
-            if (rect.width > 300 && rect.height > 200) score += 10;
+            if (text.length >= 50) score += 15;
+            if (rect.width > 200 && rect.height > 150) score += 10;
 
             // 位置得分 - Cursor 聊天通常在右侧
-            if (rect.left > window.innerWidth * 0.4) score += 15;
+            if (rect.left > window.innerWidth * 0.3) score += 15;
 
             // 关键词得分
-            const keywords = ['chat', 'conversation', 'message', 'assistant'];
+            const keywords = ['chat', 'conversation', 'message', 'assistant', 'aislash'];
             for (const keyword of keywords) {
                 if (className.includes(keyword)) score += 20;
             }
 
             // AI 相关内容
-            if (text.includes('Claude') || text.includes('AI')) score += 15;
+            if (text.includes('Claude') || text.includes('AI') || text.includes('Assistant')) score += 15;
+
+            // 可见性检查
+            if (element.offsetParent !== null) score += 10;
 
             return score;
         } catch (e) {
@@ -134,16 +246,17 @@ class CursorSync {
             const clone = this.chatContainer.cloneNode(true);
 
             // 清理不需要的元素
-            const removeSelectors = ['script', 'style', '.copy-button'];
+            const removeSelectors = ['script', 'style', '.copy-button', 'noscript'];
             for (const selector of removeSelectors) {
                 const elements = clone.querySelectorAll(selector);
                 for (const el of elements) el.remove();
             }
 
             const htmlContent = clone.innerHTML;
+            const textContent = clone.textContent || '';
 
-            if (htmlContent.length < 50) {
-                console.warn('⚠️ 内容太短，可能聊天区域为空');
+            // 降低最小内容长度要求，并检查文本内容
+            if (htmlContent.length < 20 || textContent.trim().length < 10) {
                 return null;
             }
 
@@ -151,7 +264,8 @@ class CursorSync {
                 html: htmlContent,
                 timestamp: Date.now(),
                 url: window.location.href,
-                contentLength: htmlContent.length
+                contentLength: htmlContent.length,
+                textLength: textContent.length
             };
         } catch (error) {
             console.error('❌ 获取内容失败：', error);
@@ -208,7 +322,7 @@ class CursorSync {
     }
 
         startSync() {
-        console.log('🚀 开始定时同步 (每 5 秒)...');
+        console.log('🚀 开始定时同步 (每 3 秒)...');
 
         // 立即执行一次
         this.checkAndSync();
@@ -216,46 +330,24 @@ class CursorSync {
         // 设置定时器
         this.syncInterval = setInterval(() => {
             this.checkAndSync();
-        }, 5000);
+        }, 3000);
     }
 
     // WebSocket 连接功能
     connectWebSocket() {
-        try {
-            const wsUrl = this.serverUrl.replace('http', 'ws');
-            console.log('🔌 连接 WebSocket：', wsUrl);
+        console.log('🔌 CursorSync：使用全局 WebSocket 管理器连接...');
 
-            this.ws = new WebSocket(wsUrl);
+        // 使用全局 WebSocket 管理器
+        window.webSocketManager.connect((event) => {
+            try {
+                const message = JSON.parse(event.data);
+                this.handleWebSocketMessage(message);
+            } catch (error) {
+                console.error('❌ 解析 WebSocket 消息失败：', error);
+            }
+        });
 
-            this.ws.onopen = () => {
-                console.log('✅ WebSocket 连接成功');
-                this.wsRetryCount = 0;
-                this.showNotification('📡 已连接到消息服务', '#4CAF50', 2000);
-            };
-
-            this.ws.onmessage = (event) => {
-                try {
-                    const message = JSON.parse(event.data);
-                    this.handleWebSocketMessage(message);
-                } catch (error) {
-                    console.error('❌ 解析 WebSocket 消息失败：', error);
-                }
-            };
-
-            this.ws.onclose = () => {
-                console.log('📱 WebSocket 连接关闭');
-                this.ws = null;
-                this.attemptWebSocketReconnect();
-            };
-
-            this.ws.onerror = (error) => {
-                console.error('❌ WebSocket 错误：', error);
-            };
-
-        } catch (error) {
-            console.error('❌ WebSocket 连接失败：', error);
-            this.attemptWebSocketReconnect();
-        }
+        this.showNotification('📡 已连接到消息服务', '#4CAF50', 2000);
     }
 
     // 处理来自 WebSocket 的消息
@@ -473,35 +565,36 @@ class CursorSync {
         }
     }
 
-    // WebSocket 重连
-    attemptWebSocketReconnect() {
-        if (this.wsRetryCount < this.wsMaxRetries) {
-            this.wsRetryCount++;
-            console.log(`🔄 WebSocket 重连中 (${this.wsRetryCount}/${this.wsMaxRetries})...`);
 
-            setTimeout(() => {
-                this.connectWebSocket();
-            }, 3000 * this.wsRetryCount); // 递增延迟
-        } else {
-            console.log('❌ WebSocket 重连失败，已达到最大尝试次数');
-            this.showNotification('❌ 消息服务连接失败', '#FF5722');
-        }
-    }
 
-    stop() {
+        stop() {
         if (this.syncInterval) {
             clearInterval(this.syncInterval);
             this.syncInterval = null;
             console.log('🛑 同步已停止');
         }
 
-        if (this.ws) {
-            this.ws.close();
-            this.ws = null;
-            console.log('🛑 WebSocket 连接已关闭');
-        }
+        // 注意：不关闭全局 WebSocket 连接，让其他实例继续使用
+        console.log('🛑 CursorSync 实例已停止');
 
         this.showNotification('🛑 同步已停止', '#FF9800');
+    }
+
+    // 🔄 重启同步功能
+    restart() {
+        console.log('🔄 重启 Cursor 同步器...');
+
+        // 先停止现有连接
+        this.stop();
+
+        // 重置重试计数
+        this.retryCount = 0;
+        this.wsRetryCount = 0;
+
+        // 重新初始化
+        setTimeout(() => {
+            this.init();
+        }, 2000); // 增加延迟时间
     }
 
     showNotification(text, color = '#4CAF50', duration = 4000) {
@@ -541,13 +634,89 @@ class CursorSync {
 
 // 启动同步器
 console.log('🎯 启动 Cursor 同步器...');
-window.cursorSync = new CursorSync();
+
+// 🔧 全局实例管理：确保只有一个实例运行
+if (window.cursorSync) {
+    console.log('🔄 检测到现有 CursorSync 实例，正在清理...');
+    try {
+        window.cursorSync.stop();
+    } catch (error) {
+        console.warn('⚠️ 清理现有实例时出错：', error);
+    }
+    window.cursorSync = null;
+}
+
+// 创建新实例
+try {
+    window.cursorSync = new CursorSync();
+    console.log('✅ Cursor 同步器启动成功');
+    console.log('🔧 使用全局 WebSocket 管理器，确保只有一个连接');
+} catch (error) {
+    console.error('❌ Cursor 同步器启动失败：', error);
+}
 
 // 全局控制函数
 window.stopCursorSync = () => {
     if (window.cursorSync) {
         window.cursorSync.stop();
     }
+};
+
+window.restartCursorSync = () => {
+    if (window.cursorSync) {
+        window.cursorSync.restart();
+    } else {
+        console.log('🔄 重新创建 Cursor 同步器...');
+        window.cursorSync = new CursorSync();
+    }
+};
+
+// 强制清理所有连接
+window.forceCleanup = () => {
+    console.log('🧹 强制清理所有连接...');
+
+    // 清理现有实例
+    if (window.cursorSync) {
+        console.log('🔄 清理现有 CursorSync 实例...');
+        window.cursorSync.stop();
+        window.cursorSync = null;
+        console.log('✅ CursorSync 实例清理完成');
+    }
+
+    // 清理全局 WebSocket 管理器
+    if (window.webSocketManager) {
+        console.log('🔄 清理全局 WebSocket 管理器...');
+        window.webSocketManager.disconnect();
+        window.webSocketManager = null;
+        console.log('✅ WebSocket 管理器清理完成');
+    }
+
+    // 清理可能存在的通知
+    const notification = document.getElementById('cursor-sync-notification');
+    if (notification) {
+        notification.remove();
+    }
+
+    console.log('🧹 强制清理完成！');
+};
+
+// 完全重置并重新启动
+window.fullReset = () => {
+    console.log('🔄 完全重置 Cursor 同步器...');
+
+    // 1. 强制清理
+    window.forceCleanup();
+
+    // 2. 等待一段时间确保清理完成
+    setTimeout(() => {
+        console.log('🚀 重新创建 Cursor 同步器...');
+        try {
+            window.cursorSync = new CursorSync();
+            console.log('✅ 完全重置完成！');
+        } catch (error) {
+            console.error('❌ 重新创建失败：', error);
+        }
+    }, 1000);
 };
 
 window.debugCursorSync = () => {
@@ -563,13 +732,21 @@ window.debugCursorSync = () => {
     console.log('  - 最后内容长度：', sync.lastContent.length);
     console.log('  - HTTP 重试次数：', sync.retryCount);
     console.log('  - 同步状态：', sync.syncInterval ? '运行中' : '已停止');
-    console.log('  - WebSocket 状态：', sync.ws ? sync.ws.readyState : '未连接');
-    console.log('  - WebSocket 重试次数：', sync.wsRetryCount);
 
-    // WebSocket 状态说明
-    if (sync.ws) {
+    // WebSocket 管理器状态
+    if (window.webSocketManager) {
+        console.log('  - WebSocket 管理器状态：', window.webSocketManager.getStatus());
+        console.log('  - WebSocket 管理器连接中：', window.webSocketManager.isConnecting);
+        console.log('  - WebSocket 管理器重试次数：', window.webSocketManager.retryCount);
+    } else {
+        console.log('  - WebSocket 管理器：未初始化');
+    }
+
+    // WebSocket 管理器详细信息
+    if (window.webSocketManager && window.webSocketManager.ws) {
         const states = ['连接中', '已连接', '关闭中', '已关闭'];
-        console.log('  - WebSocket 状态说明：', states[sync.ws.readyState] || '未知');
+        console.log('  - WebSocket 状态说明：', states[window.webSocketManager.ws.readyState] || '未知');
+        console.log('  - WebSocket URL:', window.webSocketManager.ws.url);
     }
 
     // 测试内容获取
@@ -627,6 +804,8 @@ window.debugCursorSync = () => {
     // 手动测试消息发送
     console.log('\n💡 手动测试提示：');
     console.log('  运行 testCursorMessageSending("测试消息") 来测试消息发送');
+    console.log('  运行 restartCursorSync() 来重启同步器');
+    console.log('  运行 checkWebSocketStatus() 来检查 WebSocket 状态');
 };
 
 // 添加手动测试函数
@@ -640,14 +819,95 @@ window.testCursorMessageSending = (message = '这是一个测试消息') => {
     window.cursorSync.handleUserMessage(message);
 };
 
+
+
+// 添加 WebSocket 状态检查函数
+window.checkWebSocketStatus = () => {
+    console.log('🔍 WebSocket 状态检查：');
+
+    if (window.webSocketManager) {
+        console.log('✅ WebSocket 管理器已初始化');
+        console.log('  - 连接状态：', window.webSocketManager.getStatus());
+        console.log('  - 连接中：', window.webSocketManager.isConnecting);
+        console.log('  - 重试次数：', window.webSocketManager.retryCount);
+        console.log('  - 最大重试次数：', window.webSocketManager.maxRetries);
+
+        if (window.webSocketManager.ws) {
+            const states = ['连接中', '已连接', '关闭中', '已关闭'];
+            console.log('  - WebSocket 状态：', states[window.webSocketManager.ws.readyState] || '未知');
+            console.log('  - URL:', window.webSocketManager.ws.url);
+            console.log('  - 协议：', window.webSocketManager.ws.protocol);
+        }
+    } else {
+        console.log('❌ WebSocket 管理器未初始化');
+    }
+
+    if (window.cursorSync) {
+        console.log('✅ CursorSync 实例已初始化');
+    } else {
+        console.log('❌ CursorSync 实例未初始化');
+    }
+};
+
+// 检查所有可能的 WebSocket 连接
+window.checkAllWebSockets = () => {
+    console.log('🔍 检查所有 WebSocket 连接...');
+
+    // 检查全局实例
+    if (window.cursorSync) {
+        console.log('✅ 找到全局 cursorSync 实例');
+        if (window.cursorSync.ws) {
+            const states = ['连接中', '已连接', '关闭中', '已关闭'];
+            console.log(`  - WebSocket 状态：${states[window.cursorSync.ws.readyState] || '未知'}`);
+        } else {
+            console.log('  - 无 WebSocket 连接');
+        }
+    } else {
+        console.log('❌ 未找到全局 cursorSync 实例');
+    }
+
+    // 检查是否有其他 WebSocket 连接
+    console.log('🔍 检查页面中的所有 WebSocket 连接...');
+    const allElements = document.querySelectorAll('*');
+    let wsCount = 0;
+
+    for (const element of allElements) {
+        if (element._websocket || element.websocket) {
+            wsCount++;
+            console.log(`  - 发现 WebSocket 连接 #${wsCount}:`, element);
+        }
+    }
+
+    if (wsCount === 0) {
+        console.log('✅ 页面中未发现其他 WebSocket 连接');
+    } else {
+        console.log(`⚠️ 发现 ${wsCount} 个其他 WebSocket 连接`);
+    }
+};
+
 console.log('✨ Cursor 同步脚本加载完成！');
 console.log('💡 使用说明：');
 console.log('  - 脚本会自动开始双向同步');
 console.log('  - HTTP 同步：Cursor → Web (每 5 秒检查)');
 console.log('  - WebSocket：Web → Cursor (实时接收)');
 console.log('  - stopCursorSync() - 停止同步');
+console.log('  - restartCursorSync() - 重启同步');
 console.log('  - debugCursorSync() - 查看调试信息');
 console.log('  - testCursorMessageSending("消息") - 手动测试发送');
+
+console.log('  - checkWebSocketStatus() - 检查 WebSocket 状态');
+console.log('  - checkAllWebSockets() - 检查所有 WebSocket 连接');
+console.log('  - forceCleanup() - 强制清理所有连接');
+console.log('  - fullReset() - 完全重置并重新启动');
 console.log('  - 确保服务器在 localhost:3000 运行');
 console.log('🎯 现在可以从 Web 界面发送消息到 Cursor 了！');
+console.log('🔧 使用全局 WebSocket 管理器，确保只有一个连接');
+
+// 页面卸载时自动清理
+window.addEventListener('beforeunload', () => {
+    if (window.cursorSync) {
+        console.log('🧹 页面卸载，自动清理连接...');
+        window.cursorSync.stop();
+    }
+});
 
