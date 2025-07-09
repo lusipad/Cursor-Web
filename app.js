@@ -203,7 +203,21 @@ wss.on('connection', (ws, req) => {
                 case 'clear_content':
                     currentChatContent = '';
                     console.log('🧹 收到清除内容请求，已清空内容');
-                    broadcastToWebSocketClients({ type: 'clear_content' });
+                    if (message.timestamp) {
+                        console.log('⏱️ 同时设置清除时间戳:', new Date(message.timestamp).toLocaleString());
+                    }
+                    broadcastToWebSocketClients({
+                        type: 'clear_content',
+                        timestamp: message.timestamp || Date.now()
+                    });
+                    break;
+
+                case 'sync_clear_timestamp':
+                    console.log('⏱️ 同步清除时间戳:', new Date(message.timestamp).toLocaleString());
+                    broadcastToWebSocketClients({
+                        type: 'sync_clear_timestamp',
+                        timestamp: message.timestamp
+                    });
                     break;
 
                 default:

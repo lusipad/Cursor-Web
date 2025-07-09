@@ -588,16 +588,16 @@ window.debugCursorSync = () => {
     const cursorInput = document.querySelector('div.aislash-editor-input[contenteditable="true"]');
     console.log(`  - div.aislash-editor-input[contenteditable="true"]: ${cursorInput ? '✅ 找到' : '❌ 未找到'}`);
     if (cursorInput) {
-        console.log(`    可见: ${cursorInput.offsetParent !== null}, 高度: ${cursorInput.offsetHeight}px`);
-        console.log(`    类名: "${cursorInput.className}"`);
+        console.log(`    可见：${cursorInput.offsetParent !== null}, 高度：${cursorInput.offsetHeight}px`);
+        console.log(`    类名："${cursorInput.className}"`);
         console.log(`    ID: "${cursorInput.id}"`);
     }
 
     // 测试 Cursor 发送按钮
     const cursorSendBtn = document.querySelector('.anysphere-icon-button .codicon-arrow-up-two')?.parentElement;
-    console.log(`  - Cursor 发送按钮: ${cursorSendBtn ? '✅ 找到' : '❌ 未找到'}`);
+    console.log(`  - Cursor 发送按钮：${cursorSendBtn ? '✅ 找到' : '❌ 未找到'}`);
     if (cursorSendBtn) {
-        console.log(`    可见: ${cursorSendBtn.offsetParent !== null}, 启用: ${!cursorSendBtn.disabled}`);
+        console.log(`    可见：${cursorSendBtn.offsetParent !== null}, 启用：${!cursorSendBtn.disabled}`);
     }
 
     // 通用选择器测试
