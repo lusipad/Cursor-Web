@@ -294,14 +294,44 @@ body {
     }
 }
 
+/* 让main和tab内容区支持flex垂直布局，footer吸底 */
+.main {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.tab-content {
+    display: none;
+    flex: 1 1 0;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.tab-content.active {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+#messages-container {
+    flex: 1 1 0;
+    overflow-y: auto;
+    min-height: 0;
+}
+
 .footer {
     width: 100%;
     background: #23272e;
-    padding: 18px 24px 18px 24px;
+    padding: 18px 24px;
     border-top: 1.5px solid #333;
     display: flex;
     justify-content: center;
     align-items: center;
+    flex-shrink: 0;
 }
 #send-form {
     display: flex;
