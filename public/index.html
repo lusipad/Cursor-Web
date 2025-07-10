@@ -13,28 +13,93 @@
             <div id="status" class="status disconnected">等待连接...</div>
         </header>
 
-        <main class="main">
-            <div id="messages-container" class="messages-container">
-                <div class="welcome-message">
-                    <h2>欢迎使用 Claude Web</h2>
-                    <p>状态说明：</p>
-                    <p>🟡 <strong>已连接 - 等待Cursor内容</strong>：需要在Cursor中运行注入脚本</p>
-                    <p>🟢 <strong>已连接 - 同步正常</strong>：内容同步工作正常</p>
-                    <br>
-                    <p class="instruction">使用方法：在 Cursor 开发者工具中运行 cursor-fixed.js 脚本</p>
-                    <p class="instruction">脚本会同步整个Cursor页面内容到此页面</p>
-                </div>
-            </div>
-        </main>
-        <footer class="footer">
-            <form id="send-form" autocomplete="off">
-                <input id="send-input" type="text" placeholder="输入消息..." autocomplete="off" />
-                <button id="send-btn" type="submit">发送</button>
-                <button id="clear-btn" type="button">清除</button>
-            </form>
-        </footer>
-    </div>
+        <!-- Tab 导航 -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="chat-tab">聊天</button>
+            <button class="tab-btn" data-tab="git-tab">Git管理</button>
+        </nav>
 
+        <main class="main">
+            <!-- 聊天Tab内容 -->
+            <section id="chat-tab" class="tab-content active">
+                <div id="messages-container" class="messages-container">
+                    <div class="welcome-message">
+                        <h2>欢迎使用 Claude Web</h2>
+                        <p>状态说明：</p>
+                        <p>🟡 <strong>已连接 - 等待Cursor内容</strong>：需要在Cursor中运行注入脚本</p>
+                        <p>🟢 <strong>已连接 - 同步正常</strong>：内容同步工作正常</p>
+                        <br>
+                        <p class="instruction">使用方法：在 Cursor 开发者工具中运行 cursor-fixed.js 脚本</p>
+                        <p class="instruction">脚本会同步整个Cursor页面内容到此页面</p>
+                    </div>
+                </div>
+                <footer class="footer">
+                    <form id="send-form" autocomplete="off">
+                        <input id="send-input" type="text" placeholder="输入消息..." autocomplete="off" />
+                        <button id="send-btn" type="submit">发送</button>
+                        <button id="clear-btn" type="button">清除</button>
+                    </form>
+                </footer>
+            </section>
+
+            <!-- Git管理Tab内容 -->
+            <section id="git-tab" class="tab-content">
+                <div class="git-panel">
+                    <h2>Git 分支管理</h2>
+                    <div class="git-controls">
+                        <div class="git-status">
+                            <span>当前分支: </span>
+                            <span id="current-branch" class="current-branch">加载中...</span>
+                        </div>
+                        <div class="git-actions">
+                            <button id="refresh-branches" class="btn btn-secondary">刷新分支</button>
+                            <button id="pull-code" class="btn btn-primary">更新代码</button>
+                            <button id="git-status" class="btn btn-info">查看状态</button>
+                        </div>
+                    </div>
+                    <div class="branch-section">
+                        <h3>分支切换</h3>
+                        <div class="branch-selector">
+                            <select id="branch-select" class="branch-select">
+                                <option value="">选择分支...</option>
+                            </select>
+                            <button id="checkout-branch" class="btn btn-success">切换分支</button>
+                        </div>
+                    </div>
+                    <div class="commit-section">
+                        <h3>代码提交</h3>
+                        <div class="commit-controls">
+                            <div class="commit-input">
+                                <input type="text" id="commit-message" placeholder="输入提交信息..." class="commit-input-field">
+                                <button id="add-files" class="btn btn-secondary">添加文件</button>
+                                <button id="commit-code" class="btn btn-primary">提交代码</button>
+                                <button id="push-code" class="btn btn-success">推送代码</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="git-output" class="git-output">
+                        <div class="output-header">
+                            <span>Git 操作输出</span>
+                            <button id="clear-output" class="btn btn-small">清除</button>
+                        </div>
+                        <div id="git-log" class="git-log"></div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
     <script src="simple-client.js"></script>
+    <script src="git-manager.js"></script>
+    <script>
+    // Tab切换逻辑
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            this.classList.add('active');
+            document.getElementById(this.dataset.tab).classList.add('active');
+        });
+    });
+    </script>
 </body>
 </html>

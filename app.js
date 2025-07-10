@@ -3,6 +3,7 @@ const express = require('express');
 const { createServer } = require('http');
 const { WebSocketServer } = require('ws');
 const path = require('path');
+const { simpleGit, SimpleGit } = require('simple-git');
 
 const app = express();
 const server = createServer(app);
@@ -10,6 +11,9 @@ const wss = new WebSocketServer({ server });
 
 let currentChatContent = '';
 let connectedClients = new Set();
+
+// 初始化 Git 实例
+const git = simpleGit(process.cwd());
 
 // 中间件
 app.use(express.json({ limit: '50mb' }));
@@ -117,6 +121,177 @@ app.get('/api/status', (req, res) => {
         uptime: process.uptime(),
         timestamp: Date.now()
     });
+});
+
+// Git 管理 API 路由
+// 获取当前分支和所有分支
+app.get('/api/git/branches', async (req, res) => {
+    try {
+        const [currentBranch, allBranches] = await Promise.all([
+            git.branchLocal(),
+            git.branch(['-a'])
+        ]);
+
+        res.json({
+            success: true,
+            currentBranch: currentBranch.current,
+            allBranches: allBranches.all,
+            localBranches: currentBranch.all,
+            timestamp: Date.now()
+        });
+    } catch (error) {
+        console.log('❌ Git 获取分支失败：', error.message);
+        res.status(500).json({
+            success: false,
+            message: '获取分支信息失败',
+            error: error.message
+        });
+    }
+});
+
+// 切换分支
+app.post('/api/git/checkout', async (req, res) => {
+    try {
+        const { branch } = req.body;
+        if (!branch) {
+            return res.status(400).json({
+                success: false,
+                message: '分支名称不能为空'
+            });
+        }
+
+        await git.checkout(branch);
+        const newBranch = await git.branchLocal();
+
+        res.json({
+            success: true,
+            message: `已切换到分支: ${branch}`,
+            currentBranch: newBranch.current,
+            timestamp: Date.now()
+        });
+    } catch (error) {
+        console.log('❌ Git 切换分支失败：', error.message);
+        res.status(500).json({
+            success: false,
+            message: '切换分支失败',
+            error: error.message
+        });
+    }
+});
+
+// 拉取最新代码
+app.post('/api/git/pull', async (req, res) => {
+    try {
+        const result = await git.pull();
+
+        res.json({
+            success: true,
+            message: '代码更新成功',
+            result: result,
+            timestamp: Date.now()
+        });
+    } catch (error) {
+        console.log('❌ Git 拉取失败：', error.message);
+        res.status(500).json({
+            success: false,
+            message: '代码更新失败',
+            error: error.message
+        });
+    }
+});
+
+// 获取状态
+app.get('/api/git/status', async (req, res) => {
+    try {
+        const status = await git.status();
+
+        res.json({
+            success: true,
+            status: status,
+            timestamp: Date.now()
+        });
+    } catch (error) {
+        console.log('❌ Git 状态获取失败：', error.message);
+        res.status(500).json({
+            success: false,
+            message: '获取Git状态失败',
+            error: error.message
+        });
+    }
+});
+
+// 添加文件到暂存区
+app.post('/api/git/add', async (req, res) => {
+    try {
+        const { files } = req.body;
+        const filesToAdd = files || '.';
+
+        await git.add(filesToAdd);
+
+        res.json({
+            success: true,
+            message: '文件已添加到暂存区',
+            files: filesToAdd,
+            timestamp: Date.now()
+        });
+    } catch (error) {
+        console.log('❌ Git 添加文件失败：', error.message);
+        res.status(500).json({
+            success: false,
+            message: '添加文件失败',
+            error: error.message
+        });
+    }
+});
+
+// 提交代码
+app.post('/api/git/commit', async (req, res) => {
+    try {
+        const { message } = req.body;
+        if (!message) {
+            return res.status(400).json({
+                success: false,
+                message: '提交信息不能为空'
+            });
+        }
+
+        const result = await git.commit(message);
+
+        res.json({
+            success: true,
+            message: '代码提交成功',
+            result: result,
+            timestamp: Date.now()
+        });
+    } catch (error) {
+        console.log('❌ Git 提交失败：', error.message);
+        res.status(500).json({
+            success: false,
+            message: '代码提交失败',
+            error: error.message
+        });
+    }
+});
+
+// 推送代码
+app.post('/api/git/push', async (req, res) => {
+    try {
+        const result = await git.push();
+
+        res.json({
+            success: true,
+            message: '代码推送成功',
+            result: result,
+            timestamp: Date.now()
+        });
+    } catch (error) {
+        console.log('❌ Git 推送失败：', error.message);
+        res.status(500).json({
+            success: false,
+            message: '代码推送失败',
+            error: error.message
+        });
+    }
 });
 
 // WebSocket 连接处理

@@ -1,344 +1,344 @@
-// 🚀 Cursor 浏览器同步脚本
-// 专用于 Cursor 开发者控制台，100% 浏览器兼容
-
-console.log('🚀 Cursor 同步脚本启动...');
-
-// 🔧 全局 WebSocket 连接管理器
-class WebSocketManager {
+// Git 管理功能
+class GitManager {
     constructor() {
-        this.ws = null;
-        this.isConnecting = false;
-        this.retryCount = 0;
-        this.maxRetries = 5;
-        this.serverUrl = 'http://localhost:3000';
-        this.onMessageCallback = null;
-    }
-
-    // 连接 WebSocket
-    connect(onMessage) {
-        console.log('🔌 WebSocket 管理器：开始连接...');
-
-        // 设置消息回调
-        this.onMessageCallback = onMessage;
-
-        // 如果正在连接，直接返回
-        if (this.isConnecting) {
-            console.log('⚠️ WebSocket 管理器：正在连接中，跳过重复请求');
-            return;
-        }
-
-        // 如果已经连接，直接返回
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            console.log('✅ WebSocket 管理器：已连接，无需重复连接');
-            return;
-        }
-
-        // 关闭现有连接
-        this.disconnect();
-
-        this.isConnecting = true;
-        console.log('🔌 WebSocket 管理器：建立新连接...');
-
-        try {
-            const wsUrl = this.serverUrl.replace('http', 'ws');
-            this.ws = new WebSocket(wsUrl);
-
-            this.ws.onopen = () => {
-                console.log('✅ WebSocket 管理器：连接成功');
-                this.isConnecting = false;
-                this.retryCount = 0;
-            };
-
-            this.ws.onmessage = (event) => {
-                if (this.onMessageCallback) {
-                    this.onMessageCallback(event);
-                }
-            };
-
-            this.ws.onclose = () => {
-                console.log('📱 WebSocket 管理器：连接关闭');
-                this.isConnecting = false;
-                this.ws = null;
-
-                // 自动重连
-                if (this.retryCount < this.maxRetries) {
-                    this.retryCount++;
-                    console.log(`🔄 WebSocket 管理器：自动重连 (${this.retryCount}/${this.maxRetries})...`);
-                    setTimeout(() => this.connect(this.onMessageCallback), 3000 * this.retryCount);
-                }
-            };
-
-            this.ws.onerror = (error) => {
-                console.error('❌ WebSocket 管理器：连接错误', error);
-                this.isConnecting = false;
-            };
-
-        } catch (error) {
-            console.error('❌ WebSocket 管理器：连接失败', error);
-            this.isConnecting = false;
-        }
-    }
-
-    // 断开连接
-    disconnect() {
-        if (this.ws) {
-            console.log('🔄 WebSocket 管理器：断开连接...');
-            this.ws.close();
-            this.ws = null;
-        }
-        this.isConnecting = false;
-    }
-
-    // 发送消息
-    send(message) {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify(message));
-            return true;
-        }
-        return false;
-    }
-
-    // 获取连接状态
-    getStatus() {
-        if (!this.ws) return '未连接';
-        const states = ['连接中', '已连接', '关闭中', '已关闭'];
-        return states[this.ws.readyState] || '未知';
-    }
-}
-
-// 全局 WebSocket 管理器实例
-window.webSocketManager = window.webSocketManager || new WebSocketManager();
-
-class CursorSync {
-    constructor() {
-        this.serverUrl = 'http://localhost:3000';
-        this.lastContent = '';
-        this.chatContainer = null;
-        this.syncInterval = null;
-        this.retryCount = 0;
-        this.maxRetries = 3;
-
+        this.currentBranch = '';
+        this.allBranches = [];
+        this.localBranches = [];
         this.init();
     }
 
     async init() {
-        console.log('🔧 初始化同步器...');
+        await this.loadBranches();
+        this.bindEvents();
+        this.updateCurrentBranch();
+    }
 
+    // 绑定事件
+    bindEvents() {
+        // 刷新分支
+        document.getElementById('refresh-branches').addEventListener('click', () => {
+            this.loadBranches();
+        });
+
+        // 切换分支
+        document.getElementById('checkout-branch').addEventListener('click', () => {
+            this.checkoutBranch();
+        });
+
+        // 更新代码
+        document.getElementById('pull-code').addEventListener('click', () => {
+            this.pullCode();
+        });
+
+        // 查看状态
+        document.getElementById('git-status').addEventListener('click', () => {
+            this.getStatus();
+        });
+
+        // 添加文件
+        document.getElementById('add-files').addEventListener('click', () => {
+            this.addFiles();
+        });
+
+        // 提交代码
+        document.getElementById('commit-code').addEventListener('click', () => {
+            this.commitCode();
+        });
+
+        // 推送代码
+        document.getElementById('push-code').addEventListener('click', () => {
+            this.pushCode();
+        });
+
+        // 清除输出
+        document.getElementById('clear-output').addEventListener('click', () => {
+            this.clearOutput();
+        });
+
+        // 回车提交
+        document.getElementById('commit-message').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.commitCode();
+            }
+        });
+    }
+
+    // 加载分支信息
+    async loadBranches() {
         try {
-            // 测试服务器
-            await this.testConnection();
-            console.log('✅ 服务器连接成功');
+            this.log('正在加载分支信息...', 'info');
 
-            // 查找聊天区域
-            this.findChatArea();
+            const response = await fetch('/api/git/branches');
+            const data = await response.json();
 
-                        // 开始同步
-            this.startSync();
+            if (data.success) {
+                this.currentBranch = data.currentBranch;
+                this.allBranches = data.allBranches;
+                this.localBranches = data.localBranches;
 
-            // 连接 WebSocket 以接收来自 Web 端的消息
-            this.connectWebSocket();
-
-            this.showNotification('✅ 同步已启动', '#4CAF50');
-
+                this.updateBranchSelect();
+                this.updateCurrentBranch();
+                this.log('分支信息加载成功', 'success');
+            } else {
+                this.log('分支信息加载失败：' + data.message, 'error');
+            }
         } catch (error) {
-            console.error('❌ 初始化失败：', error);
-            this.showNotification('❌ 初始化失败：' + error.message, '#FF5722');
+            this.log('分支信息加载失败：' + error.message, 'error');
         }
     }
 
-    async testConnection() {
-        const response = await fetch(this.serverUrl + '/api/test');
-        if (!response.ok) {
-            throw new Error(`服务器连接失败 (${response.status})`);
-        }
-        return response.json();
-    }
+    // 更新分支选择器
+    updateBranchSelect() {
+        const select = document.getElementById('branch-select');
+        select.innerHTML = '<option value="">选择分支...</option>';
 
-    findChatArea() {
-        console.log('🔍 查找聊天区域...');
-
-        // Cursor 聊天区域选择器 - 更精确的选择器
-        const selectors = [
-            '[data-testid*="chat"]',
-            '[data-testid*="conversation"]',
-            '[data-testid*="messages"]',
-            '.chat-container',
-            '.conversation-container',
-            '.messages-container',
-            'div[class*="chat"]',
-            'div[class*="conversation"]',
-            'div[class*="message"]',
-            '[role="main"]',
-            'main',
-            // 添加更多 Cursor 特定的选择器
-            '.aislash-chat-container',
-            '.aislash-conversation',
-            '[class*="aislash"]',
-            '[class*="chat"]',
-            '[class*="conversation"]'
-        ];
-
-        let bestElement = null;
-        let bestScore = 0;
-
-        for (const selector of selectors) {
-            try {
-                const elements = document.querySelectorAll(selector);
-                for (const el of elements) {
-                    const score = this.scoreElement(el);
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestElement = el;
-                    }
-                }
-            } catch (e) {
-                console.warn('选择器错误：', selector);
+        this.localBranches.forEach(branch => {
+            const option = document.createElement('option');
+            option.value = branch;
+            option.textContent = branch;
+            if (branch === this.currentBranch) {
+                option.selected = true;
             }
-        }
-
-        if (bestElement && bestScore > 10) {
-            this.chatContainer = bestElement;
-            console.log('✅ 找到聊天区域 (得分：' + bestScore + ')');
-        } else {
-            console.log('⚠️ 使用 document.body 作为备选');
-            this.chatContainer = document.body;
-        }
+            select.appendChild(option);
+        });
     }
 
-    scoreElement(element) {
-        let score = 0;
+    // 更新当前分支显示
+    updateCurrentBranch() {
+        const currentBranchElement = document.getElementById('current-branch');
+        currentBranchElement.textContent = this.currentBranch || '未知';
+    }
+
+    // 切换分支
+    async checkoutBranch() {
+        const select = document.getElementById('branch-select');
+        const branch = select.value;
+
+        if (!branch) {
+            this.log('请选择要切换的分支', 'error');
+            return;
+        }
+
+        if (branch === this.currentBranch) {
+            this.log('当前已在目标分支', 'info');
+            return;
+        }
 
         try {
-            const rect = element.getBoundingClientRect();
-            const text = element.textContent || '';
-            const className = (element.className || '').toLowerCase();
+            this.log(`正在切换到分支：${branch}...`, 'info');
 
-            // 基础得分
-            if (element.children.length >= 2) score += 10;
-            if (text.length >= 50) score += 15;
-            if (rect.width > 200 && rect.height > 150) score += 10;
-
-            // 位置得分 - Cursor 聊天通常在右侧
-            if (rect.left > window.innerWidth * 0.3) score += 15;
-
-            // 关键词得分
-            const keywords = ['chat', 'conversation', 'message', 'assistant', 'aislash'];
-            for (const keyword of keywords) {
-                if (className.includes(keyword)) score += 20;
-            }
-
-            // AI 相关内容
-            if (text.includes('Claude') || text.includes('AI') || text.includes('Assistant')) score += 15;
-
-            // 可见性检查
-            if (element.offsetParent !== null) score += 10;
-
-            return score;
-        } catch (e) {
-            return 0;
-        }
-    }
-
-    getContent() {
-        if (!this.chatContainer) return null;
-
-        try {
-            const clone = this.chatContainer.cloneNode(true);
-
-            // 清理不需要的元素
-            const removeSelectors = ['script', 'style', '.copy-button', 'noscript'];
-            for (const selector of removeSelectors) {
-                const elements = clone.querySelectorAll(selector);
-                for (const el of elements) el.remove();
-            }
-
-            const htmlContent = clone.innerHTML;
-            const textContent = clone.textContent || '';
-
-            // 降低最小内容长度要求，并检查文本内容
-            if (htmlContent.length < 20 || textContent.trim().length < 10) {
-                return null;
-            }
-
-            return {
-                html: htmlContent,
-                timestamp: Date.now(),
-                url: window.location.href,
-                contentLength: htmlContent.length,
-                textLength: textContent.length
-            };
-        } catch (error) {
-            console.error('❌ 获取内容失败：', error);
-            return null;
-        }
-    }
-
-    async sendToServer(content) {
-        try {
-            console.log(`📤 发送内容 (${content.contentLength} 字符)...`);
-
-            const response = await fetch(this.serverUrl + '/api/content', {
+            const response = await fetch('/api/git/checkout', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    type: 'html_content',
-                    data: content
-                })
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ branch })
             });
 
-            if (response.ok) {
-                console.log('✅ 发送成功');
-                this.retryCount = 0;
-                return true;
+            const data = await response.json();
+
+            if (data.success) {
+                this.currentBranch = data.currentBranch;
+                this.updateCurrentBranch();
+                this.log(data.message, 'success');
+                await this.loadBranches(); // 重新加载分支信息
             } else {
-                throw new Error(`HTTP ${response.status}`);
+                this.log('切换分支失败：' + data.message, 'error');
             }
         } catch (error) {
-            console.error('❌ 发送失败：', error);
-            this.retryCount++;
+            this.log('切换分支失败：' + error.message, 'error');
+        }
+    }
 
-            if (this.retryCount < this.maxRetries) {
-                console.log(`🔄 3秒后重试 (${this.retryCount}/${this.maxRetries})...`);
-                setTimeout(() => this.checkAndSync(), 3000);
+    // 拉取代码
+    async pullCode() {
+        try {
+            this.log('正在更新代码...', 'info');
+
+            const response = await fetch('/api/git/pull', {
+                method: 'POST'
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                this.log('代码更新成功', 'success');
+                if (data.result && data.result.summary) {
+                    this.log('更新详情：' + data.result.summary, 'info');
+                }
             } else {
-                this.showNotification('❌ 发送失败，重试次数已达上限', '#FF5722');
+                this.log('代码更新失败：' + data.message, 'error');
             }
-            return false;
+        } catch (error) {
+            this.log('代码更新失败：' + error.message, 'error');
         }
     }
 
-    async checkAndSync() {
-        const content = this.getContent();
+    // 获取状态
+    async getStatus() {
+        try {
+            this.log('正在获取 Git 状态...', 'info');
 
-        if (content && content.html !== this.lastContent) {
-            console.log('🔄 检测到内容变化，同步中...');
+            const response = await fetch('/api/git/status');
+            const data = await response.json();
 
-            const success = await this.sendToServer(content);
-            if (success) {
-                this.lastContent = content.html;
-                this.showNotification('🔄 内容已同步', '#2196F3', 2000);
+            if (data.success) {
+                const status = data.status;
+                this.log('Git 状态获取成功', 'success');
+
+                // 显示状态详情
+                if (status.modified && status.modified.length > 0) {
+                    this.log(`已修改文件：${status.modified.join(', ')}`, 'info');
+                }
+                if (status.not_added && status.not_added.length > 0) {
+                    this.log(`未添加文件：${status.not_added.join(', ')}`, 'info');
+                }
+                if (status.created && status.created.length > 0) {
+                    this.log(`新创建文件：${status.created.join(', ')}`, 'info');
+                }
+                if (status.deleted && status.deleted.length > 0) {
+                    this.log(`已删除文件：${status.deleted.join(', ')}`, 'info');
+                }
+                if (status.renamed && status.renamed.length > 0) {
+                    this.log(`已重命名文件：${status.renamed.join(', ')}`, 'info');
+                }
+                if (status.staged && status.staged.length > 0) {
+                    this.log(`已暂存文件：${status.staged.join(', ')}`, 'info');
+                }
+
+                if (status.ahead > 0) {
+                    this.log(`领先远程分支 ${status.ahead} 个提交`, 'info');
+                }
+                if (status.behind > 0) {
+                    this.log(`落后远程分支 ${status.behind} 个提交`, 'info');
+                }
+            } else {
+                this.log('获取 Git 状态失败：' + data.message, 'error');
             }
+        } catch (error) {
+            this.log('获取 Git 状态失败：' + error.message, 'error');
         }
     }
 
-        startSync() {
-        console.log('🚀 开始定时同步 (每 3 秒)...');
+    // 添加文件
+    async addFiles() {
+        try {
+            this.log('正在添加文件到暂存区...', 'info');
 
-        // 立即执行一次
-        this.checkAndSync();
+            const response = await fetch('/api/git/add', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ files: '.' })
+            });
 
-        // 设置定时器
-        this.syncInterval = setInterval(() => {
-            this.checkAndSync();
-        }, 3000);
+            const data = await response.json();
+
+            if (data.success) {
+                this.log('文件已添加到暂存区', 'success');
+            } else {
+                this.log('添加文件失败：' + data.message, 'error');
+            }
+        } catch (error) {
+            this.log('添加文件失败：' + error.message, 'error');
+        }
     }
 
-    // WebSocket 连接功能
-    connectWebSocket() {
-        console.log('🔌 CursorSync：使用全局 WebSocket 管理器连接...');
+    // 提交代码
+    async commitCode() {
+        const messageInput = document.getElementById('commit-message');
+        const message = messageInput.value.trim();
 
-        // 使用全局 WebSocket 管理器
-        window.webSocketManager.connect((event) => {
+        if (!message) {
+            this.log('请输入提交信息', 'error');
+            messageInput.focus();
+            return;
+        }
+
+        try {
+            this.log('正在提交代码...', 'info');
+
+            const response = await fetch('/api/git/commit', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ message })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                this.log('代码提交成功', 'success');
+                if (data.result && data.result.commit) {
+                    this.log('提交哈希：' + data.result.commit, 'info');
+                }
+                messageInput.value = ''; // 清空输入框
+            } else {
+                this.log('代码提交失败：' + data.message, 'error');
+            }
+        } catch (error) {
+            this.log('代码提交失败：' + error.message, 'error');
+        }
+    }
+
+    // 推送代码
+    async pushCode() {
+        try {
+            this.log('正在推送代码...', 'info');
+
+            const response = await fetch('/api/git/push', {
+                method: 'POST'
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                this.log('代码推送成功', 'success');
+                if (data.result && data.result.summary) {
+                    this.log('推送详情：' + data.result.summary, 'info');
+                }
+            } else {
+                this.log('代码推送失败：' + data.message, 'error');
+            }
+        } catch (error) {
+            this.log('代码推送失败：' + error.message, 'error');
+        }
+    }
+
+    // 记录日志
+    log(message, type = 'info') {
+        const logContainer = document.getElementById('git-log');
+        const timestamp = new Date().toLocaleTimeString();
+
+        const logEntry = document.createElement('div');
+        logEntry.className = `log-entry ${type}`;
+
+        logEntry.innerHTML = `
+            <div class="log-timestamp">[${timestamp}]</div>
+            <div class="log-message">${message}</div>
+        `;
+
+        logContainer.appendChild(logEntry);
+        logContainer.scrollTop = logContainer.scrollHeight;
+
+        // 限制日志条目数量
+        while (logContainer.children.length > 50) {
+            logContainer.removeChild(logContainer.firstChild);
+        }
+    }
+
+    // 清除输出
+    clearOutput() {
+        document.getElementById('git-log').innerHTML = '';
+    }
+}
+
+// 页面加载完成后初始化 Git 管理器
+document.addEventListener('DOMContentLoaded', () => {
+    window.gitManager = new GitManager();
+});
             try {
                 const message = JSON.parse(event.data);
                 this.handleWebSocketMessage(message);
