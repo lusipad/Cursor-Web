@@ -6,7 +6,10 @@
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon app.js",
-    "legacy": "node server.js"
+    "legacy": "node server.js",
+    "test": "echo \"No tests yet\" && exit 0",
+    "lint": "echo \"No linter yet\" && exit 0",
+    "build": "echo \"No build step yet\" && exit 0"
   },
   "keywords": [
     "cursor",
