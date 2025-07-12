@@ -3,13 +3,15 @@
   "version": "2.0.0",
   "description": "通过Web界面远程控制Cursor的AI聊天功能 - 简化版",
   "main": "app.js",
+  "bin": "app.js",
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon app.js",
     "legacy": "node server.js",
     "test": "echo \"No tests yet\" && exit 0",
     "lint": "echo \"No linter yet\" && exit 0",
-    "build": "echo \"No build step yet\" && exit 0"
+    "build": "echo \"No build step yet\" && exit 0",
+    "package": "pkg . --targets node18-win-x64 --output cursor-web.exe"
   },
   "keywords": [
     "cursor",
@@ -28,9 +30,19 @@
     "ws": "^8.13.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.10"
+    "nodemon": "^3.1.10",
+    "pkg": "^5.8.1"
   },
   "engines": {
     "node": ">=14.0.0"
+  },
+  "pkg": {
+    "assets": [
+      "public/**/*"
+    ],
+    "targets": [
+      "node18-win-x64"
+    ],
+    "outputPath": "dist"
   }
 }
