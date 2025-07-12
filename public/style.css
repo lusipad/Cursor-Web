@@ -85,6 +85,7 @@ body {
     overflow-y: auto;
     padding: 20px;
     background-color: #1a1a1a;
+    margin-bottom: 80px; /* 留出输入框高度空间 */
 }
 
 .welcome-message {
@@ -332,6 +333,10 @@ body {
     justify-content: center;
     align-items: center;
     flex-shrink: 0;
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    z-index: 100;
 }
 #send-form {
     display: flex;
