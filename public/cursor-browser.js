@@ -1,3 +1,94 @@
+// WebSocket 管理器
+class WebSocketManager {
+    constructor() {
+        this.ws = null;
+        this.url = 'ws://localhost:3000/ws';
+        this.isConnecting = false;
+        this.retryCount = 0;
+        this.maxRetries = 5;
+        this.retryDelay = 2000;
+        this.onMessage = null;
+        this.connect();
+    }
+
+    connect() {
+        if (this.isConnecting || this.ws?.readyState === WebSocket.OPEN) {
+            return;
+        }
+
+        this.isConnecting = true;
+        console.log('🔌 连接 WebSocket...');
+
+        try {
+            this.ws = new WebSocket(this.url);
+
+            this.ws.onopen = () => {
+                console.log('✅ WebSocket 连接成功');
+                this.isConnecting = false;
+                this.retryCount = 0;
+            };
+
+            this.ws.onmessage = (event) => {
+                if (this.onMessage) {
+                    this.onMessage(event);
+                }
+            };
+
+            this.ws.onclose = () => {
+                console.log('🔌 WebSocket 连接关闭');
+                this.isConnecting = false;
+                this.retryReconnect();
+            };
+
+            this.ws.onerror = (error) => {
+                console.error('❌ WebSocket 连接错误：', error);
+                this.isConnecting = false;
+            };
+
+        } catch (error) {
+            console.error('❌ WebSocket 连接失败：', error);
+            this.isConnecting = false;
+            this.retryReconnect();
+        }
+    }
+
+    retryReconnect() {
+        if (this.retryCount >= this.maxRetries) {
+            console.warn('⚠️ 达到最大重试次数，停止重连');
+            return;
+        }
+
+        this.retryCount++;
+        console.log(`🔄 第 ${this.retryCount} 次重连尝试...`);
+
+        setTimeout(() => {
+            this.connect();
+        }, this.retryDelay * this.retryCount);
+    }
+
+    disconnect() {
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+        }
+        this.isConnecting = false;
+    }
+
+    getStatus() {
+        if (!this.ws) return '未连接';
+        const states = ['连接中', '已连接', '关闭中', '已关闭'];
+        return states[this.ws.readyState] || '未知';
+    }
+
+    send(data) {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify(data));
+            return true;
+        }
+        return false;
+    }
+}
+
 // Git 管理功能
 class GitManager {
     constructor() {
@@ -339,13 +430,119 @@ class GitManager {
 document.addEventListener('DOMContentLoaded', () => {
     window.gitManager = new GitManager();
 });
+
+// Cursor 同步功能
+class CursorSync {
+    constructor() {
+        this.serverUrl = 'http://localhost:3000';
+        this.chatContainer = null;
+        this.lastContent = '';
+        this.syncInterval = null;
+        this.retryCount = 0;
+        this.wsRetryCount = 0;
+        this.maxRetries = 3;
+        this.init();
+    }
+
+    init() {
+        console.log('🎯 初始化 Cursor 同步器...');
+        this.findChatContainer();
+        this.startSync();
+        this.initWebSocket();
+    }
+
+    findChatContainer() {
+        // 查找聊天容器
+        this.chatContainer = document.querySelector('.chat-container') ||
+                           document.querySelector('[data-testid="chat-container"]') ||
+                           document.querySelector('.conversation-container');
+
+        if (this.chatContainer) {
+            console.log('✅ 找到聊天容器');
+        } else {
+            console.log('⚠️ 未找到聊天容器，将使用备用方案');
+        }
+    }
+
+    startSync() {
+        // 启动 HTTP 同步
+        this.syncInterval = setInterval(() => {
+            this.syncContent();
+        }, 5000); // 每 5 秒同步一次
+
+        console.log('🔄 HTTP 同步已启动');
+    }
+
+    async syncContent() {
+        try {
+            const content = this.getContent();
+            if (!content) return;
+
+            const response = await fetch(`${this.serverUrl}/api/sync`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(content)
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    console.log('✅ 内容同步成功');
+                    this.retryCount = 0;
+                }
+            }
+        } catch (error) {
+            console.error('❌ 同步失败：', error);
+            this.retryCount++;
+
+            if (this.retryCount >= this.maxRetries) {
+                console.warn('⚠️ 达到最大重试次数，停止同步');
+                this.stop();
+            }
+        }
+    }
+
+    getContent() {
+        if (!this.chatContainer) {
+            return null;
+        }
+
+        const content = this.chatContainer.textContent || '';
+        const contentLength = content.length;
+
+        // 如果内容没有变化，不发送
+        if (content === this.lastContent) {
+            return null;
+        }
+
+        this.lastContent = content;
+
+        return {
+            content: content,
+            contentLength: contentLength,
+            timestamp: new Date().toISOString()
+        };
+    }
+
+    initWebSocket() {
+        // 使用全局 WebSocket 管理器
+        if (!window.webSocketManager) {
+            console.log('🔧 创建全局 WebSocket 管理器...');
+            window.webSocketManager = new WebSocketManager();
+        }
+
+        // 监听消息
+        window.webSocketManager.onMessage = (event) => {
             try {
                 const message = JSON.parse(event.data);
                 this.handleWebSocketMessage(message);
             } catch (error) {
-                console.error('❌ 解析 WebSocket 消息失败：', error);
+                console.warn('⚠️ 非 JSON 消息，按原始字符串处理：', event.data);
+                this.handleWebSocketMessage({ type: 'raw', data: event.data });
             }
-        });
+        };
 
         this.showNotification('📡 已连接到消息服务', '#4CAF50', 2000);
     }
@@ -369,7 +566,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-        // 处理用户消息 - 将消息发送到 Cursor 聊天输入框
+    // 处理用户消息 - 将消息发送到 Cursor 聊天输入框
     handleUserMessage(messageText) {
         console.log('💬 收到用户消息，发送到 Cursor：', messageText);
 
@@ -563,11 +760,9 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error('❌ 复制到剪贴板失败：', error);
         }
-    }
+        }
 
-
-
-        stop() {
+    stop() {
         if (this.syncInterval) {
             clearInterval(this.syncInterval);
             this.syncInterval = null;
