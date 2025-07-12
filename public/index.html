@@ -29,7 +29,8 @@
                         <p>🟡 <strong>已连接 - 等待Cursor内容</strong>：需要在Cursor中运行注入脚本</p>
                         <p>🟢 <strong>已连接 - 同步正常</strong>：内容同步工作正常</p>
                         <br>
-                        <p class="instruction">使用方法：在 Cursor 开发者工具中运行 cursor-fixed.js 脚本</p>
+                        <p class="instruction">使用方法：在 Cursor 开发者工具中运行同步脚本</p>
+                        <a href="/script.html" class="btn btn-primary" style="display:inline-block;margin:10px 0;">前往一键复制同步脚本 &gt;&gt;</a>
                         <p class="instruction">脚本会同步整个Cursor页面内容到此页面</p>
                     </div>
                 </div>
@@ -100,6 +101,8 @@
             document.getElementById(this.dataset.tab).classList.add('active');
         });
     });
+    // 自动加载cursor-browser.js内容到pre
+    // 已删除脚本相关JS...
     </script>
 </body>
 </html>

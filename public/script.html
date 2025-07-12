@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cursor 同步脚本 - 一键复制</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body { background: #222; color: #eee; font-family: 'Segoe UI', Arial, sans-serif; }
+        .container { max-width: 800px; margin: 40px auto; background: #292929; border-radius: 8px; padding: 2em; box-shadow: 0 2px 8px #0004; }
+        h2 { margin-top: 0; }
+        .copy-btn { margin-bottom: 1em; padding: 0.5em 1.5em; font-size: 1em; border: none; border-radius: 4px; background: #4caf50; color: #fff; cursor: pointer; }
+        .copy-btn:active { background: #388e3c; }
+        pre { background: #181818; color: #eee; padding: 1em; border-radius: 6px; overflow-x: auto; font-size: 13px; }
+        .tip { color: #aaa; margin-bottom: 1em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Cursor 同步脚本</h2>
+        <div class="tip">在 <b>Cursor</b> 的开发者工具（F12）中粘贴下方脚本并回车运行</div>
+        <button id="copy-cursor-script" class="copy-btn">一键复制脚本</button>
+        <pre id="cursor-script">正在加载脚本...</pre>
+        <div class="tip">脚本会同步整个Cursor页面内容到本网页</div>
+        <a href="/" style="color:#4caf50;">返回首页</a>
+    </div>
+    <script>
+    fetch('/cursor-browser.js').then(r => r.text()).then(code => {
+        document.getElementById('cursor-script').textContent = code;
+    });
+    document.getElementById('copy-cursor-script').onclick = function() {
+        const code = document.getElementById('cursor-script').textContent;
+        navigator.clipboard.writeText(code);
+        this.textContent = '已复制!';
+        setTimeout(()=>{this.textContent='一键复制脚本';}, 1500);
+    };
+    </script>
+</body>
+</html>
