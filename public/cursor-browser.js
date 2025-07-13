@@ -536,13 +536,13 @@ class CursorSync {
         } catch (e) {
             console.warn('自动滚动失败：', e);
         }
-        // 优先采集 innerHTML
-        const html = this.chatContainer.innerHTML || '';
+        // 采集所有直接子元素的 outerHTML
+        const children = Array.from(this.chatContainer.children);
+        let html = '';
+        children.forEach(child => html += child.outerHTML);
         const text = this.chatContainer.textContent || '';
         const contentLength = text.length;
-        // 打印采集到的内容长度
-        console.log('采集到 innerHTML 长度：', html.length, 'textContent 长度：', text.length);
-        // 内容为空时不推送，避免网页端内容一闪而过
+        console.log('采集到直接子元素数量：', children.length, '拼接后 innerHTML 长度：', html.length, 'textContent 长度：', text.length);
         if (contentLength === 0) {
             console.warn('内容为空，不推送');
             return null;
