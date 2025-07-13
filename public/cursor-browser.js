@@ -426,10 +426,20 @@ class GitManager {
     }
 }
 
-// 页面加载完成后初始化 Git 管理器
-document.addEventListener('DOMContentLoaded', () => {
-    window.gitManager = new GitManager();
-});
+// 页面加载完成后，等待 .conversations 区域出现再启动同步脚本
+function waitForChatContainerAndStartSync() {
+    const tryFind = () => {
+        const container = document.querySelector('.conversations');
+        if (container) {
+            console.log('✅ .conversations 区域已出现，启动同步脚本');
+            window.cursorSync = new CursorSync();
+        } else {
+            console.log('⏳ 等待 .conversations 区域渲染...');
+            setTimeout(tryFind, 500);
+        }
+    };
+    tryFind();
+}
 
 // Cursor 同步功能
 class CursorSync {
@@ -520,13 +530,23 @@ class CursorSync {
             console.warn('chatContainer 未找到');
             return null;
         }
+        // 自动滚动到底部，确保所有消息渲染出来
+        try {
+            this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
+        } catch (e) {
+            console.warn('自动滚动失败：', e);
+        }
         // 优先采集 innerHTML
         const html = this.chatContainer.innerHTML || '';
         const text = this.chatContainer.textContent || '';
         const contentLength = text.length;
         // 打印采集到的内容长度
         console.log('采集到 innerHTML 长度：', html.length, 'textContent 长度：', text.length);
-        // 不再判断内容是否变化，始终推送，便于排查
+        // 内容为空时不推送，避免网页端内容一闪而过
+        if (contentLength === 0) {
+            console.warn('内容为空，不推送');
+            return null;
+        }
         this.lastContent = text;
         return {
             html: html,
