@@ -210,11 +210,24 @@ class SimpleWebClient {
             }
 
             // 更新内容
-            const sanitizedHtml = this.sanitizeHTML(html);
-            contentArea.innerHTML = sanitizedHtml;
+            contentArea.innerHTML = html;
 
-            // 🎯 自动去除所有 max-height 和 overflow: hidden 样式
-            this.removeHeightRestrictions(contentArea);
+            // 强制设置样式，保证格式
+            contentArea.style.overflow = 'auto';
+            contentArea.style.whiteSpace = 'pre-wrap';
+            contentArea.style.wordBreak = 'break-all';
+            contentArea.style.fontFamily = 'inherit';
+            contentArea.style.fontSize = '16px';
+            contentArea.style.background = '#000';
+            contentArea.style.color = '#fff';
+
+            // 递归移除所有子元素的 max-height/overflow 限制
+            contentArea.querySelectorAll('*').forEach(el => {
+                el.style.maxHeight = 'none';
+                el.style.overflow = 'visible';
+                el.style.background = 'transparent';
+                el.style.color = '#fff';
+            });
 
             // 添加时间戳
             this.updateTimestamp(new Date(timestamp));
@@ -227,8 +240,6 @@ class SimpleWebClient {
             console.log('📏 容器高度:', container.scrollHeight, 'px');
             console.log('📏 视口高度:', container.clientHeight, 'px');
             console.log('📏 滚动位置:', container.scrollTop, 'px');
-
-            this.updateStatus('已连接 - 同步正常', 'connected');
         }
     }
 

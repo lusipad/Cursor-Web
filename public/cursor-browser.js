@@ -484,7 +484,7 @@ class CursorSync {
         // 启动 HTTP 同步
         this.syncInterval = setInterval(() => {
             this.syncContent();
-        }, 5000); // 每 5 秒同步一次
+        }, 1000); // 每 1 秒同步一次
 
         console.log('🔄 HTTP 同步已启动');
     }
