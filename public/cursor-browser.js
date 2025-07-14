@@ -451,6 +451,7 @@ class CursorSync {
         this.retryCount = 0;
         this.wsRetryCount = 0;
         this.maxRetries = 3;
+        this.clearTimestamp = null; // 添加清除时间戳
         this.init();
     }
 
@@ -543,13 +544,22 @@ class CursorSync {
         if (contentLength === 0) {
             return null;
         }
+        
+        const timestamp = Date.now();
+        
+        // 检查是否需要过滤清除时间点之前的内容
+        if (this.clearTimestamp && timestamp < this.clearTimestamp) {
+            console.log('⏰ 跳过清理时间点之前的内容:', new Date(timestamp).toLocaleTimeString());
+            return null;
+        }
+        
         this.lastContent = text;
         return {
             html: html,
             text: text,
             contentLength: contentLength,
             url: window.location.href,
-            timestamp: Date.now()
+            timestamp: timestamp
         };
     }
 
@@ -595,6 +605,10 @@ class CursorSync {
                 break;
             case 'clear_content':
                 console.log('🧹 收到清空内容指令');
+                this.clearTimestamp = message.timestamp || Date.now();
+                console.log('⏰ 设置Cursor端清除时间戳:', new Date(this.clearTimestamp).toLocaleString());
+                // 清空当前内容缓存
+                this.lastContent = '';
                 break;
             default:
                 console.log('❓ 未知消息类型：', message.type);

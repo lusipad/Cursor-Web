@@ -11,6 +11,7 @@ const wss = new WebSocketServer({ server });
 
 let currentChatContent = '';
 let connectedClients = new Set();
+let globalClearTimestamp = null; // 添加全局清除时间戳
 
 // 初始化 Git 实例
 const git = simpleGit(process.cwd());
@@ -67,6 +68,18 @@ app.post('/api/content', (req, res) => {
         const { type, data } = req.body;
 
         if (type === 'html_content' && data) {
+            // 检查是否需要过滤清除时间点之前的内容
+            if (globalClearTimestamp && data.timestamp && data.timestamp < globalClearTimestamp) {
+                console.log('⏰ 服务器端过滤清除时间点之前的内容:', new Date(data.timestamp).toLocaleTimeString());
+                res.json({
+                    success: true,
+                    message: '内容已过滤（清除时间点之前）',
+                    filtered: true,
+                    timestamp: Date.now()
+                });
+                return;
+            }
+            
             currentChatContent = data.html;
             console.log(`📥 HTTP 接收内容：${data.html.length} 字符`);
             console.log(`📊 来源：${data.url || 'unknown'}`);
@@ -383,13 +396,12 @@ wss.on('connection', (ws, req) => {
 
                 case 'clear_content':
                     currentChatContent = '';
+                    globalClearTimestamp = message.timestamp || Date.now();
                     console.log('🧹 收到清除内容请求，已清空内容');
-                    if (message.timestamp) {
-                        console.log('⏱️ 同时设置清除时间戳:', new Date(message.timestamp).toLocaleString());
-                    }
+                    console.log('⏱️ 服务器设置清除时间戳:', new Date(globalClearTimestamp).toLocaleString());
                     broadcastToWebSocketClients({
                         type: 'clear_content',
-                        timestamp: message.timestamp || Date.now()
+                        timestamp: globalClearTimestamp
                     });
                     break;
 
