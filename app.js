@@ -300,6 +300,12 @@ wss.on('connection', (ws, req) => {
     console.log(`📱 新 WebSocket 客户端连接：${clientIP}`);
 
     connectedClients.add(ws);
+    
+    // 设置心跳机制
+    ws.isAlive = true;
+    ws.on('pong', () => {
+        ws.isAlive = true;
+    });
 
     // 发送当前聊天内容（如果有）
     if (currentChatContent) {
@@ -440,12 +446,22 @@ function broadcastToWebSocketClients(message, sender) {
     }
 }
 
-// 定期清理断开的连接
+// 定期清理断开的连接和心跳检测
 setInterval(() => {
     const activeClients = new Set();
 
     connectedClients.forEach(client => {
         if (client.readyState === client.OPEN) {
+            if (client.isAlive === false) {
+                // 客户端未响应心跳，断开连接
+                console.log('💔 客户端心跳超时，断开连接');
+                client.terminate();
+                return;
+            }
+            
+            // 发送心跳包
+            client.isAlive = false;
+            client.ping();
             activeClients.add(client);
         }
     });
@@ -458,9 +474,12 @@ setInterval(() => {
 
 // 启动服务器
 const PORT = 3000;
-server.listen(PORT, () => {
+const HOST = '0.0.0.0'; // 允许所有IP访问，支持局域网连接
+
+server.listen(PORT, HOST, () => {
     console.log('🚀 Claude Web 服务器已启动！');
     console.log(`📍 本地访问：http://localhost:${PORT}`);
+    console.log(`🌐 局域网访问：http://${getLocalIP()}:${PORT}`);
     console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
     console.log(`📡 HTTP API: http://localhost:${PORT}/api/`);
     console.log('📊 服务器状态：等待连接...\n');
@@ -471,6 +490,22 @@ server.listen(PORT, () => {
     console.log('  - 发送内容：POST /api/content');
     console.log('  - 获取状态：GET /api/status\n');
 });
+
+// 获取本机IP地址
+function getLocalIP() {
+    const { networkInterfaces } = require('os');
+    const nets = networkInterfaces();
+    
+    for (const name of Object.keys(nets)) {
+        for (const net of nets[name]) {
+            // 跳过非IPv4和内部地址
+            if (net.family === 'IPv4' && !net.internal) {
+                return net.address;
+            }
+        }
+    }
+    return 'localhost';
+}
 
 // 优雅关闭
 process.on('SIGINT', () => {

@@ -29,12 +29,18 @@ class SimpleWebClient {
             this.ws.close();
         }
 
-        const wsUrl = 'ws://localhost:3000';
+        // 动态获取WebSocket URL，支持局域网访问
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = window.location.hostname;
+        const port = window.location.port || '3000';
+        const wsUrl = `${protocol}//${host}:${port}`;
+        
         console.log('🔌 尝试连接WebSocket:', wsUrl);
         this.updateStatus('正在连接...', 'connecting');
 
         this.ws = new WebSocket(wsUrl);
 
+        // 自动重连设置
         this.ws.onopen = () => {
             console.log('✅ WebSocket 连接成功');
             this.reconnectAttempts = 0;
@@ -63,6 +69,10 @@ class SimpleWebClient {
                     const ts = document.querySelector('.last-update');
                     if (ts) ts.textContent = '';
                 }
+                if (data.type === 'pong') {
+                    // 处理心跳响应
+                    console.log('💓 收到心跳响应');
+                }
             } catch (error) {
                 console.error('WebSocket 消息处理错误:', error);
             }
@@ -74,7 +84,7 @@ class SimpleWebClient {
             this.stopStatusCheck();
 
             if (event.code !== 1000) {
-                this.updateStatus('连接断开', 'disconnected');
+                this.updateStatus('连接断开 - 正在重连...', 'disconnected');
                 this.attemptReconnect();
             }
         };
@@ -112,15 +122,45 @@ class SimpleWebClient {
     attemptReconnect() {
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
-            console.log(`🔄 尝试重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+            const delay = this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1); // 指数退避
+            console.log(`🔄 尝试重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})，${delay/1000}秒后重试...`);
+            this.updateStatus(`正在重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})`, 'reconnecting');
 
             setTimeout(() => {
                 this.connectWebSocket();
-            }, this.reconnectDelay);
+            }, delay);
         } else {
             console.log('❌ 重连失败，已达到最大尝试次数');
-            this.updateStatus('连接失败', 'error');
+            this.updateStatus('连接失败 - 请刷新页面', 'error');
+            
+            // 提供手动重连按钮
+            this.showReconnectButton();
         }
+    }
+
+    // 显示手动重连按钮
+    showReconnectButton() {
+        const statusEl = document.getElementById('status');
+        if (!statusEl) return;
+
+        const reconnectBtn = document.createElement('button');
+        reconnectBtn.textContent = '点击重连';
+        reconnectBtn.style.cssText = `
+            margin-left: 10px;
+            padding: 5px 10px;
+            background: #007cba;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        `;
+        reconnectBtn.onclick = () => {
+            this.reconnectAttempts = 0;
+            this.connectWebSocket();
+            reconnectBtn.remove();
+        };
+        
+        statusEl.appendChild(reconnectBtn);
     }
 
     // 轮询获取内容（备用方案）
