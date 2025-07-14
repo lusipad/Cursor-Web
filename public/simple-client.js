@@ -64,6 +64,11 @@ class SimpleWebClient {
                 }
                 if (data.type === 'clear_content') {
                     this.currentContent = '';
+                    // 同步清除时间戳
+                    if (data.timestamp) {
+                        this.clearTimestamp = data.timestamp;
+                        console.log('🧹 同步清除时间戳:', new Date(data.timestamp).toLocaleTimeString());
+                    }
                     const contentArea = document.querySelector('.sync-content');
                     if (contentArea) contentArea.innerHTML = '';
                     const ts = document.querySelector('.last-update');
@@ -226,9 +231,12 @@ class SimpleWebClient {
 
         const { html, timestamp } = contentData;
 
-        // 🕐 检查是否需要过滤时间点之前的内容
+        // 检查是否需要过滤清除时间点之前的内容
         if (this.clearTimestamp && timestamp < this.clearTimestamp) {
             console.log('⏰ 跳过清理时间点之前的内容:', new Date(timestamp).toLocaleTimeString());
+            console.log('📊 时间戳比较: 内容时间戳 < 清除时间戳 =', timestamp < this.clearTimestamp);
+            console.log('📊 清除时间戳:', new Date(this.clearTimestamp).toLocaleTimeString());
+            console.log('📊 内容时间戳:', new Date(timestamp).toLocaleTimeString());
             return;
         }
 
@@ -471,7 +479,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // 通知服务器清空内容
             if (window.simpleClient && window.simpleClient.ws && window.simpleClient.ws.readyState === WebSocket.OPEN) {
-                window.simpleClient.ws.send(JSON.stringify({ type: 'clear_content' }));
+                window.simpleClient.ws.send(JSON.stringify({ 
+                    type: 'clear_content',
+                    timestamp: now
+                }));
+                console.log('📡 发送清除消息到服务器，时间戳:', new Date(now).toLocaleTimeString());
             }
 
             // 显示清理确认信息
@@ -532,12 +544,13 @@ window.debugClearStatus = () => {
     }
 
     const client = window.simpleClient;
+    const now = Date.now();
     console.log('🧹 清理状态调试信息：');
     console.log('  - 清理时间点:', client.clearTimestamp ? new Date(client.clearTimestamp).toLocaleString() : '未设置');
-    console.log('  - 当前时间:', new Date().toLocaleString());
+    console.log('  - 当前时间:', new Date(now).toLocaleString());
 
     if (client.clearTimestamp) {
-        const timeDiff = Date.now() - client.clearTimestamp;
+        const timeDiff = now - client.clearTimestamp;
         console.log('  - 距离清理时间:', Math.floor(timeDiff / 1000), '秒');
         console.log('  - 是否已清理:', timeDiff > 0 ? '是' : '否');
     }
@@ -548,8 +561,50 @@ window.debugClearStatus = () => {
     if (clearStatusEl) {
         console.log('  - 清理状态文本:', clearStatusEl.textContent);
     }
+    
+    // 测试时间戳比较
+    const testTimestamp = now;
+    console.log('  - 测试时间戳比较 (当前时间):', testTimestamp < client.clearTimestamp ? '会被过滤' : '不会被过滤');
+    
+    // 检查Cursor端状态
+    if (window.cursorSync) {
+        console.log('  - Cursor端清理时间戳:', window.cursorSync.clearTimestamp ? new Date(window.cursorSync.clearTimestamp).toLocaleString() : '未设置');
+    }
+};
+
+// 添加强制清除功能
+window.forceClear = () => {
+    if (!window.simpleClient) {
+        console.log('❌ simpleClient 未初始化');
+        return;
+    }
+    
+    const now = Date.now();
+    console.log('🧹 强制清除所有内容...');
+    
+    // 设置清除时间戳
+    window.simpleClient.clearTimestamp = now;
+    
+    // 清空界面
+    const contentArea = document.querySelector('.sync-content');
+    if (contentArea) contentArea.innerHTML = '';
+    
+    const ts = document.querySelector('.last-update');
+    if (ts) ts.textContent = '';
+    
+    // 发送清除消息
+    if (window.simpleClient.ws && window.simpleClient.ws.readyState === WebSocket.OPEN) {
+        window.simpleClient.ws.send(JSON.stringify({ 
+            type: 'clear_content',
+            timestamp: now
+        }));
+        console.log('📡 发送强制清除消息到服务器');
+    }
+    
+    console.log('✅ 强制清除完成');
 };
 
     console.log('✅ Simple Client JS 加载完成');
     console.log('💡 调试命令：debugWebClient() - 查看 Web 客户端状态');
     console.log('💡 调试命令：debugClearStatus() - 查看清理状态');
+    console.log('💡 调试命令：forceClear() - 强制清除所有内容');

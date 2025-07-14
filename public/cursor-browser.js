@@ -549,7 +549,10 @@ class CursorSync {
         
         // 检查是否需要过滤清除时间点之前的内容
         if (this.clearTimestamp && timestamp < this.clearTimestamp) {
-            console.log('⏰ 跳过清理时间点之前的内容:', new Date(timestamp).toLocaleTimeString());
+            console.log('⏰ Cursor端跳过清理时间点之前的内容:', new Date(timestamp).toLocaleTimeString());
+            console.log('📊 时间戳比较: 内容时间戳 < 清除时间戳 =', timestamp < this.clearTimestamp);
+            console.log('📊 清除时间戳:', new Date(this.clearTimestamp).toLocaleTimeString());
+            console.log('📊 内容时间戳:', new Date(timestamp).toLocaleTimeString());
             return null;
         }
         
