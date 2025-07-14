@@ -232,67 +232,93 @@ class SimpleWebClient {
             return;
         }
 
-        if (html && html !== this.currentContent) {
-            this.currentContent = html;
+        if (html) {
+            // 改进的内容变化检测 - 不仅比较内容，还比较长度和时间戳
+            const contentChanged = html !== this.currentContent;
+            const lengthChanged = html.length !== this.currentContent.length;
+            const forceUpdate = timestamp && (!this.lastContentTime || timestamp > this.lastContentTime);
+            
+            if (contentChanged || lengthChanged || forceUpdate) {
+                console.log('🔄 内容更新触发:', { 
+                    contentChanged, 
+                    lengthChanged, 
+                    forceUpdate,
+                    oldLength: this.currentContent.length,
+                    newLength: html.length
+                });
+                
+                this.currentContent = html;
 
-            // 清除欢迎消息
-            const welcome = container.querySelector('.welcome-message');
-            if (welcome) {
-                welcome.remove();
+                // 清除欢迎消息
+                const welcome = container.querySelector('.welcome-message');
+                if (welcome) {
+                    welcome.remove();
+                }
+
+                // 创建内容区域
+                let contentArea = container.querySelector('.sync-content');
+                if (!contentArea) {
+                    contentArea = document.createElement('div');
+                    contentArea.className = 'sync-content';
+                    container.appendChild(contentArea);
+                }
+
+                // 更新内容
+                contentArea.innerHTML = html;
+
+                // 强制设置样式，保证格式
+                contentArea.style.overflow = 'auto';
+                contentArea.style.whiteSpace = 'pre-wrap';
+                contentArea.style.wordBreak = 'break-all';
+                contentArea.style.fontFamily = 'inherit';
+                contentArea.style.fontSize = '16px';
+                contentArea.style.background = '#000';
+                contentArea.style.color = '#fff';
+
+                // 递归移除所有子元素的 max-height/overflow 限制
+                contentArea.querySelectorAll('*').forEach(el => {
+                    el.style.maxHeight = 'none';
+                    el.style.overflow = 'visible';
+                    el.style.background = 'transparent';
+                    el.style.color = '#fff';
+                });
+
+                // 添加时间戳
+                this.updateTimestamp(new Date(timestamp));
+
+                // 🔄 自动滚动到底部
+                this.scrollToBottom(container);
+
+                console.log('✅ 内容已更新，长度:', html.length);
+                console.log('📊 内容预览:', html.substring(0, 200) + '...');
+                console.log('📏 容器高度:', container.scrollHeight, 'px');
+                console.log('📏 视口高度:', container.clientHeight, 'px');
+                console.log('📏 滚动位置:', container.scrollTop, 'px');
+            } else {
+                console.log('📋 内容无变化，跳过更新');
             }
-
-            // 创建内容区域
-            let contentArea = container.querySelector('.sync-content');
-            if (!contentArea) {
-                contentArea = document.createElement('div');
-                contentArea.className = 'sync-content';
-                container.appendChild(contentArea);
-            }
-
-            // 更新内容
-            contentArea.innerHTML = html;
-
-            // 强制设置样式，保证格式
-            contentArea.style.overflow = 'auto';
-            contentArea.style.whiteSpace = 'pre-wrap';
-            contentArea.style.wordBreak = 'break-all';
-            contentArea.style.fontFamily = 'inherit';
-            contentArea.style.fontSize = '16px';
-            contentArea.style.background = '#000';
-            contentArea.style.color = '#fff';
-
-            // 递归移除所有子元素的 max-height/overflow 限制
-            contentArea.querySelectorAll('*').forEach(el => {
-                el.style.maxHeight = 'none';
-                el.style.overflow = 'visible';
-                el.style.background = 'transparent';
-                el.style.color = '#fff';
-            });
-
-            // 添加时间戳
-            this.updateTimestamp(new Date(timestamp));
-
-            // 🔄 自动滚动到底部
-            this.scrollToBottom(container);
-
-            console.log('✅ 内容已更新，长度:', html.length);
-            console.log('📊 内容预览:', html.substring(0, 200) + '...');
-            console.log('📏 容器高度:', container.scrollHeight, 'px');
-            console.log('📏 视口高度:', container.clientHeight, 'px');
-            console.log('📏 滚动位置:', container.scrollTop, 'px');
         }
     }
 
     // 滚动到底部
     scrollToBottom(container) {
+        // 立即滚动，不等待
+        try {
+            container.scrollTop = container.scrollHeight;
+            console.log('📜 已滚动到底部，新位置:', container.scrollTop);
+        } catch (error) {
+            console.warn('滚动失败:', error);
+        }
+        
+        // 延迟再次确认滚动（确保内容完全渲染）
         setTimeout(() => {
             try {
                 container.scrollTop = container.scrollHeight;
-                console.log('📜 已滚动到底部，新位置:', container.scrollTop);
+                console.log('📜 确认滚动到底部，最终位置:', container.scrollTop);
             } catch (error) {
-                console.warn('滚动失败:', error);
+                console.warn('确认滚动失败:', error);
             }
-        }, 100); // 延迟确保内容已渲染
+        }, 50); // 减少延迟从100ms到50ms
     }
 
     // 简单的HTML清理

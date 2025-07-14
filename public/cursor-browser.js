@@ -494,7 +494,6 @@ class CursorSync {
             const contentPayload = this.getContent();
             console.log('准备同步内容：', contentPayload);
             if (!contentPayload) {
-                console.warn('未获取到内容载荷，跳过同步');
                 return;
             }
             const response = await fetch(`${this.serverUrl}/api/content`, {
@@ -542,7 +541,6 @@ class CursorSync {
         const contentLength = text.length;
         console.log('采集 innerHTML 长度：', html.length, 'textContent 长度：', text.length);
         if (contentLength === 0) {
-            console.warn('内容为空，不推送');
             return null;
         }
         this.lastContent = text;
