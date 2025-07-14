@@ -11,6 +11,7 @@ const wss = new WebSocketServer({ server });
 
 let currentChatContent = '';
 let connectedClients = new Set();
+let globalClearTimestamp = null; // 添加全局清除时间戳
 
 // 初始化 Git 实例
 const git = simpleGit(process.cwd());
@@ -67,6 +68,18 @@ app.post('/api/content', (req, res) => {
         const { type, data } = req.body;
 
         if (type === 'html_content' && data) {
+            // 检查是否需要过滤清除时间点之前的内容
+            if (globalClearTimestamp && data.timestamp && data.timestamp < globalClearTimestamp) {
+                console.log('⏰ 服务器端过滤清除时间点之前的内容:', new Date(data.timestamp).toLocaleTimeString());
+                res.json({
+                    success: true,
+                    message: '内容已过滤（清除时间点之前）',
+                    filtered: true,
+                    timestamp: Date.now()
+                });
+                return;
+            }
+            
             currentChatContent = data.html;
             console.log(`📥 HTTP 接收内容：${data.html.length} 字符`);
             console.log(`📊 来源：${data.url || 'unknown'}`);
@@ -300,6 +313,12 @@ wss.on('connection', (ws, req) => {
     console.log(`📱 新 WebSocket 客户端连接：${clientIP}`);
 
     connectedClients.add(ws);
+    
+    // 设置心跳机制
+    ws.isAlive = true;
+    ws.on('pong', () => {
+        ws.isAlive = true;
+    });
 
     // 发送当前聊天内容（如果有）
     if (currentChatContent) {
@@ -377,13 +396,12 @@ wss.on('connection', (ws, req) => {
 
                 case 'clear_content':
                     currentChatContent = '';
+                    globalClearTimestamp = message.timestamp || Date.now();
                     console.log('🧹 收到清除内容请求，已清空内容');
-                    if (message.timestamp) {
-                        console.log('⏱️ 同时设置清除时间戳:', new Date(message.timestamp).toLocaleString());
-                    }
+                    console.log('⏱️ 服务器设置清除时间戳:', new Date(globalClearTimestamp).toLocaleString());
                     broadcastToWebSocketClients({
                         type: 'clear_content',
-                        timestamp: message.timestamp || Date.now()
+                        timestamp: globalClearTimestamp
                     });
                     break;
 
@@ -440,12 +458,22 @@ function broadcastToWebSocketClients(message, sender) {
     }
 }
 
-// 定期清理断开的连接
+// 定期清理断开的连接和心跳检测
 setInterval(() => {
     const activeClients = new Set();
 
     connectedClients.forEach(client => {
         if (client.readyState === client.OPEN) {
+            if (client.isAlive === false) {
+                // 客户端未响应心跳，断开连接
+                console.log('💔 客户端心跳超时，断开连接');
+                client.terminate();
+                return;
+            }
+            
+            // 发送心跳包
+            client.isAlive = false;
+            client.ping();
             activeClients.add(client);
         }
     });
@@ -458,9 +486,12 @@ setInterval(() => {
 
 // 启动服务器
 const PORT = 3000;
-server.listen(PORT, () => {
+const HOST = '0.0.0.0'; // 允许所有IP访问，支持局域网连接
+
+server.listen(PORT, HOST, () => {
     console.log('🚀 Claude Web 服务器已启动！');
     console.log(`📍 本地访问：http://localhost:${PORT}`);
+    console.log(`🌐 局域网访问：http://${getLocalIP()}:${PORT}`);
     console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
     console.log(`📡 HTTP API: http://localhost:${PORT}/api/`);
     console.log('📊 服务器状态：等待连接...\n');
@@ -472,11 +503,34 @@ server.listen(PORT, () => {
     console.log('  - 获取状态：GET /api/status\n');
 });
 
+// 获取本机IP地址
+function getLocalIP() {
+    const { networkInterfaces } = require('os');
+    const nets = networkInterfaces();
+    
+    for (const name of Object.keys(nets)) {
+        for (const net of nets[name]) {
+            // 跳过非IPv4和内部地址
+            if (net.family === 'IPv4' && !net.internal) {
+                return net.address;
+            }
+        }
+    }
+    return 'localhost';
+}
+
 // 优雅关闭
-process.on('SIGINT', () => {
-    console.log('\n🛑 正在关闭服务器...');
+function gracefulShutdown(signal) {
+    console.log(`\n🛑 收到 ${signal} 信号，正在关闭服务器...`);
+
+    // 设置强制退出超时
+    const forceExitTimeout = setTimeout(() => {
+        console.log('⏰ 强制退出超时，立即关闭');
+        process.exit(1);
+    }, 10000); // 10秒超时
 
     // 通知所有客户端
+    const clientClosePromises = [];
     connectedClients.forEach(client => {
         if (client.readyState === client.OPEN) {
             try {
@@ -484,15 +538,57 @@ process.on('SIGINT', () => {
                     type: 'server_shutdown',
                     message: '服务器正在关闭'
                 }));
-                client.close();
+                
+                // 创建客户端关闭Promise
+                const closePromise = new Promise((resolve) => {
+                    client.on('close', resolve);
+                    client.close();
+                    // 设置客户端关闭超时
+                    setTimeout(resolve, 1000);
+                });
+                clientClosePromises.push(closePromise);
             } catch (error) {
-                // 忽略关闭时的错误
+                console.log('⚠️ 关闭客户端时出错:', error.message);
             }
         }
     });
 
-    server.close(() => {
-        console.log('✅ 服务器已关闭');
-        process.exit(0);
+    // 等待所有客户端关闭
+    Promise.allSettled(clientClosePromises).then(() => {
+        console.log('📱 所有客户端已断开');
+        
+        // 关闭服务器
+        server.close((err) => {
+            clearTimeout(forceExitTimeout);
+            if (err) {
+                console.log('❌ 服务器关闭失败:', err.message);
+                process.exit(1);
+            } else {
+                console.log('✅ 服务器已优雅关闭');
+                process.exit(0);
+            }
+        });
     });
+
+    // 如果服务器关闭超时，强制关闭
+    setTimeout(() => {
+        console.log('⏰ 服务器关闭超时，强制关闭');
+        clearTimeout(forceExitTimeout);
+        process.exit(1);
+    }, 5000);
+}
+
+// 监听关闭信号
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+// 处理未捕获的异常
+process.on('uncaughtException', (error) => {
+    console.error('💥 未捕获的异常:', error);
+    gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('💥 未处理的Promise拒绝:', reason);
+    gracefulShutdown('unhandledRejection');
 });

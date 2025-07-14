@@ -29,12 +29,18 @@ class SimpleWebClient {
             this.ws.close();
         }
 
-        const wsUrl = 'ws://localhost:3000';
+        // 动态获取WebSocket URL，支持局域网访问
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = window.location.hostname;
+        const port = window.location.port || '3000';
+        const wsUrl = `${protocol}//${host}:${port}`;
+        
         console.log('🔌 尝试连接WebSocket:', wsUrl);
         this.updateStatus('正在连接...', 'connecting');
 
         this.ws = new WebSocket(wsUrl);
 
+        // 自动重连设置
         this.ws.onopen = () => {
             console.log('✅ WebSocket 连接成功');
             this.reconnectAttempts = 0;
@@ -58,10 +64,19 @@ class SimpleWebClient {
                 }
                 if (data.type === 'clear_content') {
                     this.currentContent = '';
+                    // 同步清除时间戳
+                    if (data.timestamp) {
+                        this.clearTimestamp = data.timestamp;
+                        console.log('🧹 同步清除时间戳:', new Date(data.timestamp).toLocaleTimeString());
+                    }
                     const contentArea = document.querySelector('.sync-content');
                     if (contentArea) contentArea.innerHTML = '';
                     const ts = document.querySelector('.last-update');
                     if (ts) ts.textContent = '';
+                }
+                if (data.type === 'pong') {
+                    // 处理心跳响应
+                    console.log('💓 收到心跳响应');
                 }
             } catch (error) {
                 console.error('WebSocket 消息处理错误:', error);
@@ -74,7 +89,7 @@ class SimpleWebClient {
             this.stopStatusCheck();
 
             if (event.code !== 1000) {
-                this.updateStatus('连接断开', 'disconnected');
+                this.updateStatus('连接断开 - 正在重连...', 'disconnected');
                 this.attemptReconnect();
             }
         };
@@ -112,15 +127,45 @@ class SimpleWebClient {
     attemptReconnect() {
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
-            console.log(`🔄 尝试重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+            const delay = this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1); // 指数退避
+            console.log(`🔄 尝试重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})，${delay/1000}秒后重试...`);
+            this.updateStatus(`正在重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})`, 'reconnecting');
 
             setTimeout(() => {
                 this.connectWebSocket();
-            }, this.reconnectDelay);
+            }, delay);
         } else {
             console.log('❌ 重连失败，已达到最大尝试次数');
-            this.updateStatus('连接失败', 'error');
+            this.updateStatus('连接失败 - 请刷新页面', 'error');
+            
+            // 提供手动重连按钮
+            this.showReconnectButton();
         }
+    }
+
+    // 显示手动重连按钮
+    showReconnectButton() {
+        const statusEl = document.getElementById('status');
+        if (!statusEl) return;
+
+        const reconnectBtn = document.createElement('button');
+        reconnectBtn.textContent = '点击重连';
+        reconnectBtn.style.cssText = `
+            margin-left: 10px;
+            padding: 5px 10px;
+            background: #007cba;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        `;
+        reconnectBtn.onclick = () => {
+            this.reconnectAttempts = 0;
+            this.connectWebSocket();
+            reconnectBtn.remove();
+        };
+        
+        statusEl.appendChild(reconnectBtn);
     }
 
     // 轮询获取内容（备用方案）
@@ -186,73 +231,102 @@ class SimpleWebClient {
 
         const { html, timestamp } = contentData;
 
-        // 🕐 检查是否需要过滤时间点之前的内容
+        // 检查是否需要过滤清除时间点之前的内容
         if (this.clearTimestamp && timestamp < this.clearTimestamp) {
             console.log('⏰ 跳过清理时间点之前的内容:', new Date(timestamp).toLocaleTimeString());
+            console.log('📊 时间戳比较: 内容时间戳 < 清除时间戳 =', timestamp < this.clearTimestamp);
+            console.log('📊 清除时间戳:', new Date(this.clearTimestamp).toLocaleTimeString());
+            console.log('📊 内容时间戳:', new Date(timestamp).toLocaleTimeString());
             return;
         }
 
-        if (html && html !== this.currentContent) {
-            this.currentContent = html;
+        if (html) {
+            // 改进的内容变化检测 - 不仅比较内容，还比较长度和时间戳
+            const contentChanged = html !== this.currentContent;
+            const lengthChanged = html.length !== this.currentContent.length;
+            const forceUpdate = timestamp && (!this.lastContentTime || timestamp > this.lastContentTime);
+            
+            if (contentChanged || lengthChanged || forceUpdate) {
+                console.log('🔄 内容更新触发:', { 
+                    contentChanged, 
+                    lengthChanged, 
+                    forceUpdate,
+                    oldLength: this.currentContent.length,
+                    newLength: html.length
+                });
+                
+                this.currentContent = html;
 
-            // 清除欢迎消息
-            const welcome = container.querySelector('.welcome-message');
-            if (welcome) {
-                welcome.remove();
+                // 清除欢迎消息
+                const welcome = container.querySelector('.welcome-message');
+                if (welcome) {
+                    welcome.remove();
+                }
+
+                // 创建内容区域
+                let contentArea = container.querySelector('.sync-content');
+                if (!contentArea) {
+                    contentArea = document.createElement('div');
+                    contentArea.className = 'sync-content';
+                    container.appendChild(contentArea);
+                }
+
+                // 更新内容
+                contentArea.innerHTML = html;
+
+                // 强制设置样式，保证格式
+                contentArea.style.overflow = 'auto';
+                contentArea.style.whiteSpace = 'pre-wrap';
+                contentArea.style.wordBreak = 'break-all';
+                contentArea.style.fontFamily = 'inherit';
+                contentArea.style.fontSize = '16px';
+                contentArea.style.background = '#000';
+                contentArea.style.color = '#fff';
+
+                // 递归移除所有子元素的 max-height/overflow 限制
+                contentArea.querySelectorAll('*').forEach(el => {
+                    el.style.maxHeight = 'none';
+                    el.style.overflow = 'visible';
+                    el.style.background = 'transparent';
+                    el.style.color = '#fff';
+                });
+
+                // 添加时间戳
+                this.updateTimestamp(new Date(timestamp));
+
+                // 🔄 自动滚动到底部
+                this.scrollToBottom(container);
+
+                console.log('✅ 内容已更新，长度:', html.length);
+                console.log('📊 内容预览:', html.substring(0, 200) + '...');
+                console.log('📏 容器高度:', container.scrollHeight, 'px');
+                console.log('📏 视口高度:', container.clientHeight, 'px');
+                console.log('📏 滚动位置:', container.scrollTop, 'px');
+            } else {
+                console.log('📋 内容无变化，跳过更新');
             }
-
-            // 创建内容区域
-            let contentArea = container.querySelector('.sync-content');
-            if (!contentArea) {
-                contentArea = document.createElement('div');
-                contentArea.className = 'sync-content';
-                container.appendChild(contentArea);
-            }
-
-            // 更新内容
-            contentArea.innerHTML = html;
-
-            // 强制设置样式，保证格式
-            contentArea.style.overflow = 'auto';
-            contentArea.style.whiteSpace = 'pre-wrap';
-            contentArea.style.wordBreak = 'break-all';
-            contentArea.style.fontFamily = 'inherit';
-            contentArea.style.fontSize = '16px';
-            contentArea.style.background = '#000';
-            contentArea.style.color = '#fff';
-
-            // 递归移除所有子元素的 max-height/overflow 限制
-            contentArea.querySelectorAll('*').forEach(el => {
-                el.style.maxHeight = 'none';
-                el.style.overflow = 'visible';
-                el.style.background = 'transparent';
-                el.style.color = '#fff';
-            });
-
-            // 添加时间戳
-            this.updateTimestamp(new Date(timestamp));
-
-            // 🔄 自动滚动到底部
-            this.scrollToBottom(container);
-
-            console.log('✅ 内容已更新，长度:', html.length);
-            console.log('📊 内容预览:', html.substring(0, 200) + '...');
-            console.log('📏 容器高度:', container.scrollHeight, 'px');
-            console.log('📏 视口高度:', container.clientHeight, 'px');
-            console.log('📏 滚动位置:', container.scrollTop, 'px');
         }
     }
 
     // 滚动到底部
     scrollToBottom(container) {
+        // 立即滚动，不等待
+        try {
+            container.scrollTop = container.scrollHeight;
+            console.log('📜 已滚动到底部，新位置:', container.scrollTop);
+        } catch (error) {
+            console.warn('滚动失败:', error);
+        }
+        
+        // 延迟再次确认滚动（确保内容完全渲染）
         setTimeout(() => {
             try {
                 container.scrollTop = container.scrollHeight;
-                console.log('📜 已滚动到底部，新位置:', container.scrollTop);
+                console.log('📜 确认滚动到底部，最终位置:', container.scrollTop);
             } catch (error) {
-                console.warn('滚动失败:', error);
+                console.warn('确认滚动失败:', error);
             }
-        }, 100); // 延迟确保内容已渲染
+        }, 50); // 减少延迟从100ms到50ms
     }
 
     // 简单的HTML清理
@@ -405,7 +479,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // 通知服务器清空内容
             if (window.simpleClient && window.simpleClient.ws && window.simpleClient.ws.readyState === WebSocket.OPEN) {
-                window.simpleClient.ws.send(JSON.stringify({ type: 'clear_content' }));
+                window.simpleClient.ws.send(JSON.stringify({ 
+                    type: 'clear_content',
+                    timestamp: now
+                }));
+                console.log('📡 发送清除消息到服务器，时间戳:', new Date(now).toLocaleTimeString());
             }
 
             // 显示清理确认信息
@@ -466,12 +544,13 @@ window.debugClearStatus = () => {
     }
 
     const client = window.simpleClient;
+    const now = Date.now();
     console.log('🧹 清理状态调试信息：');
     console.log('  - 清理时间点:', client.clearTimestamp ? new Date(client.clearTimestamp).toLocaleString() : '未设置');
-    console.log('  - 当前时间:', new Date().toLocaleString());
+    console.log('  - 当前时间:', new Date(now).toLocaleString());
 
     if (client.clearTimestamp) {
-        const timeDiff = Date.now() - client.clearTimestamp;
+        const timeDiff = now - client.clearTimestamp;
         console.log('  - 距离清理时间:', Math.floor(timeDiff / 1000), '秒');
         console.log('  - 是否已清理:', timeDiff > 0 ? '是' : '否');
     }
@@ -482,8 +561,50 @@ window.debugClearStatus = () => {
     if (clearStatusEl) {
         console.log('  - 清理状态文本:', clearStatusEl.textContent);
     }
+    
+    // 测试时间戳比较
+    const testTimestamp = now;
+    console.log('  - 测试时间戳比较 (当前时间):', testTimestamp < client.clearTimestamp ? '会被过滤' : '不会被过滤');
+    
+    // 检查Cursor端状态
+    if (window.cursorSync) {
+        console.log('  - Cursor端清理时间戳:', window.cursorSync.clearTimestamp ? new Date(window.cursorSync.clearTimestamp).toLocaleString() : '未设置');
+    }
+};
+
+// 添加强制清除功能
+window.forceClear = () => {
+    if (!window.simpleClient) {
+        console.log('❌ simpleClient 未初始化');
+        return;
+    }
+    
+    const now = Date.now();
+    console.log('🧹 强制清除所有内容...');
+    
+    // 设置清除时间戳
+    window.simpleClient.clearTimestamp = now;
+    
+    // 清空界面
+    const contentArea = document.querySelector('.sync-content');
+    if (contentArea) contentArea.innerHTML = '';
+    
+    const ts = document.querySelector('.last-update');
+    if (ts) ts.textContent = '';
+    
+    // 发送清除消息
+    if (window.simpleClient.ws && window.simpleClient.ws.readyState === WebSocket.OPEN) {
+        window.simpleClient.ws.send(JSON.stringify({ 
+            type: 'clear_content',
+            timestamp: now
+        }));
+        console.log('📡 发送强制清除消息到服务器');
+    }
+    
+    console.log('✅ 强制清除完成');
 };
 
     console.log('✅ Simple Client JS 加载完成');
     console.log('💡 调试命令：debugWebClient() - 查看 Web 客户端状态');
     console.log('💡 调试命令：debugClearStatus() - 查看清理状态');
+    console.log('💡 调试命令：forceClear() - 强制清除所有内容');
