@@ -520,10 +520,17 @@ function getLocalIP() {
 }
 
 // 优雅关闭
-process.on('SIGINT', () => {
-    console.log('\n🛑 正在关闭服务器...');
+function gracefulShutdown(signal) {
+    console.log(`\n🛑 收到 ${signal} 信号，正在关闭服务器...`);
+
+    // 设置强制退出超时
+    const forceExitTimeout = setTimeout(() => {
+        console.log('⏰ 强制退出超时，立即关闭');
+        process.exit(1);
+    }, 10000); // 10秒超时
 
     // 通知所有客户端
+    const clientClosePromises = [];
     connectedClients.forEach(client => {
         if (client.readyState === client.OPEN) {
             try {
@@ -531,15 +538,57 @@ process.on('SIGINT', () => {
                     type: 'server_shutdown',
                     message: '服务器正在关闭'
                 }));
-                client.close();
+                
+                // 创建客户端关闭Promise
+                const closePromise = new Promise((resolve) => {
+                    client.on('close', resolve);
+                    client.close();
+                    // 设置客户端关闭超时
+                    setTimeout(resolve, 1000);
+                });
+                clientClosePromises.push(closePromise);
             } catch (error) {
-                // 忽略关闭时的错误
+                console.log('⚠️ 关闭客户端时出错:', error.message);
             }
         }
     });
 
-    server.close(() => {
-        console.log('✅ 服务器已关闭');
-        process.exit(0);
+    // 等待所有客户端关闭
+    Promise.allSettled(clientClosePromises).then(() => {
+        console.log('📱 所有客户端已断开');
+        
+        // 关闭服务器
+        server.close((err) => {
+            clearTimeout(forceExitTimeout);
+            if (err) {
+                console.log('❌ 服务器关闭失败:', err.message);
+                process.exit(1);
+            } else {
+                console.log('✅ 服务器已优雅关闭');
+                process.exit(0);
+            }
+        });
     });
+
+    // 如果服务器关闭超时，强制关闭
+    setTimeout(() => {
+        console.log('⏰ 服务器关闭超时，强制关闭');
+        clearTimeout(forceExitTimeout);
+        process.exit(1);
+    }, 5000);
+}
+
+// 监听关闭信号
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+// 处理未捕获的异常
+process.on('uncaughtException', (error) => {
+    console.error('💥 未捕获的异常:', error);
+    gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('💥 未处理的Promise拒绝:', reason);
+    gracefulShutdown('unhandledRejection');
 });
