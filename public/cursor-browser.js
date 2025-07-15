@@ -610,13 +610,43 @@ class CursorSync {
                 console.log('🧹 收到清空内容指令');
                 this.clearTimestamp = message.timestamp || Date.now();
                 console.log('⏰ 设置Cursor端清除时间戳:', new Date(this.clearTimestamp).toLocaleString());
-                // 清空当前内容缓存
+                
+                // 🔄 完全重置 - 清空所有历史数据
                 this.lastContent = '';
+                
+                // 如果收到强制重置标志，进行完全重置
+                if (message.forceReset) {
+                    console.log('🔄 收到强制重置指令，完全重置状态');
+                    this.stopSync();
+                    setTimeout(() => {
+                        this.startSync();
+                    }, 100);
+                }
+                
                 // 🔄 立即强制同步空内容，确保两端都清空
                 this.forceSyncEmptyContent();
                 break;
             default:
                 console.log('❓ 未知消息类型：', message.type);
+        }
+    }
+
+    // 🔄 完全停止同步
+    stopSync() {
+        if (this.syncInterval) {
+            clearInterval(this.syncInterval);
+            this.syncInterval = null;
+            console.log('🛑 同步已停止');
+        }
+    }
+
+    // 🔄 重新开始同步
+    startSync() {
+        if (!this.syncInterval) {
+            this.syncInterval = setInterval(() => {
+                this.syncContent();
+            }, 1000);
+            console.log('🔄 同步已重新开始');
         }
     }
 
@@ -980,6 +1010,25 @@ window.forceCleanup = () => {
     }
 
     console.log('🧹 强制清理完成！');
+};
+
+// 🧹 完全清除Cursor端状态
+window.clearCursorState = () => {
+    if (!window.cursorSync) {
+        console.log('❌ cursorSync 未初始化');
+        return;
+    }
+    
+    console.log('🧹 清除Cursor端所有状态...');
+    
+    // 重置所有状态变量
+    window.cursorSync.lastContent = '';
+    window.cursorSync.clearTimestamp = Date.now();
+    
+    // 强制同步空内容
+    window.cursorSync.forceSyncEmptyContent();
+    
+    console.log('✅ Cursor端状态已清除');
 };
 
 // 完全重置并重新启动

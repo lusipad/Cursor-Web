@@ -324,27 +324,31 @@ app.post('/api/git/push', async (req, res) => {
     }
 });
 
-// 🧹 清除内容API
+// 🧹 清除内容API - 彻底重置
 app.post('/api/clear', (req, res) => {
     try {
         const { timestamp } = req.body;
         
-        // 设置清除时间戳
+        // 🔄 完全重置 - 清除所有历史数据
         globalClearTimestamp = timestamp || Date.now();
         currentChatContent = '';
         
-        console.log('🧹 收到清除请求，设置清除时间戳:', new Date(globalClearTimestamp).toLocaleString());
+        console.log('🧹 收到清除请求，完全重置所有内容');
+        console.log('⏰ 清除时间戳:', new Date(globalClearTimestamp).toLocaleString());
         
-        // 广播清除消息给所有客户端
+        // 广播清除消息给所有客户端，包含强制重置标志
         broadcastToWebSocketClients({
             type: 'clear_content',
-            timestamp: globalClearTimestamp
+            timestamp: globalClearTimestamp,
+            forceReset: true,
+            source: 'server'
         });
         
         res.json({
             success: true,
-            message: '内容已清空',
-            timestamp: globalClearTimestamp
+            message: '所有内容已清空并重置',
+            timestamp: globalClearTimestamp,
+            forceReset: true
         });
     } catch (error) {
         console.log('❌ 清除内容失败：', error.message);

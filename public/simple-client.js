@@ -430,6 +430,45 @@ class SimpleWebClient {
 
         console.log('🧹 清理确认信息已显示');
     }
+
+    // 🔄 完全重置客户端状态
+    resetClientState() {
+        console.log('🔄 重置客户端状态...');
+        
+        // 重置所有状态变量
+        this.currentContent = '';
+        this.hasReceivedContent = false;
+        this.lastContentTime = null;
+        this.clearTimestamp = Date.now();
+        
+        // 清空界面
+        const container = document.getElementById('messages-container');
+        if (container) {
+            // 移除所有内容，包括欢迎消息
+            container.innerHTML = '';
+            
+            // 重新添加欢迎消息
+            const welcome = document.createElement('div');
+            welcome.className = 'welcome-message';
+            welcome.innerHTML = `
+                <h2>欢迎使用 Claude Web</h2>
+                <p>状态说明：</p>
+                <p>🟡 <strong>已连接 - 等待Cursor内容</strong>：需要在Cursor中运行注入脚本</p>
+                <p>🟢 <strong>已连接 - 同步正常</strong>：内容同步工作正常</p>
+                <br>
+                <p class="instruction">使用方法：在 Cursor 开发者工具中运行同步脚本</p>
+                <a href="/script.html" class="btn btn-primary" style="display:inline-block;margin:10px 0;">前往一键复制同步脚本 &gt;&gt;</a>
+                <p class="instruction">脚本会同步整个Cursor页面内容到此页面</p>
+            `;
+            container.appendChild(welcome);
+        }
+        
+        // 清空时间戳
+        const ts = document.querySelector('.last-update');
+        if (ts) ts.textContent = '';
+        
+        console.log('✅ 客户端状态已重置');
+    }
 }
 
 // 页面加载完成后初始化
@@ -457,29 +496,22 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
-    // 清除按钮功能
+    // 清除按钮功能 - 完全重置
     if (clearBtn && sendInput) {
         clearBtn.addEventListener('click', async () => {
             sendInput.value = '';
             sendInput.focus();
 
-            // 🕐 记录清理时间点
             const now = Date.now();
+            console.log('🧹 开始完全清除...');
+
+            // 🔄 先重置客户端状态
             if (window.simpleClient) {
-                window.simpleClient.clearTimestamp = now;
-                console.log('🧹 设置清理时间点:', new Date(now).toLocaleTimeString());
+                window.simpleClient.resetClientState();
             }
 
-            // 清空聊天内容区域
-            const contentArea = document.querySelector('.sync-content');
-            if (contentArea) contentArea.innerHTML = '';
-
-            // 清空时间戳
-            const ts = document.querySelector('.last-update');
-            if (ts) ts.textContent = '';
-
             try {
-                // 🧹 使用新的清除API，确保服务器端也清空
+                // 🧹 使用新的清除API，确保服务器端完全重置
                 const response = await fetch('/api/clear', {
                     method: 'POST',
                     headers: {
@@ -490,25 +522,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const data = await response.json();
                 if (data.success) {
-                    console.log('✅ 服务器端内容已清空');
+                    console.log('✅ 服务器端已完全重置');
                 }
             } catch (error) {
                 console.warn('⚠️ 清除服务器内容失败:', error);
-            }
-
-            // 通过WebSocket通知所有客户端
-            if (window.simpleClient && window.simpleClient.ws && window.simpleClient.ws.readyState === WebSocket.OPEN) {
-                window.simpleClient.ws.send(JSON.stringify({ 
-                    type: 'clear_content',
-                    timestamp: now
-                }));
-                console.log('📡 发送清除消息到服务器，时间戳:', new Date(now).toLocaleTimeString());
             }
 
             // 显示清理确认信息
             if (window.simpleClient) {
                 window.simpleClient.showClearNotification();
             }
+            
+            console.log('✅ 完全清除完成');
         });
     }
 });
@@ -637,7 +662,63 @@ window.forceClear = () => {
     }
 };
 
+// 完全重置系统
+window.completeReset = () => {
+    if (!window.simpleClient) {
+        console.log('❌ simpleClient 未初始化');
+        return;
+    }
+    
+    const now = Date.now();
+    console.log('🔄 开始完全重置系统...');
+    
+    // 重置客户端状态
+    window.simpleClient.resetClientState();
+    
+    // 使用新的清除API
+    fetch('/api/clear', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ timestamp: now })
+    }).catch(e => console.warn('清空服务器内容失败:', e));
+    
+    console.log('✅ 系统完全重置完成');
+    
+    // 显示确认信息
+    if (window.simpleClient) {
+        window.simpleClient.showClearNotification();
+    }
+};
+
+// 超级清除功能 - 完全重置所有状态
+window.superClear = () => {
+    console.log('🧹 启动超级清除模式...');
+    
+    // 清空所有可能的缓存
+    const clearAllCaches = () => {
+        // 清空localStorage
+        localStorage.clear();
+        sessionStorage.clear();
+        
+        // 清空浏览器缓存
+        if ('caches' in window) {
+            caches.keys().then(names => {
+                names.forEach(name => caches.delete(name));
+            });
+        }
+    };
+    
+    clearAllCaches();
+    window.completeReset();
+    
+    console.log('🎉 超级清除完成！');
+};
+
     console.log('✅ Simple Client JS 加载完成');
     console.log('💡 调试命令：debugWebClient() - 查看 Web 客户端状态');
     console.log('💡 调试命令：debugClearStatus() - 查看清理状态');
     console.log('💡 调试命令：forceClear() - 强制清除所有内容');
+    console.log('💡 调试命令：completeReset() - 完全重置系统');
+    console.log('💡 调试命令：superClear() - 超级清除（包括缓存）');
