@@ -399,26 +399,27 @@ class SimpleWebClient {
                 position: fixed;
                 top: 20px;
                 right: 20px;
-                background: #4CAF50;
+                background: #FF9800;
                 color: white;
-                padding: 10px 15px;
-                border-radius: 5px;
+                padding: 12px 16px;
+                border-radius: 6px;
                 font-size: 14px;
                 z-index: 1000;
                 box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-                animation: slideIn 0.3s ease-out;
+                font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             `;
             document.body.appendChild(clearStatusEl);
         }
 
         const clearTime = new Date(this.clearTimestamp).toLocaleTimeString();
-        clearStatusEl.textContent = `🧹 已清理 ${clearTime} 之前的所有消息`;
-        clearStatusEl.style.background = '#4CAF50';
+        clearStatusEl.textContent = `🧹 已清空所有内容`;
+        clearStatusEl.style.background = '#FF9800';
 
         // 3秒后自动隐藏
         setTimeout(() => {
             if (clearStatusEl && clearStatusEl.parentNode) {
-                clearStatusEl.style.animation = 'slideOut 0.3s ease-in';
+                clearStatusEl.style.opacity = '0';
+                clearStatusEl.style.transition = 'opacity 0.3s ease-out';
                 setTimeout(() => {
                     if (clearStatusEl && clearStatusEl.parentNode) {
                         clearStatusEl.remove();
@@ -458,7 +459,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     // 清除按钮功能
     if (clearBtn && sendInput) {
-        clearBtn.addEventListener('click', () => {
+        clearBtn.addEventListener('click', async () => {
             sendInput.value = '';
             sendInput.focus();
 
@@ -477,7 +478,25 @@ document.addEventListener('DOMContentLoaded', () => {
             const ts = document.querySelector('.last-update');
             if (ts) ts.textContent = '';
 
-            // 通知服务器清空内容
+            try {
+                // 🧹 使用新的清除API，确保服务器端也清空
+                const response = await fetch('/api/clear', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ timestamp: now })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    console.log('✅ 服务器端内容已清空');
+                }
+            } catch (error) {
+                console.warn('⚠️ 清除服务器内容失败:', error);
+            }
+
+            // 通过WebSocket通知所有客户端
             if (window.simpleClient && window.simpleClient.ws && window.simpleClient.ws.readyState === WebSocket.OPEN) {
                 window.simpleClient.ws.send(JSON.stringify({ 
                     type: 'clear_content',
@@ -601,7 +620,21 @@ window.forceClear = () => {
         console.log('📡 发送强制清除消息到服务器');
     }
     
+    // 使用新的清除API
+    fetch('/api/clear', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ timestamp: now })
+    }).catch(e => console.warn('清空服务器内容失败:', e));
+    
     console.log('✅ 强制清除完成');
+    
+    // 显示确认信息
+    if (window.simpleClient) {
+        window.simpleClient.showClearNotification();
+    }
 };
 
     console.log('✅ Simple Client JS 加载完成');

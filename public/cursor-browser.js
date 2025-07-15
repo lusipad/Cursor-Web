@@ -612,6 +612,8 @@ class CursorSync {
                 console.log('⏰ 设置Cursor端清除时间戳:', new Date(this.clearTimestamp).toLocaleString());
                 // 清空当前内容缓存
                 this.lastContent = '';
+                // 🔄 立即强制同步空内容，确保两端都清空
+                this.forceSyncEmptyContent();
                 break;
             default:
                 console.log('❓ 未知消息类型：', message.type);
@@ -876,6 +878,39 @@ class CursorSync {
                 notification.remove();
             }
         }, duration);
+    }
+
+    // 🔄 强制同步空内容，确保清除功能立即生效
+    async forceSyncEmptyContent() {
+        try {
+            console.log('🔄 强制同步空内容...');
+            const response = await fetch(`${this.serverUrl}/api/content`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    type: 'html_content',
+                    data: {
+                        html: '',
+                        text: '',
+                        contentLength: 0,
+                        url: window.location.href,
+                        timestamp: Date.now()
+                    }
+                })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                console.log('✅ 强制空内容同步成功:', data);
+                this.showNotification('🧹 已清空所有内容', '#FF9800', 3000);
+            } else {
+                console.error('❌ 强制空内容同步失败');
+            }
+        } catch (error) {
+            console.error('❌ 强制空内容同步错误:', error);
+        }
     }
 }
 

@@ -68,6 +68,23 @@ app.post('/api/content', (req, res) => {
         const { type, data } = req.body;
 
         if (type === 'html_content' && data) {
+            // 🧹 强制清空当前内容，防止旧内容残留
+            if (data.html === '' || data.contentLength === 0) {
+                console.log('🧹 收到空内容，强制清空');
+                currentChatContent = '';
+                broadcastToWebSocketClients({
+                    type: 'html_content',
+                    data: { html: '', timestamp: Date.now() }
+                });
+                res.json({
+                    success: true,
+                    message: '内容已清空',
+                    cleared: true,
+                    timestamp: Date.now()
+                });
+                return;
+            }
+
             // 检查是否需要过滤清除时间点之前的内容
             if (globalClearTimestamp && data.timestamp && data.timestamp < globalClearTimestamp) {
                 console.log('⏰ 服务器端过滤清除时间点之前的内容:', new Date(data.timestamp).toLocaleTimeString());
@@ -302,6 +319,38 @@ app.post('/api/git/push', async (req, res) => {
         res.status(500).json({
             success: false,
             message: '代码推送失败',
+            error: error.message
+        });
+    }
+});
+
+// 🧹 清除内容API
+app.post('/api/clear', (req, res) => {
+    try {
+        const { timestamp } = req.body;
+        
+        // 设置清除时间戳
+        globalClearTimestamp = timestamp || Date.now();
+        currentChatContent = '';
+        
+        console.log('🧹 收到清除请求，设置清除时间戳:', new Date(globalClearTimestamp).toLocaleString());
+        
+        // 广播清除消息给所有客户端
+        broadcastToWebSocketClients({
+            type: 'clear_content',
+            timestamp: globalClearTimestamp
+        });
+        
+        res.json({
+            success: true,
+            message: '内容已清空',
+            timestamp: globalClearTimestamp
+        });
+    } catch (error) {
+        console.log('❌ 清除内容失败：', error.message);
+        res.status(500).json({
+            success: false,
+            message: '清除内容失败',
             error: error.message
         });
     }
