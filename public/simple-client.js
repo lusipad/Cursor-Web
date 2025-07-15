@@ -271,17 +271,32 @@ class SimpleWebClient {
                     container.appendChild(contentArea);
                 }
 
-                // 更新内容
+                // 更新内容并处理可能的Apply按钮重叠
                 contentArea.innerHTML = html;
+                
+                // 移除独立的Apply按钮元素
+                contentArea.querySelectorAll('.apply-button, .copy-button, button').forEach(btn => {
+                    btn.style.display = 'none';
+                });
+                
+                // 清理文本节点中的Apply文本
+                const textNodes = contentArea.querySelectorAll('pre, code');
+                textNodes.forEach(node => {
+                    if (node.textContent && node.textContent.includes('Apply')) {
+                        node.textContent = node.textContent.replace(/\bApply\b/g, '').trim();
+                    }
+                });
 
                 // 强制设置样式，保证格式
                 contentArea.style.overflow = 'auto';
                 contentArea.style.whiteSpace = 'pre-wrap';
-                contentArea.style.wordBreak = 'break-all';
+                contentArea.style.wordBreak = 'normal';
+                contentArea.style.wordWrap = 'break-word';
                 contentArea.style.fontFamily = 'inherit';
                 contentArea.style.fontSize = '16px';
                 contentArea.style.background = '#000';
                 contentArea.style.color = '#fff';
+                contentArea.style.lineHeight = '1.6';
 
                 // 递归移除所有子元素的 max-height/overflow 限制
                 contentArea.querySelectorAll('*').forEach(el => {
@@ -289,6 +304,7 @@ class SimpleWebClient {
                     el.style.overflow = 'visible';
                     el.style.background = 'transparent';
                     el.style.color = '#fff';
+                    el.style.lineHeight = 'inherit';
                 });
 
                 // 添加时间戳

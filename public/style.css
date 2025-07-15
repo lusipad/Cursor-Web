@@ -129,9 +129,65 @@ body {
 .sync-content pre {
     background-color: rgba(255,255,255,0.1) !important;
     color: #ffffff !important;
-    padding: 4px 8px !important;
+    padding: 8px 12px !important;
     border-radius: 4px !important;
-    font-family: Monaco, Consolas, monospace !important;
+    font-family: Monaco, Consolas, 'Courier New', monospace !important;
+    line-height: 1.5 !important;
+    white-space: pre !important;
+    word-break: normal !important;
+    word-wrap: break-word !important;
+    overflow-x: auto !important;
+    display: block !important;
+    margin: 8px 0 !important;
+    min-height: 1.5em !important;
+    clear: both !important;
+}
+
+/* 防止文本重叠的额外样式 */
+.sync-content pre {
+    position: relative !important;
+    z-index: 1 !important;
+}
+
+.sync-content code {
+    position: relative !important;
+    z-index: 1 !important;
+}
+
+/* 处理Apply按钮重叠 */
+.sync-content pre:has(+ .apply-button),
+.sync-content pre + .apply-button {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+}
+
+/* 隐藏可能重叠的Apply文本 */
+.sync-content pre::after {
+    content: '' !important;
+    display: block !important;
+    clear: both !important;
+}
+
+/* 确保代码块容器有适当间距 */
+.sync-content .code-block-container {
+    position: relative !important;
+    margin: 8px 0 !important;
+    clear: both !important;
+}
+
+.sync-content pre code {
+    background-color: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    font-size: 14px !important;
+}
+
+.sync-content code {
+    background-color: rgba(255,255,255,0.15) !important;
+    padding: 2px 4px !important;
+    font-size: 0.9em !important;
+    display: inline !important;
+    margin: 0 !important;
 }
 
 .sync-content a {

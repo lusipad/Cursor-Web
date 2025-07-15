@@ -112,4 +112,7 @@ Thumbs.db
 
 # Project specific
 debug.log
-error.log 
+error.log
+
+
+.claude/
