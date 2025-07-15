@@ -606,6 +606,11 @@ class CursorSync {
             case 'pong':
                 // 心跳响应，无需处理
                 break;
+            case 'stop_sync':
+                console.log('🛑 收到停止同步指令');
+                this.stopSync();
+                this.showNotification('🛑 同步已停止（清除模式中）', '#FF9800', 3000);
+                break;
             case 'clear_content':
                 console.log('🧹 收到清空内容指令');
                 this.clearTimestamp = message.timestamp || Date.now();
@@ -614,17 +619,16 @@ class CursorSync {
                 // 🔄 完全重置 - 清空所有历史数据
                 this.lastContent = '';
                 
-                // 如果收到强制重置标志，进行完全重置
-                if (message.forceReset) {
-                    console.log('🔄 收到强制重置指令，完全重置状态');
-                    this.stopSync();
-                    setTimeout(() => {
-                        this.startSync();
-                    }, 100);
-                }
-                
                 // 🔄 立即强制同步空内容，确保两端都清空
                 this.forceSyncEmptyContent();
+                
+                // 显示清除确认
+                this.showNotification('🧹 内容已清空，同步已暂停', '#4CAF50', 3000);
+                break;
+            case 'resume_sync':
+                console.log('🔄 收到恢复同步指令');
+                this.startSync();
+                this.showNotification('🔄 同步已恢复', '#4CAF50', 2000);
                 break;
             default:
                 console.log('❓ 未知消息类型：', message.type);

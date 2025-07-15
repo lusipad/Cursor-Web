@@ -496,14 +496,14 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
-    // 清除按钮功能 - 完全重置
+    // 清除按钮功能 - 完全停止同步并清空
     if (clearBtn && sendInput) {
         clearBtn.addEventListener('click', async () => {
             sendInput.value = '';
             sendInput.focus();
 
             const now = Date.now();
-            console.log('🧹 开始完全清除...');
+            console.log('🧹 开始完全清除（停止同步）...');
 
             // 🔄 先重置客户端状态
             if (window.simpleClient) {
@@ -511,18 +511,18 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             try {
-                // 🧹 使用新的清除API，确保服务器端完全重置
+                // 🧹 使用新的清除API，停止同步并清空
                 const response = await fetch('/api/clear', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ timestamp: now })
+                    body: JSON.stringify({ timestamp: now, stopSync: true })
                 });
                 
                 const data = await response.json();
                 if (data.success) {
-                    console.log('✅ 服务器端已完全重置');
+                    console.log('✅ 服务器端已停止同步并清空');
                 }
             } catch (error) {
                 console.warn('⚠️ 清除服务器内容失败:', error);
@@ -533,9 +533,51 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.simpleClient.showClearNotification();
             }
             
-            console.log('✅ 完全清除完成');
+            console.log('✅ 完全清除完成（同步已停止）');
         });
-    }
+        
+        // 恢复同步按钮功能
+        const resumeBtn = document.getElementById('resume-btn');
+        if (resumeBtn) {
+            resumeBtn.addEventListener('click', async () => {
+                console.log('🔄 开始恢复同步...');
+                
+                try {
+                    const response = await fetch('/api/resume', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    const data = await response.json();
+                    if (data.success) {
+                        console.log('✅ 同步已恢复');
+                        
+                        // 显示恢复确认
+                        let notify = document.createElement('div');
+                        notify.style.cssText = `
+                            position: fixed;
+                            top: 20px;
+                            right: 20px;
+                            background: #4CAF50;
+                            color: white;
+                            padding: 12px 16px;
+                            border-radius: 6px;
+                            font-size: 14px;
+                            z-index: 1000;
+                            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+                        `;
+                        notify.textContent = '🔄 同步已恢复';
+                        document.body.appendChild(notify);
+                        
+                        setTimeout(() => notify.remove(), 3000);
+                    }
+                } catch (error) {
+                    console.warn('⚠️ 恢复同步失败:', error);
+                }
+            });
+        }
 });
 
 // 全局错误处理

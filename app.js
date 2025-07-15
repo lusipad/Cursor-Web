@@ -324,31 +324,66 @@ app.post('/api/git/push', async (req, res) => {
     }
 });
 
-// 🧹 清除内容API - 彻底重置
-app.post('/api/clear', (req, res) => {
+// 🧹 恢复同步API
+app.post('/api/resume', (req, res) => {
     try {
-        const { timestamp } = req.body;
+        console.log('🔄 收到恢复同步请求');
         
-        // 🔄 完全重置 - 清除所有历史数据
-        globalClearTimestamp = timestamp || Date.now();
-        currentChatContent = '';
-        
-        console.log('🧹 收到清除请求，完全重置所有内容');
-        console.log('⏰ 清除时间戳:', new Date(globalClearTimestamp).toLocaleString());
-        
-        // 广播清除消息给所有客户端，包含强制重置标志
+        // 广播恢复同步指令给所有客户端
         broadcastToWebSocketClients({
-            type: 'clear_content',
-            timestamp: globalClearTimestamp,
-            forceReset: true,
+            type: 'resume_sync',
             source: 'server'
         });
         
         res.json({
             success: true,
-            message: '所有内容已清空并重置',
+            message: '同步已恢复'
+        });
+    } catch (error) {
+        console.log('❌ 恢复同步失败：', error.message);
+        res.status(500).json({
+            success: false,
+            message: '恢复同步失败',
+            error: error.message
+        });
+    }
+});
+
+// 🧹 清除内容API - 完全停止同步并清空
+app.post('/api/clear', (req, res) => {
+    try {
+        const { timestamp, stopSync = true } = req.body;
+        
+        // 🔄 完全重置 - 清除所有历史数据
+        globalClearTimestamp = timestamp || Date.now();
+        currentChatContent = '';
+        
+        console.log('🧹 收到清除请求，完全停止同步并清空所有内容');
+        console.log('⏰ 清除时间戳:', new Date(globalClearTimestamp).toLocaleString());
+        
+        // 广播停止同步指令给所有客户端
+        broadcastToWebSocketClients({
+            type: 'stop_sync',
             timestamp: globalClearTimestamp,
-            forceReset: true
+            stopSync: stopSync,
+            source: 'server'
+        });
+        
+        // 延迟发送清空内容指令，确保同步已停止
+        setTimeout(() => {
+            broadcastToWebSocketClients({
+                type: 'clear_content',
+                timestamp: globalClearTimestamp,
+                forceReset: true,
+                source: 'server'
+            });
+        }, 500);
+        
+        res.json({
+            success: true,
+            message: '已停止同步并清空所有内容',
+            timestamp: globalClearTimestamp,
+            stopSync: stopSync
         });
     } catch (error) {
         console.log('❌ 清除内容失败：', error.message);
