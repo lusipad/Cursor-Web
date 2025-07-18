@@ -145,11 +145,18 @@ app.get('/api/git/branches', async (req, res) => {
             git.branch(['-a'])
         ]);
 
+        // 分离本地分支和远程分支
+        const localBranches = currentBranch.all;
+        const remoteBranches = allBranches.all.filter(branch => 
+            branch.startsWith('remotes/') && !branch.endsWith('/HEAD')
+        ).map(branch => branch.replace('remotes/', ''));
+
         res.json({
             success: true,
             currentBranch: currentBranch.current,
             allBranches: allBranches.all,
-            localBranches: currentBranch.all,
+            localBranches: localBranches,
+            remoteBranches: remoteBranches,
             timestamp: Date.now()
         });
     } catch (error) {
@@ -165,7 +172,7 @@ app.get('/api/git/branches', async (req, res) => {
 // 切换分支
 app.post('/api/git/checkout', async (req, res) => {
     try {
-        const { branch } = req.body;
+        const { branch, createNew } = req.body;
         if (!branch) {
             return res.status(400).json({
                 success: false,
@@ -173,12 +180,39 @@ app.post('/api/git/checkout', async (req, res) => {
             });
         }
 
-        await git.checkout(branch);
+        // 检查是否为远程分支
+        const isRemoteBranch = branch.startsWith('origin/');
+        let targetBranch = branch;
+
+        if (isRemoteBranch && createNew) {
+            // 从远程分支创建新的本地分支
+            const localBranchName = branch.replace('origin/', '');
+            await git.checkoutBranch(localBranchName, branch);
+            targetBranch = localBranchName;
+        } else if (isRemoteBranch && !createNew) {
+            // 直接切换到远程分支（需要本地已存在同名分支）
+            const localBranchName = branch.replace('origin/', '');
+            
+            // 检查本地分支是否存在
+            const localBranches = await git.branchLocal();
+            if (localBranches.all.includes(localBranchName)) {
+                await git.checkout(localBranchName);
+                targetBranch = localBranchName;
+            } else {
+                // 本地分支不存在，创建新的本地分支
+                await git.checkoutBranch(localBranchName, branch);
+                targetBranch = localBranchName;
+            }
+        } else {
+            // 本地分支切换
+            await git.checkout(branch);
+        }
+
         const newBranch = await git.branchLocal();
 
         res.json({
             success: true,
-            message: `已切换到分支: ${branch}`,
+            message: `已切换到分支: ${targetBranch}`,
             currentBranch: newBranch.current,
             timestamp: Date.now()
         });
