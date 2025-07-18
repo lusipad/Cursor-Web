@@ -77,10 +77,14 @@ class GitManager {
                 this.allBranches = data.allBranches;
                 this.localBranches = data.localBranches;
                 this.remoteBranches = data.remoteBranches || [];
+                this.gitPath = data.gitPath;
 
                 this.updateBranchSelect();
                 this.updateCurrentBranch();
                 this.log('分支信息加载成功', 'success');
+                if (this.gitPath) {
+                    this.log(`Git仓库路径: ${this.gitPath}`, 'info');
+                }
             } else {
                 this.log('分支信息加载失败: ' + data.message, 'error');
             }
@@ -136,6 +140,13 @@ class GitManager {
     updateCurrentBranch() {
         const currentBranchElement = document.getElementById('current-branch');
         currentBranchElement.textContent = this.currentBranch || '未知';
+        
+        // 显示Git路径信息
+        const gitPathElement = document.getElementById('git-path');
+        if (gitPathElement && this.gitPath) {
+            gitPathElement.textContent = this.gitPath;
+            gitPathElement.title = this.gitPath;
+        }
     }
 
 // 切换分支
