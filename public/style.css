@@ -756,3 +756,114 @@ body {
 .tab-content.active {
     display: block;
 }
+
+/* 诊断面板样式 */
+.diagnostic-panel {
+    padding: 20px;
+    background-color: #1a1a1a;
+    height: 100%;
+    overflow-y: auto;
+}
+
+.diagnostic-panel h2 {
+    font-size: 24px;
+    color: #ffffff;
+    margin-bottom: 12px;
+}
+
+.diagnostic-panel p {
+    font-size: 16px;
+    color: #888888;
+    margin-bottom: 24px;
+}
+
+.diagnostic-actions {
+    text-align: center;
+    margin-bottom: 32px;
+    padding: 24px;
+    background-color: #2d2d2d;
+    border-radius: 8px;
+    border: 1px solid #404040;
+}
+
+.diagnostic-actions .btn {
+    font-size: 16px;
+    padding: 12px 24px;
+    margin-bottom: 12px;
+}
+
+.diagnostic-actions .instruction {
+    font-size: 14px;
+    color: #666666;
+    font-style: italic;
+    margin: 0;
+}
+
+.quick-status {
+    background-color: #2d2d2d;
+    border-radius: 8px;
+    padding: 20px;
+    border: 1px solid #404040;
+}
+
+.quick-status h3 {
+    font-size: 18px;
+    color: #ffffff;
+    margin-bottom: 16px;
+}
+
+.quick-status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+.status-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background-color: #1a1a1a;
+    border-radius: 6px;
+    border: 1px solid #404040;
+}
+
+.status-label {
+    font-size: 14px;
+    color: #888888;
+    font-weight: 500;
+}
+
+.status-value {
+    font-size: 14px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background-color: #404040;
+    color: #ffffff;
+}
+
+.status-value.connected {
+    background-color: #22c55e;
+    color: #ffffff;
+}
+
+.status-value.disconnected {
+    background-color: #ef4444;
+    color: #ffffff;
+}
+
+.status-value.loading {
+    background-color: #f59e0b;
+    color: #ffffff;
+}
+
+.status-value.error {
+    background-color: #ef4444;
+    color: #ffffff;
+}
+
+.status-value.success {
+    background-color: #22c55e;
+    color: #ffffff;
+}

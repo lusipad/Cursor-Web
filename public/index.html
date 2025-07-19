@@ -17,6 +17,7 @@
         <nav class="tab-nav">
             <button class="tab-btn active" data-tab="chat-tab">聊天</button>
             <button class="tab-btn" data-tab="git-tab">Git 管理</button>
+            <button class="tab-btn" data-tab="diagnostic-tab">系统诊断</button>
         </nav>
 
         <main class="main">
@@ -93,6 +94,37 @@
                     </div>
                 </div>
             </section>
+
+            <!-- 系统诊断 Tab 内容 -->
+            <section id="diagnostic-tab" class="tab-content">
+                <div class="diagnostic-panel">
+                    <h2>系统诊断</h2>
+                    <p>检查系统各个功能模块的状态和连接情况</p>
+                    <div class="diagnostic-actions">
+                        <a href="/diagnostic.html" class="btn btn-primary" target="_blank">
+                            🔍 打开诊断页面
+                        </a>
+                        <p class="instruction">在新标签页中打开完整的系统诊断界面</p>
+                    </div>
+                    <div class="quick-status">
+                        <h3>快速状态检查</h3>
+                        <div id="quick-status-grid" class="quick-status-grid">
+                            <div class="status-item">
+                                <span class="status-label">WebSocket连接</span>
+                                <span id="ws-status" class="status-value">检查中...</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status-label">模块加载</span>
+                                <span id="module-status" class="status-value">检查中...</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status-label">客户端状态</span>
+                                <span id="client-status" class="status-value">检查中...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
 
@@ -106,7 +138,90 @@
             document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
             this.classList.add('active');
             document.getElementById(this.dataset.tab).classList.add('active');
+
+            // 如果切换到诊断tab，更新快速状态
+            if (this.dataset.tab === 'diagnostic-tab') {
+                updateQuickStatus();
+            }
         });
+    });
+
+        // 更新快速状态检查
+    function updateQuickStatus() {
+        // WebSocket状态 - 使用更准确的检测方法
+        const wsStatus = document.getElementById('ws-status');
+        let wsConnected = false;
+
+        // 方法1: 检查simpleClient的WebSocket状态（与诊断页面保持一致）
+        if (window.simpleClient && typeof window.simpleClient.isConnected === 'function') {
+            wsConnected = window.simpleClient.isConnected();
+        }
+        // 方法2: 检查simpleClient的wsManager状态
+        else if (window.simpleClient && window.simpleClient.wsManager && typeof window.simpleClient.wsManager.isConnected === 'function') {
+            wsConnected = window.simpleClient.wsManager.isConnected();
+        }
+        // 方法3: 检查页面状态元素
+        else if (document.querySelector('.status.connected')) {
+            wsConnected = true;
+        }
+        // 方法4: 检查WebSocketManager模块
+        else if (window.WebSocketManager && typeof window.WebSocketManager.isConnected === 'function') {
+            wsConnected = window.WebSocketManager.isConnected();
+        }
+
+        if (wsConnected) {
+            wsStatus.textContent = '已连接';
+            wsStatus.className = 'status-value connected';
+        } else {
+            wsStatus.textContent = '未连接';
+            wsStatus.className = 'status-value disconnected';
+        }
+
+        // 调试信息（可选）
+        if (window.simpleClient) {
+            console.log('首页WebSocket状态检测:', {
+                simpleClientExists: !!window.simpleClient,
+                isConnectedMethod: typeof window.simpleClient.isConnected,
+                wsManagerExists: !!window.simpleClient.wsManager,
+                wsManagerIsConnectedMethod: window.simpleClient.wsManager ? typeof window.simpleClient.wsManager.isConnected : 'N/A',
+                finalResult: wsConnected
+            });
+        }
+
+        // 模块加载状态
+        const moduleStatus = document.getElementById('module-status');
+        if (window.ModuleLoader) {
+            moduleStatus.textContent = '已加载';
+            moduleStatus.className = 'status-value success';
+        } else {
+            moduleStatus.textContent = '未加载';
+            moduleStatus.className = 'status-value error';
+        }
+
+        // 客户端状态
+        const clientStatus = document.getElementById('client-status');
+        if (window.simpleClient) {
+            clientStatus.textContent = '已初始化';
+            clientStatus.className = 'status-value success';
+        } else {
+            clientStatus.textContent = '未初始化';
+            clientStatus.className = 'status-value error';
+        }
+    }
+
+    // 页面加载完成后初始化
+    window.addEventListener('load', function() {
+        // 如果当前在诊断tab，更新状态
+        if (document.querySelector('.tab-btn[data-tab="diagnostic-tab"]').classList.contains('active')) {
+            updateQuickStatus();
+        }
+
+        // 定期更新状态（每5秒）
+        setInterval(function() {
+            if (document.querySelector('.tab-btn[data-tab="diagnostic-tab"]').classList.contains('active')) {
+                updateQuickStatus();
+            }
+        }, 5000);
     });
     </script>
 </body>
