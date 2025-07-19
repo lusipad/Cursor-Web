@@ -102,9 +102,9 @@
                     <p>检查系统各个功能模块的状态和连接情况</p>
                     <div class="diagnostic-actions">
                         <a href="/diagnostic.html" class="btn btn-primary" target="_blank">
-                            🔍 打开诊断页面
+                            🔍 打开完整诊断页面
                         </a>
-                        <p class="instruction">在新标签页中打开完整的系统诊断界面</p>
+                        <p class="instruction">在新标签页中打开完整的系统诊断界面，包含所有测试功能</p>
                     </div>
                     <div class="quick-status">
                         <h3>快速状态检查</h3>
@@ -112,6 +112,10 @@
                             <div class="status-item">
                                 <span class="status-label">WebSocket连接</span>
                                 <span id="ws-status" class="status-value">检查中...</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status-label">Cursor状态</span>
+                                <span id="cursor-status" class="status-value">检查中...</span>
                             </div>
                             <div class="status-item">
                                 <span class="status-label">模块加载</span>
@@ -196,6 +200,41 @@
         } else {
             moduleStatus.textContent = '未加载';
             moduleStatus.className = 'status-value error';
+        }
+
+        // Cursor状态
+        const cursorStatus = document.getElementById('cursor-status');
+        if (window.simpleClient && window.simpleClient.cursorStatusManager) {
+            try {
+                const status = window.simpleClient.cursorStatusManager.getCursorStatus();
+                switch (status.status) {
+                    case 'active':
+                        cursorStatus.textContent = '活跃';
+                        cursorStatus.className = 'status-value success';
+                        break;
+                    case 'waiting':
+                        cursorStatus.textContent = '等待';
+                        cursorStatus.className = 'status-value warning';
+                        break;
+                    case 'inactive':
+                        cursorStatus.textContent = '不活跃';
+                        cursorStatus.className = 'status-value warning';
+                        break;
+                    case 'closed':
+                        cursorStatus.textContent = '已关闭';
+                        cursorStatus.className = 'status-value error';
+                        break;
+                    default:
+                        cursorStatus.textContent = '未知';
+                        cursorStatus.className = 'status-value error';
+                }
+            } catch (error) {
+                cursorStatus.textContent = '检查失败';
+                cursorStatus.className = 'status-value error';
+            }
+        } else {
+            cursorStatus.textContent = '未初始化';
+            cursorStatus.className = 'status-value error';
         }
 
         // 客户端状态

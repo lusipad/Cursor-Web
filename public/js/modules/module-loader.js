@@ -11,10 +11,12 @@ const ModuleLoader = {
         'WebSocketManager': ['ErrorHandler'],
         'ContentManager': ['ErrorHandler'],
         'StatusManager': ['ErrorHandler'],
+        'CursorStatusManager': ['ErrorHandler'],
+        'HomePageStatusManager': ['ErrorHandler', 'WebSocketManager', 'CursorStatusManager', 'UIManager'],
         'UIManager': ['ErrorHandler'],
         'EventManager': ['ErrorHandler', 'WebSocketManager', 'ContentManager', 'UIManager'],
         'DebugManager': ['ErrorHandler', 'WebSocketManager', 'ContentManager', 'UIManager'],
-        'SimpleWebClient': ['ErrorHandler', 'WebSocketManager', 'ContentManager', 'StatusManager', 'UIManager', 'EventManager', 'DebugManager']
+        'SimpleWebClient': ['ErrorHandler', 'WebSocketManager', 'ContentManager', 'StatusManager', 'CursorStatusManager', 'HomePageStatusManager', 'UIManager', 'EventManager', 'DebugManager']
     },
 
     /**
@@ -143,6 +145,8 @@ const ModuleLoader = {
             'WebSocketManager',
             'ContentManager',
             'StatusManager',
+            'CursorStatusManager',
+            'HomePageStatusManager',
             'UIManager',
             'EventManager',
             'DebugManager',
@@ -184,8 +188,11 @@ function startModuleLoading() {
             // 加载主客户端
             ModuleLoader.loadModule('SimpleWebClient').then(() => {
                 console.log('✅ SimpleWebClient 加载完成');
-                // 初始化客户端（仅在非诊断页面时）
-                if (window.SimpleWebClient && !window.simpleClient && !window.location.pathname.includes('diagnostic')) {
+                // 初始化客户端（仅在主页面时，排除诊断页面和测试页面）
+                if (window.SimpleWebClient && !window.simpleClient &&
+                    !window.location.pathname.includes('diagnostic') &&
+                    !window.location.pathname.includes('connection-test') &&
+                    !window.location.pathname.includes('test-')) {
                     console.log('🚀 初始化 SimpleWebClient...');
                     window.simpleClient = new window.SimpleWebClient();
                 }

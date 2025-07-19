@@ -22,6 +22,30 @@ class UIManager {
     }
 
     /**
+     * 更新分离的状态显示（WebSocket和Cursor分别显示）
+     */
+    updateSeparatedStatus(websocketStatus, cursorStatus) {
+        // 更新WebSocket状态
+        const wsStatusEl = document.getElementById('ws-status');
+        if (wsStatusEl) {
+            wsStatusEl.textContent = websocketStatus.message;
+            wsStatusEl.className = `status ${websocketStatus.type}`;
+        }
+
+        // 更新Cursor状态
+        const cursorStatusEl = document.getElementById('cursor-status');
+        if (cursorStatusEl) {
+            cursorStatusEl.textContent = cursorStatus.message;
+            cursorStatusEl.className = `status ${cursorStatus.type}`;
+        }
+
+        // 如果没有分离的状态元素，使用传统方式
+        if (!wsStatusEl && !cursorStatusEl) {
+            this.updateStatus(`${websocketStatus.message} | ${cursorStatus.message}`, websocketStatus.type);
+        }
+    }
+
+    /**
      * 显示聊天内容
      */
     displayContent(contentData) {

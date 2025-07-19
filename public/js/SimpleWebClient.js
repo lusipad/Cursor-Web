@@ -10,7 +10,9 @@ class SimpleWebClient {
         this.wsManager = new WebSocketManager();
         this.contentManager = new ContentManager();
         this.statusManager = new StatusManager();
+        this.cursorStatusManager = new CursorStatusManager();
         this.uiManager = new UIManager();
+        this.homePageStatusManager = new HomePageStatusManager(this.wsManager, this.cursorStatusManager, this.uiManager);
         this.debugManager = new DebugManager(this);
 
         // 设置回调函数
@@ -42,6 +44,8 @@ class SimpleWebClient {
 
         this.wsManager.setDisconnectCallback(() => {
             this.statusManager.stopStatusCheck();
+            // 断开连接时使用首页状态管理器更新状态
+            this.homePageStatusManager.updateHomePageStatus();
         });
 
         this.wsManager.setReconnectFailureCallback(() => {
@@ -72,6 +76,21 @@ class SimpleWebClient {
         this.statusManager.setStatusCheckCallback(() => {
             this.statusManager.checkCursorStatus(this.wsManager, this.contentManager);
         });
+
+        this.statusManager.setConnectionCheckCallback(() => {
+            // 使用首页状态管理器更新状态
+            this.homePageStatusManager.updateHomePageStatus();
+        });
+
+        // Cursor状态管理器回调
+        this.cursorStatusManager.setStatusChangeCallback((message, type) => {
+            // 使用首页状态管理器来更新状态
+            this.homePageStatusManager.updateHomePageStatus();
+        });
+
+        this.cursorStatusManager.setCursorActivityCallback((activityType) => {
+            console.log(`📝 Cursor活动: ${activityType}`);
+        });
     }
 
     /**
@@ -87,8 +106,29 @@ class SimpleWebClient {
         this.statusManager.startStatusCheck();
         this.statusManager.startContentPolling();
 
+        // 开始Cursor状态监控
+        this.cursorStatusManager.startMonitoring();
+
         // 初始化事件
         this.eventManager.init();
+
+        // 广播初始化完成事件
+        this.broadcastStatus();
+    }
+
+    /**
+     * 广播状态到其他页面
+     */
+    broadcastStatus() {
+        if (window.localStorage) {
+            const status = {
+                timestamp: Date.now(),
+                isConnected: this.wsManager.isConnected(),
+                connectionState: this.wsManager.getConnectionState(),
+                reconnectAttempts: this.wsManager.reconnectAttempts || 0
+            };
+            localStorage.setItem('websocket_status', JSON.stringify(status));
+        }
     }
 
     /**
@@ -98,15 +138,24 @@ class SimpleWebClient {
         switch (data.type) {
             case 'html_content':
                 this.contentManager.handleContentUpdate(data.data);
+                // 记录Cursor内容更新活动
+                const timestamp = data.data.timestamp || data.timestamp || Date.now();
+                this.cursorStatusManager.recordContentUpdate(timestamp);
                 break;
             case 'clear_content':
                 this.contentManager.handleClearContent(data);
+                // 记录Cursor清除活动
+                this.cursorStatusManager.recordCursorActivity('clear_content');
                 break;
             case 'pong':
                 console.log('💓 收到心跳响应');
+                // 记录Cursor心跳活动
+                this.cursorStatusManager.recordCursorActivity('pong');
                 break;
             default:
                 console.log('📥 收到未知消息类型:', data.type);
+                // 记录其他Cursor活动
+                this.cursorStatusManager.recordCursorActivity('message_received');
         }
     }
 
@@ -114,11 +163,8 @@ class SimpleWebClient {
      * 处理WebSocket连接成功
      */
     handleWebSocketConnect() {
-        if (this.contentManager.hasReceivedContent()) {
-            this.uiManager.updateStatus('已连接 - 同步正常', 'connected');
-        } else {
-            this.uiManager.updateStatus('已连接 - 等待Cursor内容', 'waiting');
-        }
+        // WebSocket连接成功，使用首页状态管理器更新状态
+        this.homePageStatusManager.updateHomePageStatus();
     }
 
     /**
@@ -138,6 +184,9 @@ class SimpleWebClient {
 
         // 停止所有定时器
         this.statusManager.stopAll();
+
+        // 停止Cursor状态监控
+        this.cursorStatusManager.stopMonitoring();
 
         // 关闭WebSocket连接
         this.wsManager.close();
@@ -187,6 +236,14 @@ class SimpleWebClient {
     }
 
     /**
+     * 手动断开连接（用于测试）
+     */
+    disconnect() {
+        console.log('🔌 手动断开连接...');
+        this.wsManager.manualDisconnect();
+    }
+
+    /**
      * 发送消息
      */
     sendMessage(message) {
@@ -201,6 +258,57 @@ class SimpleWebClient {
      */
     isConnected() {
         return this.wsManager.isConnected();
+    }
+
+    /**
+     * 获取Cursor状态
+     */
+    getCursorStatus() {
+        return this.cursorStatusManager.getCursorStatus();
+    }
+
+    /**
+     * 获取完整状态信息
+     */
+    getFullStatus() {
+        return {
+            websocket: {
+                isConnected: this.wsManager.isConnected(),
+                connectionState: this.wsManager.getConnectionState(),
+                reconnectAttempts: this.wsManager.reconnectAttempts || 0
+            },
+            cursor: this.cursorStatusManager.getCursorStatus(),
+            content: {
+                hasReceivedContent: this.contentManager.hasReceivedContent(),
+                lastContentTime: this.contentManager.getLastContentTime()
+            },
+            homePage: this.homePageStatusManager.getCurrentStatus()
+        };
+    }
+
+    /**
+     * 获取首页状态
+     */
+    getHomePageStatus() {
+        return this.homePageStatusManager.getCurrentStatus();
+    }
+
+    /**
+     * 模拟Cursor活动（用于测试）
+     */
+    simulateCursorActivity() {
+        if (this.cursorStatusManager) {
+            this.cursorStatusManager.simulateCursorActivity();
+        }
+    }
+
+    /**
+     * 模拟Cursor关闭（用于测试）
+     */
+    simulateCursorClose() {
+        if (this.cursorStatusManager) {
+            this.cursorStatusManager.simulateCursorClose();
+        }
     }
 
     /**
@@ -277,10 +385,174 @@ window.testWebSocketConnection = () => {
     }
 };
 
+// 测试断开连接
+window.testDisconnect = () => {
+    console.log('🔌 测试断开连接...');
+    if (window.simpleClient) {
+        window.simpleClient.disconnect();
+    } else {
+        console.error('❌ simpleClient 未初始化');
+    }
+};
+
+// 检查当前连接状态
+window.checkConnectionStatus = () => {
+    console.log('🔍 检查连接状态...');
+    if (window.simpleClient) {
+        const wsManager = window.simpleClient.wsManager;
+        const states = ['连接中', '已连接', '关闭中', '已关闭'];
+        console.log('  - WebSocket状态:', states[wsManager.getConnectionState()] || '未知');
+        console.log('  - 是否已连接:', wsManager.isConnected());
+        console.log('  - 重连尝试次数:', wsManager.reconnectAttempts || 0);
+
+        // 检查页面状态显示
+        const statusEl = document.getElementById('status');
+        if (statusEl) {
+            console.log('  - 页面状态显示:', statusEl.textContent);
+            console.log('  - 状态样式类:', statusEl.className);
+        }
+    } else {
+        console.error('❌ simpleClient 未初始化');
+    }
+};
+
+// 获取全局状态信息
+window.getGlobalStatus = () => {
+    const status = {
+        hasSimpleClient: !!window.simpleClient,
+        hasWebSocketManager: !!(window.simpleClient && window.simpleClient.wsManager),
+        hasCursorStatusManager: !!(window.simpleClient && window.simpleClient.cursorStatusManager),
+        websocket: {
+            connectionState: null,
+            isConnected: false,
+            reconnectAttempts: 0
+        },
+        cursor: {
+            status: null,
+            description: null,
+            lastContentTime: null,
+            lastActivityTime: null
+        },
+        pageStatus: null
+    };
+
+    if (window.simpleClient) {
+        if (window.simpleClient.wsManager) {
+            const wsManager = window.simpleClient.wsManager;
+            status.websocket.connectionState = wsManager.getConnectionState();
+            status.websocket.isConnected = wsManager.isConnected();
+            status.websocket.reconnectAttempts = wsManager.reconnectAttempts || 0;
+        }
+
+        if (window.simpleClient.cursorStatusManager) {
+            const cursorStatus = window.simpleClient.cursorStatusManager.getCursorStatus();
+            status.cursor.status = cursorStatus.status;
+            status.cursor.description = window.simpleClient.cursorStatusManager.getStatusDescription();
+            status.cursor.lastContentTime = cursorStatus.lastContentTime;
+            status.cursor.lastActivityTime = cursorStatus.lastActivityTime;
+        }
+    }
+
+    // 检查页面状态显示
+    const statusEl = document.getElementById('status');
+    if (statusEl) {
+        status.pageStatus = {
+            text: statusEl.textContent,
+            className: statusEl.className
+        };
+    }
+
+    return status;
+};
+
+// 同步所有页面状态
+window.syncAllPagesStatus = () => {
+    const status = window.getGlobalStatus();
+    console.log('🔄 同步所有页面状态:', status);
+
+    if (window.localStorage) {
+        localStorage.setItem('websocket_status', JSON.stringify(status));
+    }
+
+    return status;
+};
+
+// 检查Cursor状态
+window.checkCursorStatus = () => {
+    console.log('🔍 检查Cursor状态...');
+    if (window.simpleClient && window.simpleClient.cursorStatusManager) {
+        const status = window.simpleClient.cursorStatusManager.getCursorStatus();
+        const description = window.simpleClient.cursorStatusManager.getStatusDescription();
+        console.log('  - Cursor状态:', status.status);
+        console.log('  - 状态描述:', description);
+        console.log('  - 最后内容时间:', status.lastContentTime ? new Date(status.lastContentTime).toLocaleTimeString() : '无');
+        console.log('  - 最后活动时间:', status.lastActivityTime ? new Date(status.lastActivityTime).toLocaleTimeString() : '无');
+        console.log('  - 距内容更新时间:', status.timeSinceContent ? `${Math.round(status.timeSinceContent / 1000)}秒` : '无');
+        console.log('  - 距活动时间:', status.timeSinceActivity ? `${Math.round(status.timeSinceActivity / 1000)}秒` : '无');
+    } else {
+        console.error('❌ Cursor状态管理器未初始化');
+    }
+};
+
+// 获取完整状态
+window.getFullStatus = () => {
+    console.log('🔍 获取完整状态信息...');
+    if (window.simpleClient) {
+        const status = window.simpleClient.getFullStatus();
+        console.log('完整状态:', status);
+        return status;
+    } else {
+        console.error('❌ simpleClient 未初始化');
+        return null;
+    }
+};
+
+// 检查首页状态
+window.checkHomePageStatus = () => {
+    console.log('🏠 检查首页状态...');
+    if (window.simpleClient) {
+        const status = window.simpleClient.getHomePageStatus();
+        console.log('首页状态:', status);
+        return status;
+    } else {
+        console.error('❌ simpleClient 未初始化');
+        return null;
+    }
+};
+
+// 模拟Cursor活动（测试用）
+window.simulateCursorActivity = () => {
+    console.log('🧪 模拟Cursor活动...');
+    if (window.simpleClient) {
+        window.simpleClient.simulateCursorActivity();
+    } else {
+        console.error('❌ simpleClient 未初始化');
+    }
+};
+
+// 模拟Cursor关闭（测试用）
+window.simulateCursorClose = () => {
+    console.log('🧪 模拟Cursor关闭...');
+    if (window.simpleClient) {
+        window.simpleClient.simulateCursorClose();
+    } else {
+        console.error('❌ simpleClient 未初始化');
+    }
+};
+
 console.log('💡 调试命令：');
 console.log('  - testSendMessage("消息内容") - 测试发送消息');
 console.log('  - debugEventBinding() - 检查事件绑定状态');
 console.log('  - testWebSocketConnection() - 测试WebSocket连接');
+console.log('  - testDisconnect() - 测试断开连接');
+console.log('  - checkConnectionStatus() - 检查WebSocket连接状态');
+console.log('  - checkCursorStatus() - 检查Cursor状态');
+console.log('  - checkHomePageStatus() - 检查首页状态');
+console.log('  - getFullStatus() - 获取完整状态信息');
+console.log('  - getGlobalStatus() - 获取全局状态信息');
+console.log('  - syncAllPagesStatus() - 同步所有页面状态');
+console.log('  - simulateCursorActivity() - 模拟Cursor活动（测试）');
+console.log('  - simulateCursorClose() - 模拟Cursor关闭（测试）');
 
 console.log('✅ Simple Client JS 加载完成');
 

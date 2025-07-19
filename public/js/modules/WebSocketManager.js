@@ -72,7 +72,7 @@ class WebSocketManager {
             port: window.location.port,
             fullUrl: window.location.href
         });
-        this.updateStatus('正在连接...', 'connecting');
+        this.updateStatus('正在连接网络...', 'connecting');
 
         this.ws = new WebSocket(wsUrl);
 
@@ -81,7 +81,7 @@ class WebSocketManager {
             if (this.ws.readyState === WebSocket.CONNECTING) {
                 console.error('⏰ WebSocket 连接超时');
                 this.ws.close();
-                this.updateStatus('连接超时', 'error');
+                this.updateStatus('网络连接超时', 'error');
             }
         }, 10000); // 10秒超时
 
@@ -120,13 +120,18 @@ class WebSocketManager {
             });
             this.stopHeartbeat();
 
-            if (this.onDisconnectCallback) {
-                this.onDisconnectCallback();
+            // 无论什么原因断开连接，都要更新状态
+            if (event.code === 1000) {
+                // 正常关闭
+                this.updateStatus('网络连接已断开', 'disconnected');
+            } else {
+                // 异常断开，尝试重连
+                this.updateStatus('网络连接断开 - 正在重连...', 'disconnected');
+                this.attemptReconnect();
             }
 
-            if (event.code !== 1000) {
-                this.updateStatus('连接断开 - 正在重连...', 'disconnected');
-                this.attemptReconnect();
+            if (this.onDisconnectCallback) {
+                this.onDisconnectCallback();
             }
         };
 
@@ -137,7 +142,7 @@ class WebSocketManager {
                 readyState: this.ws.readyState,
                 url: wsUrl
             });
-            this.updateStatus('连接错误', 'error');
+            this.updateStatus('网络连接错误', 'error');
         };
     }
 
@@ -194,14 +199,14 @@ class WebSocketManager {
             this.reconnectAttempts++;
             const delay = this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1); // 指数退避
             console.log(`🔄 尝试重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})，${delay/1000}秒后重试...`);
-            this.updateStatus(`正在重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})`, 'reconnecting');
+            this.updateStatus(`网络重连中 (${this.reconnectAttempts}/${this.maxReconnectAttempts})`, 'reconnecting');
 
             setTimeout(() => {
                 this.connect();
             }, delay);
         } else {
             console.log('❌ 重连失败，已达到最大尝试次数');
-            this.updateStatus('连接失败 - 请刷新页面', 'error');
+            this.updateStatus('网络连接失败 - 请刷新页面', 'error');
 
             // 通知主客户端处理重连失败
             if (this.onReconnectFailureCallback) {
@@ -225,6 +230,32 @@ class WebSocketManager {
         if (this.onStatusChangeCallback) {
             this.onStatusChangeCallback(message, type);
         }
+
+        // 广播状态变化
+        this.broadcastStatusChange(message, type);
+    }
+
+    /**
+     * 广播状态变化到其他页面
+     */
+    broadcastStatusChange(message, type) {
+        if (window.localStorage) {
+            const status = {
+                timestamp: Date.now(),
+                message: message,
+                type: type,
+                isConnected: this.isConnected(),
+                connectionState: this.getConnectionState(),
+                reconnectAttempts: this.reconnectAttempts || 0
+            };
+            localStorage.setItem('websocket_status', JSON.stringify(status));
+
+            // 触发storage事件，通知其他页面
+            window.dispatchEvent(new StorageEvent('storage', {
+                key: 'websocket_status',
+                newValue: JSON.stringify(status)
+            }));
+        }
     }
 
     /**
@@ -247,6 +278,17 @@ class WebSocketManager {
     close() {
         if (this.ws) {
             this.ws.close();
+        }
+        this.stopHeartbeat();
+    }
+
+    /**
+     * 手动断开连接（用于测试）
+     */
+    manualDisconnect() {
+        console.log('🔌 手动断开WebSocket连接');
+        if (this.ws) {
+            this.ws.close(1000, '用户手动断开');
         }
         this.stopHeartbeat();
     }

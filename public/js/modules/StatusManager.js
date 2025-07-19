@@ -33,6 +33,13 @@ class StatusManager {
     }
 
     /**
+     * 设置连接检查回调
+     */
+    setConnectionCheckCallback(callback) {
+        this.onConnectionCheckCallback = callback;
+    }
+
+    /**
      * 开始状态检查
      */
     startStatusCheck() {
@@ -43,6 +50,13 @@ class StatusManager {
                 this.onStatusCheckCallback();
             }
         }, 15000); // 每15秒检查一次
+
+        // 添加更频繁的连接状态检查（每5秒）
+        this.connectionCheckInterval = setInterval(() => {
+            if (this.onConnectionCheckCallback) {
+                this.onConnectionCheckCallback();
+            }
+        }, 5000); // 每5秒检查一次连接状态
     }
 
     /**
@@ -52,6 +66,10 @@ class StatusManager {
         if (this.statusCheckInterval) {
             clearInterval(this.statusCheckInterval);
             this.statusCheckInterval = null;
+        }
+        if (this.connectionCheckInterval) {
+            clearInterval(this.connectionCheckInterval);
+            this.connectionCheckInterval = null;
         }
     }
 
@@ -87,10 +105,26 @@ class StatusManager {
      * 检查Cursor状态
      */
     checkCursorStatus(wsManager, contentManager) {
-        if (!wsManager || !wsManager.isConnected()) {
-            return; // WebSocket未连接，不需要检查
+        // 首先检查WebSocket连接状态
+        if (!wsManager) {
+            this.updateStatus('WebSocket管理器未初始化', 'error');
+            return;
         }
 
+        if (!wsManager.isConnected()) {
+            // WebSocket未连接，检查连接状态
+            const connectionState = wsManager.getConnectionState();
+            if (connectionState === WebSocket.CONNECTING) {
+                this.updateStatus('正在连接...', 'connecting');
+            } else if (connectionState === WebSocket.CLOSED) {
+                this.updateStatus('连接已断开', 'disconnected');
+            } else {
+                this.updateStatus('连接状态异常', 'error');
+            }
+            return;
+        }
+
+        // WebSocket已连接，检查Cursor状态
         const now = Date.now();
         const lastContentTime = contentManager.getLastContentTime();
         const hasReceivedContent = contentManager.hasReceivedContent();

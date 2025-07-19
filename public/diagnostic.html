@@ -349,6 +349,73 @@
                 <button class="btn btn-info" onclick="checkClient()">检查</button>
             </div>
         </div>
+
+        <!-- Cursor状态管理器 -->
+        <div class="module-card" id="cursor-status-card">
+            <div class="module-title">
+                <span class="status-indicator" id="cursor-status-status"></span>
+                Cursor状态管理器
+            </div>
+            <div class="module-details" id="cursor-status-details">检查中...</div>
+            <div class="module-actions">
+                <button class="btn btn-info" onclick="checkCursorStatus()">检查</button>
+                <button class="btn btn-warning" onclick="simulateCursorActivity()">模拟活动</button>
+                <button class="btn btn-danger" onclick="simulateCursorClose()">模拟关闭</button>
+            </div>
+        </div>
+
+        <!-- 首页状态管理器 -->
+        <div class="module-card" id="home-page-status-card">
+            <div class="module-title">
+                <span class="status-indicator" id="home-page-status-status"></span>
+                首页状态管理器
+            </div>
+            <div class="module-details" id="home-page-status-details">检查中...</div>
+            <div class="module-actions">
+                <button class="btn btn-info" onclick="checkHomePageStatus()">检查</button>
+                <button class="btn btn-success" onclick="forceUpdateHomeStatus()">强制更新</button>
+            </div>
+        </div>
+
+        <!-- 状态同步测试 -->
+        <div class="module-card" id="status-sync-card">
+            <div class="module-title">
+                <span class="status-indicator" id="status-sync-status"></span>
+                状态同步测试
+            </div>
+            <div class="module-details" id="status-sync-details">检查中...</div>
+            <div class="module-actions">
+                <button class="btn btn-info" onclick="testStatusSync()">测试同步</button>
+                <button class="btn btn-success" onclick="openStatusSyncTest()">测试页面</button>
+            </div>
+        </div>
+
+        <!-- WebSocket连接测试 -->
+        <div class="module-card" id="websocket-test-card">
+            <div class="module-title">
+                <span class="status-indicator" id="websocket-test-status"></span>
+                WebSocket连接测试
+            </div>
+            <div class="module-details" id="websocket-test-details">检查中...</div>
+            <div class="module-actions">
+                <button class="btn btn-info" onclick="testWebSocketConnection()">连接测试</button>
+                <button class="btn btn-warning" onclick="testDisconnect()">断开测试</button>
+                <button class="btn btn-success" onclick="openWebSocketTest()">测试页面</button>
+            </div>
+        </div>
+
+        <!-- 消息发送测试 -->
+        <div class="module-card" id="message-test-card">
+            <div class="module-title">
+                <span class="status-indicator" id="message-test-status"></span>
+                消息发送测试
+            </div>
+            <div class="module-details" id="message-test-details">检查中...</div>
+            <div class="module-actions">
+                <button class="btn btn-info" onclick="sendTestMessage()">发送测试</button>
+                <button class="btn btn-warning" onclick="testMessageInput()">输入测试</button>
+            </div>
+        </div>
     </div>
 
     <div class="log-section">
@@ -423,7 +490,7 @@
 
         // 更新概览
         function updateSummary() {
-            const modules = ['ErrorHandler', 'WebSocketManager', 'ContentManager', 'StatusManager', 'UIManager', 'EventManager', 'DebugManager'];
+            const modules = ['ErrorHandler', 'WebSocketManager', 'ContentManager', 'StatusManager', 'CursorStatusManager', 'HomePageStatusManager', 'UIManager', 'EventManager', 'DebugManager'];
             const loadedModules = modules.filter(m => window[m]).length;
 
             document.getElementById('total-modules').textContent = modules.length;
@@ -872,6 +939,174 @@
             log('✅ 日志已导出', 'success');
         }
 
+        // 检查Cursor状态管理器
+        function checkCursorStatus() {
+            log('🔍 检查Cursor状态管理器...');
+            if (window.simpleClient && window.simpleClient.cursorStatusManager) {
+                try {
+                    const status = window.simpleClient.cursorStatusManager.getCursorStatus();
+                    const description = window.simpleClient.cursorStatusManager.getStatusDescription();
+
+                    updateModuleCard('cursor-status', 'success',
+                        `状态: ${status.status} - ${description}`, 'success');
+                    log(`✅ Cursor状态管理器正常，状态: ${status.status}`, 'success');
+                    log(`📊 状态详情: ${description}`, 'info');
+                } catch (error) {
+                    updateModuleCard('cursor-status', 'error', `Cursor状态管理器错误: ${error.message}`, 'error');
+                    log(`❌ Cursor状态管理器调用失败: ${error.message}`, 'error');
+                }
+            } else {
+                updateModuleCard('cursor-status', 'error', 'Cursor状态管理器未初始化', 'error');
+                log('❌ Cursor状态管理器不可用', 'error');
+            }
+        }
+
+        // 模拟Cursor活动
+        function simulateCursorActivity() {
+            log('🎯 模拟Cursor活动...');
+            if (window.simpleClient && window.simpleClient.cursorStatusManager) {
+                window.simpleClient.cursorStatusManager.simulateCursorActivity();
+                updateModuleCard('cursor-status', 'success', 'Cursor活动已模拟', 'success');
+                log('✅ Cursor活动模拟完成', 'success');
+                setTimeout(checkCursorStatus, 1000);
+            } else {
+                log('❌ Cursor状态管理器不可用', 'error');
+            }
+        }
+
+        // 模拟Cursor关闭
+        function simulateCursorClose() {
+            log('🚪 模拟Cursor关闭...');
+            if (window.simpleClient && window.simpleClient.cursorStatusManager) {
+                window.simpleClient.cursorStatusManager.simulateCursorClose();
+                updateModuleCard('cursor-status', 'warning', 'Cursor关闭已模拟', 'warning');
+                log('✅ Cursor关闭模拟完成', 'success');
+                setTimeout(checkCursorStatus, 1000);
+            } else {
+                log('❌ Cursor状态管理器不可用', 'error');
+            }
+        }
+
+        // 检查首页状态管理器
+        function checkHomePageStatus() {
+            log('🏠 检查首页状态管理器...');
+            if (window.simpleClient && window.simpleClient.homePageStatusManager) {
+                try {
+                    const status = window.simpleClient.homePageStatusManager.getCurrentStatus();
+
+                    updateModuleCard('home-page-status', 'success',
+                        `显示: ${status.displayMessage}`, 'success');
+                    log(`✅ 首页状态管理器正常，显示: ${status.displayMessage}`, 'success');
+                    log(`📊 WebSocket连接: ${status.websocketConnected}`, 'info');
+                    log(`📊 Cursor状态: ${status.cursorStatus}`, 'info');
+                } catch (error) {
+                    updateModuleCard('home-page-status', 'error', `首页状态管理器错误: ${error.message}`, 'error');
+                    log(`❌ 首页状态管理器调用失败: ${error.message}`, 'error');
+                }
+            } else {
+                updateModuleCard('home-page-status', 'error', '首页状态管理器未初始化', 'error');
+                log('❌ 首页状态管理器不可用', 'error');
+            }
+        }
+
+        // 强制更新首页状态
+        function forceUpdateHomeStatus() {
+            log('🔄 强制更新首页状态...');
+            if (window.simpleClient && window.simpleClient.homePageStatusManager) {
+                window.simpleClient.homePageStatusManager.forceUpdate();
+                updateModuleCard('home-page-status', 'success', '首页状态已强制更新', 'success');
+                log('✅ 首页状态强制更新完成', 'success');
+                setTimeout(checkHomePageStatus, 1000);
+            } else {
+                log('❌ 首页状态管理器不可用', 'error');
+            }
+        }
+
+        // 测试状态同步
+        function testStatusSync() {
+            log('🔄 测试状态同步...');
+            if (window.simpleClient) {
+                try {
+                    // 模拟状态变化
+                    window.simpleClient.cursorStatusManager.simulateCursorActivity();
+                    log('✅ 状态同步测试完成', 'success');
+                    setTimeout(() => {
+                        checkHomePageStatus();
+                        checkCursorStatus();
+                    }, 1000);
+                } catch (error) {
+                    log(`❌ 状态同步测试失败: ${error.message}`, 'error');
+                }
+            } else {
+                log('❌ 客户端未初始化', 'error');
+            }
+        }
+
+        // 打开状态同步测试页面
+        function openStatusSyncTest() {
+            log('🔗 打开状态同步测试页面...');
+            try {
+                const testUrl = 'status-sync-test.html';
+                window.open(testUrl, '_blank');
+                log('✅ 状态同步测试页面已在新标签页中打开', 'success');
+            } catch (error) {
+                log(`❌ 打开测试页面失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 测试WebSocket连接
+        function testWebSocketConnection() {
+            log('🔌 测试WebSocket连接...');
+            if (window.simpleClient && window.simpleClient.wsManager) {
+                const connected = window.simpleClient.wsManager.isConnected();
+                const state = window.simpleClient.wsManager.getConnectionState();
+
+                if (connected) {
+                    updateModuleCard('websocket-test', 'success', 'WebSocket已连接', 'success');
+                    log('✅ WebSocket连接正常', 'success');
+                } else {
+                    updateModuleCard('websocket-test', 'warning', `WebSocket未连接，状态: ${state}`, 'warning');
+                    log(`⚠️ WebSocket未连接，状态: ${state}`, 'warning');
+                }
+            } else {
+                updateModuleCard('websocket-test', 'error', 'WebSocket管理器未初始化', 'error');
+                log('❌ WebSocket管理器不可用', 'error');
+            }
+        }
+
+        // 测试断开连接
+        function testDisconnect() {
+            log('🔌 测试断开连接...');
+            if (window.simpleClient && window.simpleClient.wsManager) {
+                window.simpleClient.wsManager.manualDisconnect();
+                updateModuleCard('websocket-test', 'warning', 'WebSocket已手动断开', 'warning');
+                log('✅ WebSocket手动断开完成', 'success');
+                setTimeout(testWebSocketConnection, 2000);
+            } else {
+                log('❌ WebSocket管理器不可用', 'error');
+            }
+        }
+
+        // 测试消息输入
+        function testMessageInput() {
+            log('📝 测试消息输入...');
+            if (window.simpleClient) {
+                const testMessage = '诊断测试消息 - ' + new Date().toLocaleTimeString();
+                const success = window.simpleClient.testSendMessage(testMessage);
+
+                if (success) {
+                    updateModuleCard('message-test', 'success', '测试消息发送成功', 'success');
+                    log('✅ 测试消息发送成功', 'success');
+                } else {
+                    updateModuleCard('message-test', 'warning', '测试消息发送失败', 'warning');
+                    log('⚠️ 测试消息发送失败', 'warning');
+                }
+            } else {
+                updateModuleCard('message-test', 'error', '客户端未初始化', 'error');
+                log('❌ 客户端未初始化', 'error');
+            }
+        }
+
         // 运行完整诊断
         function runFullDiagnostic() {
             log('🔍 开始完整诊断...', 'info');
@@ -886,6 +1121,8 @@
             checkEvents();
             getDebugInfo();
             checkClient();
+            checkCursorStatus();
+            checkHomePageStatus();
 
             // 更新概览
             updateSummary();
