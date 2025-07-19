@@ -15,7 +15,8 @@ const tests = {
     ],
     integration: [
         'tests/integration/test-checkout.js',
-        'tests/integration/test-dynamic-git.js'
+        'tests/integration/test-dynamic-git.js',
+        'tests/integration/test-refresh-branches.js'
     ]
 };
 

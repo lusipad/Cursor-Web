@@ -11,7 +11,9 @@ tests/
 │   └── test-remote-branch.js    # 远程分支功能测试
 ├── integration/    # 集成测试
 │   ├── test-checkout.js         # 分支切换集成测试
-│   └── test-dynamic-git.js      # 动态Git路径集成测试
+│   ├── test-dynamic-git.js      # 动态Git路径集成测试
+│   └── test-refresh-branches.js # 远程分支刷新测试
+├── run-all-tests.js # 测试运行器
 └── README.md       # 本文件
 ```
 
@@ -24,6 +26,7 @@ tests/
 ### 集成测试 (integration/)
 - **test-checkout.js**: 测试通过HTTP API进行分支切换的完整流程
 - **test-dynamic-git.js**: 测试动态Git路径功能，包括健康检查、分支信息获取等
+- **test-refresh-branches.js**: 测试远程分支刷新功能，验证git fetch的正确执行
 
 ## 运行测试
 

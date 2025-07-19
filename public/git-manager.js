@@ -67,7 +67,8 @@ class GitManager {
     // 加载分支信息
     async loadBranches() {
         try {
-            this.log('正在加载分支信息...', 'info');
+            this.log('正在刷新分支信息...', 'info');
+            this.log('正在从远程仓库获取最新分支信息并清理已删除的分支...', 'info');
 
             const response = await fetch('/api/git/branches');
             const data = await response.json();
@@ -81,7 +82,9 @@ class GitManager {
 
                 this.updateBranchSelect();
                 this.updateCurrentBranch();
-                this.log('分支信息加载成功', 'success');
+                this.log('分支信息刷新成功', 'success');
+                this.log(`本地分支: ${this.localBranches.length} 个`, 'info');
+                this.log(`远程分支: ${this.remoteBranches.length} 个`, 'info');
                 if (this.gitPath) {
                     this.log(`Git仓库路径: ${this.gitPath}`, 'info');
                 }
@@ -102,7 +105,7 @@ class GitManager {
         if (this.localBranches.length > 0) {
             const localGroup = document.createElement('optgroup');
             localGroup.label = '本地分支';
-            
+
             this.localBranches.forEach(branch => {
                 const option = document.createElement('option');
                 option.value = branch;
@@ -119,17 +122,17 @@ class GitManager {
         if (this.remoteBranches.length > 0) {
             const remoteGroup = document.createElement('optgroup');
             remoteGroup.label = '远程分支';
-            
+
             this.remoteBranches.forEach(branch => {
                 const option = document.createElement('option');
                 option.value = branch;
                 option.textContent = branch;
-                
+
                 // 检查是否为当前分支的远程对应分支
                 if (branch === `origin/${this.currentBranch}`) {
                     option.selected = true;
                 }
-                
+
                 remoteGroup.appendChild(option);
             });
             select.appendChild(remoteGroup);
@@ -140,7 +143,7 @@ class GitManager {
     updateCurrentBranch() {
         const currentBranchElement = document.getElementById('current-branch');
         currentBranchElement.textContent = this.currentBranch || '未知';
-        
+
         // 显示Git路径信息
         const gitPathElement = document.getElementById('git-path');
         if (gitPathElement && this.gitPath) {
@@ -161,7 +164,7 @@ class GitManager {
 
         // 检查是否为远程分支
         const isRemoteBranch = branch.startsWith('origin/');
-        
+
         if (!isRemoteBranch && branch === this.currentBranch) {
             this.log('当前已在目标分支', 'info');
             return;
@@ -169,7 +172,7 @@ class GitManager {
 
         try {
             let message = `正在切换到分支: ${branch}...`;
-            
+
             // 如果是远程分支，提示将创建本地分支
             if (isRemoteBranch) {
                 const localBranchName = branch.replace('origin/', '');
@@ -187,7 +190,7 @@ class GitManager {
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ 
+                body: JSON.stringify({
                     branch,
                     createNew: isRemoteBranch
                 })

@@ -115,7 +115,7 @@ app.post('/api/content', (req, res) => {
                 });
                 return;
             }
-            
+
             currentChatContent = data.html;
             console.log(`📥 HTTP 接收内容：${data.html.length} 字符`);
             console.log(`📊 来源：${data.url || 'unknown'}`);
@@ -185,6 +185,14 @@ app.get('/api/git/branches', async (req, res) => {
             });
         }
 
+        // 先执行 git fetch --prune 来更新远程分支信息并清理已删除的分支引用
+        try {
+            await gitInstance.fetch(['--all', '--prune']);
+            console.log('✅ 远程分支信息已更新，已删除的分支引用已清理');
+        } catch (fetchError) {
+            console.log('⚠️  远程分支更新失败，使用本地缓存的分支信息:', fetchError.message);
+        }
+
         const [currentBranch, allBranches] = await Promise.all([
             gitInstance.branchLocal(),
             gitInstance.branch(['-a'])
@@ -192,7 +200,7 @@ app.get('/api/git/branches', async (req, res) => {
 
         // 分离本地分支和远程分支
         const localBranches = currentBranch.all;
-        const remoteBranches = allBranches.all.filter(branch => 
+        const remoteBranches = allBranches.all.filter(branch =>
             branch.startsWith('remotes/') && !branch.endsWith('/HEAD')
         ).map(branch => branch.replace('remotes/', ''));
 
@@ -247,7 +255,7 @@ app.post('/api/git/checkout', async (req, res) => {
         } else if (isRemoteBranch && !createNew) {
             // 直接切换到远程分支（需要本地已存在同名分支）
             const localBranchName = branch.replace('origin/', '');
-            
+
             // 检查本地分支是否存在
             const localBranches = await gitInstance.branchLocal();
             if (localBranches.all.includes(localBranchName)) {
@@ -447,7 +455,7 @@ wss.on('connection', (ws, req) => {
     console.log(`📱 新 WebSocket 客户端连接：${clientIP}`);
 
     connectedClients.add(ws);
-    
+
     // 设置心跳机制
     ws.isAlive = true;
     ws.on('pong', () => {
@@ -604,7 +612,7 @@ setInterval(() => {
                 client.terminate();
                 return;
             }
-            
+
             // 发送心跳包
             client.isAlive = false;
             client.ping();
@@ -641,7 +649,7 @@ server.listen(PORT, HOST, () => {
 function getLocalIP() {
     const { networkInterfaces } = require('os');
     const nets = networkInterfaces();
-    
+
     for (const name of Object.keys(nets)) {
         for (const net of nets[name]) {
             // 跳过非IPv4和内部地址
@@ -672,7 +680,7 @@ function gracefulShutdown(signal) {
                     type: 'server_shutdown',
                     message: '服务器正在关闭'
                 }));
-                
+
                 // 创建客户端关闭Promise
                 const closePromise = new Promise((resolve) => {
                     client.on('close', resolve);
@@ -690,7 +698,7 @@ function gracefulShutdown(signal) {
     // 等待所有客户端关闭
     Promise.allSettled(clientClosePromises).then(() => {
         console.log('📱 所有客户端已断开');
-        
+
         // 关闭服务器
         server.close((err) => {
             clearTimeout(forceExitTimeout);
