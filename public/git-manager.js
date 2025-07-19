@@ -4,6 +4,7 @@ class GitManager {
         this.currentBranch = '';
         this.allBranches = [];
         this.localBranches = [];
+        this.remoteBranches = [];
         this.init();
     }
 
@@ -66,7 +67,8 @@ class GitManager {
     // 加载分支信息
     async loadBranches() {
         try {
-            this.log('正在加载分支信息...', 'info');
+            this.log('正在刷新分支信息...', 'info');
+            this.log('正在从远程仓库获取最新分支信息并清理已删除的分支...', 'info');
 
             const response = await fetch('/api/git/branches');
             const data = await response.json();
@@ -75,10 +77,17 @@ class GitManager {
                 this.currentBranch = data.currentBranch;
                 this.allBranches = data.allBranches;
                 this.localBranches = data.localBranches;
+                this.remoteBranches = data.remoteBranches || [];
+                this.gitPath = data.gitPath;
 
                 this.updateBranchSelect();
                 this.updateCurrentBranch();
-                this.log('分支信息加载成功', 'success');
+                this.log('分支信息刷新成功', 'success');
+                this.log(`本地分支: ${this.localBranches.length} 个`, 'info');
+                this.log(`远程分支: ${this.remoteBranches.length} 个`, 'info');
+                if (this.gitPath) {
+                    this.log(`Git仓库路径: ${this.gitPath}`, 'info');
+                }
             } else {
                 this.log('分支信息加载失败: ' + data.message, 'error');
             }
@@ -92,24 +101,58 @@ class GitManager {
         const select = document.getElementById('branch-select');
         select.innerHTML = '<option value="">选择分支...</option>';
 
-        this.localBranches.forEach(branch => {
-            const option = document.createElement('option');
-            option.value = branch;
-            option.textContent = branch;
-            if (branch === this.currentBranch) {
-                option.selected = true;
-            }
-            select.appendChild(option);
-        });
+        // 添加本地分支分组
+        if (this.localBranches.length > 0) {
+            const localGroup = document.createElement('optgroup');
+            localGroup.label = '本地分支';
+
+            this.localBranches.forEach(branch => {
+                const option = document.createElement('option');
+                option.value = branch;
+                option.textContent = branch;
+                if (branch === this.currentBranch) {
+                    option.selected = true;
+                }
+                localGroup.appendChild(option);
+            });
+            select.appendChild(localGroup);
+        }
+
+        // 添加远程分支分组
+        if (this.remoteBranches.length > 0) {
+            const remoteGroup = document.createElement('optgroup');
+            remoteGroup.label = '远程分支';
+
+            this.remoteBranches.forEach(branch => {
+                const option = document.createElement('option');
+                option.value = branch;
+                option.textContent = branch;
+
+                // 检查是否为当前分支的远程对应分支
+                if (branch === `origin/${this.currentBranch}`) {
+                    option.selected = true;
+                }
+
+                remoteGroup.appendChild(option);
+            });
+            select.appendChild(remoteGroup);
+        }
     }
 
     // 更新当前分支显示
     updateCurrentBranch() {
         const currentBranchElement = document.getElementById('current-branch');
         currentBranchElement.textContent = this.currentBranch || '未知';
+
+        // 显示Git路径信息
+        const gitPathElement = document.getElementById('git-path');
+        if (gitPathElement && this.gitPath) {
+            gitPathElement.textContent = this.gitPath;
+            gitPathElement.title = this.gitPath;
+        }
     }
 
-    // 切换分支
+// 切换分支
     async checkoutBranch() {
         const select = document.getElementById('branch-select');
         const branch = select.value;
@@ -119,20 +162,38 @@ class GitManager {
             return;
         }
 
-        if (branch === this.currentBranch) {
+        // 检查是否为远程分支
+        const isRemoteBranch = branch.startsWith('origin/');
+
+        if (!isRemoteBranch && branch === this.currentBranch) {
             this.log('当前已在目标分支', 'info');
             return;
         }
 
         try {
-            this.log(`正在切换到分支: ${branch}...`, 'info');
+            let message = `正在切换到分支: ${branch}...`;
+
+            // 如果是远程分支，提示将创建本地分支
+            if (isRemoteBranch) {
+                const localBranchName = branch.replace('origin/', '');
+                if (!this.localBranches.includes(localBranchName)) {
+                    message = `正在从远程分支 ${branch} 创建本地分支 ${localBranchName}...`;
+                } else {
+                    message = `正在切换到本地分支: ${localBranchName}...`;
+                }
+            }
+
+            this.log(message, 'info');
 
             const response = await fetch('/api/git/checkout', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ branch })
+                body: JSON.stringify({
+                    branch,
+                    createNew: isRemoteBranch
+                })
             });
 
             const data = await response.json();

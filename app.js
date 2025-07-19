@@ -13,8 +13,41 @@ let currentChatContent = '';
 let connectedClients = new Set();
 let globalClearTimestamp = null; // 添加全局清除时间戳
 
-// 初始化 Git 实例
-const git = simpleGit(process.cwd());
+// 动态Git实例管理
+let git = null;
+let currentGitPath = null;
+
+// 初始化Git实例
+function initGit(gitPath = process.cwd()) {
+    try {
+        // 检查路径是否为Git仓库
+        const testGit = simpleGit(gitPath);
+        return testGit;
+    } catch (error) {
+        console.log('❌ 无效的Git路径:', gitPath);
+        return null;
+    }
+}
+
+// 获取Git实例（自动检测仓库）
+function getGitInstance() {
+    if (!git) {
+        git = initGit();
+        currentGitPath = process.cwd();
+    }
+    return git;
+}
+
+// 检查并更新Git路径
+function checkAndUpdateGitPath() {
+    const currentPath = process.cwd();
+    if (currentPath !== currentGitPath) {
+        console.log(`🔄 Git路径变更: ${currentGitPath} -> ${currentPath}`);
+        git = initGit(currentPath);
+        currentGitPath = currentPath;
+    }
+    return git;
+}
 
 // 中间件
 app.use(express.json({ limit: '50mb' }));
@@ -40,11 +73,14 @@ app.get('/', (req, res) => {
 
 // 健康检查端点
 app.get('/health', (req, res) => {
+    const gitInstance = getGitInstance();
     res.json({
         status: 'ok',
         localUrl: `http://localhost:3000`,
         cursorConnected: !!currentChatContent,
         workspace: process.cwd(),
+        gitPath: currentGitPath,
+        isGitRepo: !!gitInstance,
         timestamp: Date.now(),
         connectedClients: connectedClients.size
     });
@@ -79,7 +115,7 @@ app.post('/api/content', (req, res) => {
                 });
                 return;
             }
-            
+
             currentChatContent = data.html;
             console.log(`📥 HTTP 接收内容：${data.html.length} 字符`);
             console.log(`📊 来源：${data.url || 'unknown'}`);
@@ -140,16 +176,41 @@ app.get('/api/status', (req, res) => {
 // 获取当前分支和所有分支
 app.get('/api/git/branches', async (req, res) => {
     try {
+        const gitInstance = checkAndUpdateGitPath();
+        if (!gitInstance) {
+            return res.status(500).json({
+                success: false,
+                message: '当前目录不是有效的Git仓库',
+                currentPath: process.cwd()
+            });
+        }
+
+        // 先执行 git fetch --prune 来更新远程分支信息并清理已删除的分支引用
+        try {
+            await gitInstance.fetch(['--all', '--prune']);
+            console.log('✅ 远程分支信息已更新，已删除的分支引用已清理');
+        } catch (fetchError) {
+            console.log('⚠️  远程分支更新失败，使用本地缓存的分支信息:', fetchError.message);
+        }
+
         const [currentBranch, allBranches] = await Promise.all([
-            git.branchLocal(),
-            git.branch(['-a'])
+            gitInstance.branchLocal(),
+            gitInstance.branch(['-a'])
         ]);
+
+        // 分离本地分支和远程分支
+        const localBranches = currentBranch.all;
+        const remoteBranches = allBranches.all.filter(branch =>
+            branch.startsWith('remotes/') && !branch.endsWith('/HEAD')
+        ).map(branch => branch.replace('remotes/', ''));
 
         res.json({
             success: true,
             currentBranch: currentBranch.current,
             allBranches: allBranches.all,
-            localBranches: currentBranch.all,
+            localBranches: localBranches,
+            remoteBranches: remoteBranches,
+            gitPath: process.cwd(),
             timestamp: Date.now()
         });
     } catch (error) {
@@ -165,7 +226,16 @@ app.get('/api/git/branches', async (req, res) => {
 // 切换分支
 app.post('/api/git/checkout', async (req, res) => {
     try {
-        const { branch } = req.body;
+        const gitInstance = checkAndUpdateGitPath();
+        if (!gitInstance) {
+            return res.status(500).json({
+                success: false,
+                message: '当前目录不是有效的Git仓库',
+                currentPath: process.cwd()
+            });
+        }
+
+        const { branch, createNew } = req.body;
         if (!branch) {
             return res.status(400).json({
                 success: false,
@@ -173,12 +243,39 @@ app.post('/api/git/checkout', async (req, res) => {
             });
         }
 
-        await git.checkout(branch);
-        const newBranch = await git.branchLocal();
+        // 检查是否为远程分支
+        const isRemoteBranch = branch.startsWith('origin/');
+        let targetBranch = branch;
+
+        if (isRemoteBranch && createNew) {
+            // 从远程分支创建新的本地分支
+            const localBranchName = branch.replace('origin/', '');
+            await gitInstance.checkoutBranch(localBranchName, branch);
+            targetBranch = localBranchName;
+        } else if (isRemoteBranch && !createNew) {
+            // 直接切换到远程分支（需要本地已存在同名分支）
+            const localBranchName = branch.replace('origin/', '');
+
+            // 检查本地分支是否存在
+            const localBranches = await gitInstance.branchLocal();
+            if (localBranches.all.includes(localBranchName)) {
+                await gitInstance.checkout(localBranchName);
+                targetBranch = localBranchName;
+            } else {
+                // 本地分支不存在，创建新的本地分支
+                await gitInstance.checkoutBranch(localBranchName, branch);
+                targetBranch = localBranchName;
+            }
+        } else {
+            // 本地分支切换
+            await gitInstance.checkout(branch);
+        }
+
+        const newBranch = await gitInstance.branchLocal();
 
         res.json({
             success: true,
-            message: `已切换到分支: ${branch}`,
+            message: `已切换到分支: ${targetBranch}`,
             currentBranch: newBranch.current,
             timestamp: Date.now()
         });
@@ -195,7 +292,16 @@ app.post('/api/git/checkout', async (req, res) => {
 // 拉取最新代码
 app.post('/api/git/pull', async (req, res) => {
     try {
-        const result = await git.pull();
+        const gitInstance = checkAndUpdateGitPath();
+        if (!gitInstance) {
+            return res.status(500).json({
+                success: false,
+                message: '当前目录不是有效的Git仓库',
+                currentPath: process.cwd()
+            });
+        }
+
+        const result = await gitInstance.pull();
 
         res.json({
             success: true,
@@ -216,7 +322,16 @@ app.post('/api/git/pull', async (req, res) => {
 // 获取状态
 app.get('/api/git/status', async (req, res) => {
     try {
-        const status = await git.status();
+        const gitInstance = checkAndUpdateGitPath();
+        if (!gitInstance) {
+            return res.status(500).json({
+                success: false,
+                message: '当前目录不是有效的Git仓库',
+                currentPath: process.cwd()
+            });
+        }
+
+        const status = await gitInstance.status();
 
         res.json({
             success: true,
@@ -236,10 +351,19 @@ app.get('/api/git/status', async (req, res) => {
 // 添加文件到暂存区
 app.post('/api/git/add', async (req, res) => {
     try {
+        const gitInstance = checkAndUpdateGitPath();
+        if (!gitInstance) {
+            return res.status(500).json({
+                success: false,
+                message: '当前目录不是有效的Git仓库',
+                currentPath: process.cwd()
+            });
+        }
+
         const { files } = req.body;
         const filesToAdd = files || '.';
 
-        await git.add(filesToAdd);
+        await gitInstance.add(filesToAdd);
 
         res.json({
             success: true,
@@ -260,6 +384,15 @@ app.post('/api/git/add', async (req, res) => {
 // 提交代码
 app.post('/api/git/commit', async (req, res) => {
     try {
+        const gitInstance = checkAndUpdateGitPath();
+        if (!gitInstance) {
+            return res.status(500).json({
+                success: false,
+                message: '当前目录不是有效的Git仓库',
+                currentPath: process.cwd()
+            });
+        }
+
         const { message } = req.body;
         if (!message) {
             return res.status(400).json({
@@ -268,7 +401,7 @@ app.post('/api/git/commit', async (req, res) => {
             });
         }
 
-        const result = await git.commit(message);
+        const result = await gitInstance.commit(message);
 
         res.json({
             success: true,
@@ -289,7 +422,16 @@ app.post('/api/git/commit', async (req, res) => {
 // 推送代码
 app.post('/api/git/push', async (req, res) => {
     try {
-        const result = await git.push();
+        const gitInstance = checkAndUpdateGitPath();
+        if (!gitInstance) {
+            return res.status(500).json({
+                success: false,
+                message: '当前目录不是有效的Git仓库',
+                currentPath: process.cwd()
+            });
+        }
+
+        const result = await gitInstance.push();
 
         res.json({
             success: true,
@@ -313,7 +455,7 @@ wss.on('connection', (ws, req) => {
     console.log(`📱 新 WebSocket 客户端连接：${clientIP}`);
 
     connectedClients.add(ws);
-    
+
     // 设置心跳机制
     ws.isAlive = true;
     ws.on('pong', () => {
@@ -470,7 +612,7 @@ setInterval(() => {
                 client.terminate();
                 return;
             }
-            
+
             // 发送心跳包
             client.isAlive = false;
             client.ping();
@@ -507,7 +649,7 @@ server.listen(PORT, HOST, () => {
 function getLocalIP() {
     const { networkInterfaces } = require('os');
     const nets = networkInterfaces();
-    
+
     for (const name of Object.keys(nets)) {
         for (const net of nets[name]) {
             // 跳过非IPv4和内部地址
@@ -538,7 +680,7 @@ function gracefulShutdown(signal) {
                     type: 'server_shutdown',
                     message: '服务器正在关闭'
                 }));
-                
+
                 // 创建客户端关闭Promise
                 const closePromise = new Promise((resolve) => {
                     client.on('close', resolve);
@@ -556,7 +698,7 @@ function gracefulShutdown(signal) {
     // 等待所有客户端关闭
     Promise.allSettled(clientClosePromises).then(() => {
         console.log('📱 所有客户端已断开');
-        
+
         // 关闭服务器
         server.close((err) => {
             clearTimeout(forceExitTimeout);

@@ -49,11 +49,17 @@
                     <h2>Git 分支管理</h2>
                     <div class="git-controls">
                         <div class="git-status">
-                            <span>当前分支: </span>
-                            <span id="current-branch" class="current-branch">加载中...</span>
+                            <div class="status-row">
+                                <span>当前分支: </span>
+                                <span id="current-branch" class="current-branch">加载中...</span>
+                            </div>
+                            <div class="status-row">
+                                <span>Git路径: </span>
+                                <span id="git-path" class="git-path" title="">加载中...</span>
+                            </div>
                         </div>
                         <div class="git-actions">
-                            <button id="refresh-branches" class="btn btn-secondary">刷新分支</button>
+                            <button id="refresh-branches" class="btn btn-secondary">刷新远程分支</button>
                             <button id="pull-code" class="btn btn-primary">更新代码</button>
                             <button id="git-status" class="btn btn-info">查看状态</button>
                         </div>
