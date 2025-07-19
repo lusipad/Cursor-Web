@@ -16,22 +16,22 @@
         <!-- Tab 导航 -->
         <nav class="tab-nav">
             <button class="tab-btn active" data-tab="chat-tab">聊天</button>
-            <button class="tab-btn" data-tab="git-tab">Git管理</button>
+            <button class="tab-btn" data-tab="git-tab">Git 管理</button>
         </nav>
 
         <main class="main">
-            <!-- 聊天Tab内容 -->
+            <!-- 聊天 Tab 内容 -->
             <section id="chat-tab" class="tab-content active">
                 <div id="messages-container" class="messages-container">
                     <div class="welcome-message">
                         <h2>欢迎使用 Claude Web</h2>
                         <p>状态说明：</p>
-                        <p>🟡 <strong>已连接 - 等待Cursor内容</strong>：需要在Cursor中运行注入脚本</p>
+                        <p>🟡 <strong>已连接 - 等待 Cursor 内容</strong>：需要在 Cursor 中运行注入脚本</p>
                         <p>🟢 <strong>已连接 - 同步正常</strong>：内容同步工作正常</p>
                         <br>
                         <p class="instruction">使用方法：在 Cursor 开发者工具中运行同步脚本</p>
                         <a href="/script.html" class="btn btn-primary" style="display:inline-block;margin:10px 0;">前往一键复制同步脚本 &gt;&gt;</a>
-                        <p class="instruction">脚本会同步整个Cursor页面内容到此页面</p>
+                        <p class="instruction">脚本会同步整个 Cursor 页面内容到此页面</p>
                     </div>
                 </div>
                 <footer class="footer">
@@ -43,18 +43,18 @@
                 </footer>
             </section>
 
-            <!-- Git管理Tab内容 -->
+            <!-- Git 管理 Tab 内容 -->
             <section id="git-tab" class="tab-content">
                 <div class="git-panel">
                     <h2>Git 分支管理</h2>
                     <div class="git-controls">
                         <div class="git-status">
                             <div class="status-row">
-                                <span>当前分支: </span>
+                                <span>当前分支：</span>
                                 <span id="current-branch" class="current-branch">加载中...</span>
                             </div>
                             <div class="status-row">
-                                <span>Git路径: </span>
+                                <span>Git 路径：</span>
                                 <span id="git-path" class="git-path" title="">加载中...</span>
                             </div>
                         </div>
@@ -95,10 +95,11 @@
             </section>
         </main>
     </div>
-    <script src="simple-client.js"></script>
+
+    <script src="js/modules/module-loader.js"></script>
     <script src="git-manager.js"></script>
     <script>
-    // Tab切换逻辑
+    // Tab 切换逻辑
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', function() {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -107,8 +108,6 @@
             document.getElementById(this.dataset.tab).classList.add('active');
         });
     });
-    // 自动加载cursor-browser.js内容到pre
-    // 已删除脚本相关JS...
     </script>
 </body>
 </html>
