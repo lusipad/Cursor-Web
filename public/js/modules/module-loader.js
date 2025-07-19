@@ -13,7 +13,8 @@ const ModuleLoader = {
         'StatusManager': ['ErrorHandler'],
         'UIManager': ['ErrorHandler'],
         'EventManager': ['ErrorHandler', 'WebSocketManager', 'ContentManager', 'UIManager'],
-        'DebugManager': ['ErrorHandler', 'WebSocketManager', 'ContentManager', 'UIManager']
+        'DebugManager': ['ErrorHandler', 'WebSocketManager', 'ContentManager', 'UIManager'],
+        'SimpleWebClient': ['ErrorHandler', 'WebSocketManager', 'ContentManager', 'StatusManager', 'UIManager', 'EventManager', 'DebugManager']
     },
 
     /**
@@ -144,7 +145,8 @@ const ModuleLoader = {
             'StatusManager',
             'UIManager',
             'EventManager',
-            'DebugManager'
+            'DebugManager',
+            'SimpleWebClient'
         ];
 
         const missingModules = requiredModules.filter(module => {
@@ -182,8 +184,8 @@ function startModuleLoading() {
             // 加载主客户端
             ModuleLoader.loadModule('SimpleWebClient').then(() => {
                 console.log('✅ SimpleWebClient 加载完成');
-                // 初始化客户端
-                if (window.SimpleWebClient && !window.simpleClient) {
+                // 初始化客户端（仅在非诊断页面时）
+                if (window.SimpleWebClient && !window.simpleClient && !window.location.pathname.includes('diagnostic')) {
                     console.log('🚀 初始化 SimpleWebClient...');
                     window.simpleClient = new window.SimpleWebClient();
                 }

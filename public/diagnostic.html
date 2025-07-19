@@ -311,6 +311,22 @@
             console.log(message);
         }
 
+        // 等待模块加载器初始化
+        function waitForModuleLoader() {
+            return new Promise((resolve) => {
+                const checkLoader = () => {
+                    if (window.ModuleLoader) {
+                        log('✅ 模块加载器已就绪', 'success');
+                        resolve();
+                    } else {
+                        log('⏳ 等待模块加载器...', 'info');
+                        setTimeout(checkLoader, 100);
+                    }
+                };
+                checkLoader();
+            });
+        }
+
         // 更新模块卡片状态
         function updateModuleCard(moduleId, status, details, className = 'info') {
             const card = document.getElementById(`${moduleId}-card`);
@@ -373,19 +389,28 @@
                         // 加载主客户端
                         if (!window.SimpleWebClient) {
                             log('📦 加载主客户端...', 'info');
-                            window.ModuleLoader.loadModule('SimpleWebClient').then(() => {
+                            try {
+                                await window.ModuleLoader.loadModule('SimpleWebClient');
                                 log('✅ SimpleWebClient 加载完成', 'success');
-                                if (window.SimpleWebClient && !window.simpleClient) {
-                                    log('🚀 初始化客户端...', 'info');
-                                    window.simpleClient = new window.SimpleWebClient();
-                                }
-                                setTimeout(runFullDiagnostic, 1000);
-                            }).catch(error => {
+                            } catch (error) {
                                 log(`❌ SimpleWebClient 加载失败: ${error.message}`, 'error');
-                            });
-                        } else {
-                            setTimeout(runFullDiagnostic, 1000);
+                                return;
+                            }
                         }
+
+                        // 初始化客户端
+                        if (window.SimpleWebClient && !window.simpleClient) {
+                            log('🚀 初始化客户端...', 'info');
+                            try {
+                                window.simpleClient = new window.SimpleWebClient();
+                                log('✅ 客户端初始化成功', 'success');
+                            } catch (error) {
+                                log(`❌ 客户端初始化失败: ${error.message}`, 'error');
+                                return;
+                            }
+                        }
+
+                        setTimeout(runFullDiagnostic, 1000);
                     } else {
                         log('❌ 部分模块不可用', 'error');
                     }
@@ -447,16 +472,32 @@
         // 检查内容管理器
         function checkContent() {
             log('📄 检查内容管理器...');
-            if (window.simpleClient && window.simpleClient.contentManager) {
-                const hasContent = window.simpleClient.contentManager.hasReceivedContent();
-                const currentContent = window.simpleClient.contentManager.getCurrentContent();
+            if (window.simpleClient) {
+                log(`🔍 simpleClient存在: ${typeof window.simpleClient}`, 'info');
+                log(`🔍 contentManager存在: ${!!window.simpleClient.contentManager}`, 'info');
 
-                updateModuleCard('content-manager', 'success',
-                    `内容状态: ${hasContent ? '有内容' : '无内容'}`, 'success');
-                log(`✅ 内容管理器正常，内容长度: ${currentContent ? currentContent.length : 0}`, 'success');
+                if (window.simpleClient.contentManager) {
+                    log(`🔍 contentManager类型: ${typeof window.simpleClient.contentManager}`, 'info');
+                    log(`🔍 hasReceivedContent方法存在: ${typeof window.simpleClient.contentManager.hasReceivedContent}`, 'info');
+
+                    try {
+                        const hasContent = window.simpleClient.contentManager.hasReceivedContent();
+                        const currentContent = window.simpleClient.contentManager.getCurrentContent();
+
+                        updateModuleCard('content-manager', 'success',
+                            `内容状态: ${hasContent ? '有内容' : '无内容'}`, 'success');
+                        log(`✅ 内容管理器正常，内容长度: ${currentContent ? currentContent.length : 0}`, 'success');
+                    } catch (error) {
+                        updateModuleCard('content-manager', 'error', `内容管理器错误: ${error.message}`, 'error');
+                        log(`❌ 内容管理器调用失败: ${error.message}`, 'error');
+                    }
+                } else {
+                    updateModuleCard('content-manager', 'error', '内容管理器未初始化', 'error');
+                    log('❌ 内容管理器不可用', 'error');
+                }
             } else {
-                updateModuleCard('content-manager', 'error', '内容管理器未初始化', 'error');
-                log('❌ 内容管理器不可用', 'error');
+                updateModuleCard('content-manager', 'error', '客户端未初始化', 'error');
+                log('❌ 客户端未初始化', 'error');
             }
         }
 
@@ -475,12 +516,24 @@
         // 检查状态管理器
         function checkStatus() {
             log('📊 检查状态管理器...');
-            if (window.simpleClient && window.simpleClient.statusManager) {
-                updateModuleCard('status-manager', 'success', '状态管理器正常', 'success');
-                log('✅ 状态管理器正常', 'success');
+            if (window.simpleClient) {
+                log(`🔍 statusManager存在: ${!!window.simpleClient.statusManager}`, 'info');
+
+                if (window.simpleClient.statusManager) {
+                    try {
+                        updateModuleCard('status-manager', 'success', '状态管理器正常', 'success');
+                        log('✅ 状态管理器正常', 'success');
+                    } catch (error) {
+                        updateModuleCard('status-manager', 'error', `状态管理器错误: ${error.message}`, 'error');
+                        log(`❌ 状态管理器调用失败: ${error.message}`, 'error');
+                    }
+                } else {
+                    updateModuleCard('status-manager', 'error', '状态管理器未初始化', 'error');
+                    log('❌ 状态管理器不可用', 'error');
+                }
             } else {
-                updateModuleCard('status-manager', 'error', '状态管理器未初始化', 'error');
-                log('❌ 状态管理器不可用', 'error');
+                updateModuleCard('status-manager', 'error', '客户端未初始化', 'error');
+                log('❌ 客户端未初始化', 'error');
             }
         }
 
@@ -498,13 +551,25 @@
         // 测试UI管理器
         function testUI() {
             log('🎨 测试UI管理器...');
-            if (window.simpleClient && window.simpleClient.uiManager) {
-                window.simpleClient.uiManager.updateStatus('UI测试 - 正常', 'info');
-                updateModuleCard('ui-manager', 'success', 'UI管理器正常', 'success');
-                log('✅ UI管理器正常', 'success');
+            if (window.simpleClient) {
+                log(`🔍 uiManager存在: ${!!window.simpleClient.uiManager}`, 'info');
+
+                if (window.simpleClient.uiManager) {
+                    try {
+                        window.simpleClient.uiManager.updateStatus('UI测试 - 正常', 'info');
+                        updateModuleCard('ui-manager', 'success', 'UI管理器正常', 'success');
+                        log('✅ UI管理器正常', 'success');
+                    } catch (error) {
+                        updateModuleCard('ui-manager', 'error', `UI管理器错误: ${error.message}`, 'error');
+                        log(`❌ UI管理器调用失败: ${error.message}`, 'error');
+                    }
+                } else {
+                    updateModuleCard('ui-manager', 'error', 'UI管理器未初始化', 'error');
+                    log('❌ UI管理器不可用', 'error');
+                }
             } else {
-                updateModuleCard('ui-manager', 'error', 'UI管理器未初始化', 'error');
-                log('❌ UI管理器不可用', 'error');
+                updateModuleCard('ui-manager', 'error', '客户端未初始化', 'error');
+                log('❌ 客户端未初始化', 'error');
             }
         }
 
@@ -522,14 +587,26 @@
         // 检查事件管理器
         function checkEvents() {
             log('🎯 检查事件管理器...');
-            if (window.simpleClient && window.simpleClient.eventManager) {
-                const events = window.simpleClient.eventManager.getBoundEvents();
-                updateModuleCard('event-manager', 'success',
-                    `已绑定事件: ${events.length}个`, 'success');
-                log(`✅ 事件管理器正常，已绑定${events.length}个事件`, 'success');
+            if (window.simpleClient) {
+                log(`🔍 eventManager存在: ${!!window.simpleClient.eventManager}`, 'info');
+
+                if (window.simpleClient.eventManager) {
+                    try {
+                        const events = window.simpleClient.eventManager.getBoundEvents();
+                        updateModuleCard('event-manager', 'success',
+                            `已绑定事件: ${events.length}个`, 'success');
+                        log(`✅ 事件管理器正常，已绑定${events.length}个事件`, 'success');
+                    } catch (error) {
+                        updateModuleCard('event-manager', 'error', `事件管理器错误: ${error.message}`, 'error');
+                        log(`❌ 事件管理器调用失败: ${error.message}`, 'error');
+                    }
+                } else {
+                    updateModuleCard('event-manager', 'error', '事件管理器未初始化', 'error');
+                    log('❌ 事件管理器不可用', 'error');
+                }
             } else {
-                updateModuleCard('event-manager', 'error', '事件管理器未初始化', 'error');
-                log('❌ 事件管理器不可用', 'error');
+                updateModuleCard('event-manager', 'error', '客户端未初始化', 'error');
+                log('❌ 客户端未初始化', 'error');
             }
         }
 
@@ -547,14 +624,26 @@
         // 获取调试信息
         function getDebugInfo() {
             log('🔍 获取调试信息...');
-            if (window.simpleClient && window.simpleClient.debugManager) {
-                const status = window.simpleClient.debugManager.getClientStatus();
-                updateModuleCard('debug-manager', 'success', '调试管理器正常', 'success');
-                log('✅ 调试信息已获取', 'success');
-                console.log('调试状态:', status);
+            if (window.simpleClient) {
+                log(`🔍 debugManager存在: ${!!window.simpleClient.debugManager}`, 'info');
+
+                if (window.simpleClient.debugManager) {
+                    try {
+                        const status = window.simpleClient.debugManager.getClientStatus();
+                        updateModuleCard('debug-manager', 'success', '调试管理器正常', 'success');
+                        log('✅ 调试信息已获取', 'success');
+                        console.log('调试状态:', status);
+                    } catch (error) {
+                        updateModuleCard('debug-manager', 'error', `调试管理器错误: ${error.message}`, 'error');
+                        log(`❌ 调试管理器调用失败: ${error.message}`, 'error');
+                    }
+                } else {
+                    updateModuleCard('debug-manager', 'error', '调试管理器未初始化', 'error');
+                    log('❌ 调试管理器不可用', 'error');
+                }
             } else {
-                updateModuleCard('debug-manager', 'error', '调试管理器未初始化', 'error');
-                log('❌ 调试管理器不可用', 'error');
+                updateModuleCard('debug-manager', 'error', '客户端未初始化', 'error');
+                log('❌ 客户端未初始化', 'error');
             }
         }
 
@@ -581,10 +670,30 @@
         function initClient() {
             log('🚀 初始化客户端...');
             if (window.SimpleWebClient) {
-                window.simpleClient = new window.SimpleWebClient();
-                log('✅ 客户端初始化成功', 'success');
-                setTimeout(runFullDiagnostic, 1000);
+                try {
+                    log('🔍 创建SimpleWebClient实例...', 'info');
+                    window.simpleClient = new window.SimpleWebClient();
+
+                    // 验证客户端是否正确初始化
+                    log('🔍 验证客户端初始化...', 'info');
+                    log(`🔍 simpleClient类型: ${typeof window.simpleClient}`, 'info');
+                    log(`🔍 contentManager存在: ${!!window.simpleClient.contentManager}`, 'info');
+                    log(`🔍 wsManager存在: ${!!window.simpleClient.wsManager}`, 'info');
+                    log(`🔍 statusManager存在: ${!!window.simpleClient.statusManager}`, 'info');
+                    log(`🔍 uiManager存在: ${!!window.simpleClient.uiManager}`, 'info');
+                    log(`🔍 eventManager存在: ${!!window.simpleClient.eventManager}`, 'info');
+                    log(`🔍 debugManager存在: ${!!window.simpleClient.debugManager}`, 'info');
+
+                    updateModuleCard('simple-client', 'success', '客户端初始化成功', 'success');
+                    log('✅ 客户端初始化成功', 'success');
+                    setTimeout(runFullDiagnostic, 1000);
+                } catch (error) {
+                    updateModuleCard('simple-client', 'error', `客户端初始化失败: ${error.message}`, 'error');
+                    log(`❌ 客户端初始化失败: ${error.message}`, 'error');
+                    log(`🔍 错误堆栈: ${error.stack}`, 'error');
+                }
             } else {
+                updateModuleCard('simple-client', 'error', 'SimpleWebClient类不可用', 'error');
                 log('❌ SimpleWebClient类不可用', 'error');
             }
         }
@@ -689,7 +798,7 @@
         }
 
         // 开始诊断
-        function startDiagnostic() {
+        async function startDiagnostic() {
             log('🚀 开始系统诊断...', 'info');
             clearLog();
 
@@ -698,16 +807,22 @@
 
             // 如果模块加载器可用，尝试加载模块
             if (window.ModuleLoader) {
-                setTimeout(loadAllModules, 500);
+                log('📦 开始加载模块...', 'info');
+                await loadAllModules();
             } else {
                 log('❌ 模块加载器不可用，请刷新页面重试', 'error');
             }
         }
 
-        // 页面加载完成后自动开始诊断
-        window.addEventListener('load', () => {
+                // 页面加载完成后自动开始诊断
+        window.addEventListener('load', async () => {
             log('📄 诊断页面加载完成', 'info');
-            setTimeout(startDiagnostic, 1000);
+
+            // 等待模块加载器就绪
+            await waitForModuleLoader();
+
+            // 开始诊断
+            await startDiagnostic();
         });
 
         // 监听全局错误

@@ -5,7 +5,7 @@
 class ContentManager {
     constructor() {
         this.currentContent = '';
-        this.hasReceivedContent = false;
+        this._hasReceivedContent = false;  // 使用下划线前缀避免与方法名冲突
         this.lastContentTime = null;
         this.clearTimestamp = null;
         this.onContentUpdateCallback = null;
@@ -55,7 +55,7 @@ class ContentManager {
                     });
 
                     this.currentContent = html;
-                    this.hasReceivedContent = true;
+                    this._hasReceivedContent = true;
                     this.lastContentTime = Date.now();
 
                     if (this.onContentUpdateCallback) {
@@ -120,7 +120,7 @@ class ContentManager {
      * 检查是否已接收内容
      */
     hasReceivedContent() {
-        return this.hasReceivedContent;
+        return this._hasReceivedContent;
     }
 
     /**
@@ -128,7 +128,7 @@ class ContentManager {
      */
     reset() {
         this.currentContent = '';
-        this.hasReceivedContent = false;
+        this._hasReceivedContent = false;
         this.lastContentTime = null;
         this.clearTimestamp = null;
     }

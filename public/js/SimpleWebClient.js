@@ -283,3 +283,10 @@ console.log('  - debugEventBinding() - 检查事件绑定状态');
 console.log('  - testWebSocketConnection() - 测试WebSocket连接');
 
 console.log('✅ Simple Client JS 加载完成');
+
+// 导出模块
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = SimpleWebClient;
+} else {
+    window.SimpleWebClient = SimpleWebClient;
+}

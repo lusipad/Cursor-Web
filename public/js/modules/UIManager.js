@@ -15,6 +15,9 @@ class UIManager {
         if (statusEl) {
             statusEl.textContent = message;
             statusEl.className = `status ${type}`;
+        } else {
+            // 在诊断页面中，如果没有status元素，就输出到控制台
+            console.log(`📊 状态更新: ${message} (${type})`);
         }
     }
 
@@ -24,7 +27,8 @@ class UIManager {
     displayContent(contentData) {
         const container = document.getElementById('messages-container');
         if (!container) {
-            console.error('❌ 未找到 messages-container');
+            // 在诊断页面中，如果没有messages-container，就输出到控制台
+            console.log('📄 内容更新 (诊断模式):', contentData);
             return;
         }
 
@@ -136,6 +140,9 @@ class UIManager {
         if (ts) {
             ts.textContent = '';
         }
+
+        // 在诊断页面中，输出清理信息到控制台
+        console.log('🧹 内容已清理 (诊断模式)');
     }
 
     /**
@@ -240,6 +247,49 @@ class UIManager {
             .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
             .replace(/on\w+="[^"]*"/gi, '')
             .replace(/javascript:/gi, '');
+    }
+
+    /**
+     * 显示通知
+     */
+    showNotification(message, type = 'info') {
+        // 在诊断页面中，输出通知到控制台
+        console.log(`🔔 通知 (${type}): ${message}`);
+
+        // 创建通知元素
+        const notification = document.createElement('div');
+        notification.className = `notification ${type}`;
+        notification.textContent = message;
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #007cba;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            transform: translateX(100%);
+            transition: transform 0.3s ease-out;
+        `;
+
+        document.body.appendChild(notification);
+
+        // 强制重排后添加动画
+        notification.offsetHeight;
+        notification.style.transform = 'translateX(0)';
+
+        // 3秒后自动隐藏
+        setTimeout(() => {
+            notification.style.transform = 'translateX(100%)';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 300);
+        }, 3000);
     }
 
     /**
