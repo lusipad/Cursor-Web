@@ -4,6 +4,7 @@ class HistoryManager {
         this.chats = [];
         this.currentChat = null;
         this.isLoading = false;
+        this.expandedProjects = {}; // 跟踪项目展开状态
         this.init();
     }
 
@@ -139,48 +140,91 @@ class HistoryManager {
             return;
         }
         
-        // 按工作区分组
-        const groupedChats = this.groupChatsByWorkspace(chats);
+        // 按项目分组（参考 cursor-view-main 实现）
+        const groupedChats = this.groupChatsByProject(chats);
         
-        chatList.innerHTML = Object.entries(groupedChats).map(([workspaceId, workspaceChats]) => {
-            const workspaceName = workspaceChats[0].project?.name || workspaceId;
-            const shortWorkspace = workspaceName.length > 30 ? workspaceName.substring(0, 30) + '...' : workspaceName;
+        chatList.innerHTML = Object.entries(groupedChats).map(([projectName, projectData]) => {
+            const isExpanded = this.expandedProjects[projectName] || false;
+            const projectPath = projectData.path || 'Unknown path';
+            const shortPath = projectPath.length > 50 ? '...' + projectPath.substring(projectPath.length - 47) : projectPath;
             
             return `
-                <div class="workspace-group">
-                    <div class="workspace-header">
-                        <h3 class="workspace-title">${this.escapeHtml(shortWorkspace)}</h3>
-                        <span class="workspace-count">${workspaceChats.length} 个对话</span>
+                <div class="project-group">
+                    <div class="project-header" data-project="${projectName}">
+                        <div class="project-info">
+                            <div class="project-icon">📁</div>
+                            <div class="project-details">
+                                <h3 class="project-title">${this.escapeHtml(projectName)}</h3>
+                                <div class="project-path">${this.escapeHtml(shortPath)}</div>
+                            </div>
+                            <div class="project-badge">${projectData.chats.length} ${projectData.chats.length === 1 ? 'chat' : 'chats'}</div>
+                        </div>
+                        <div class="expand-icon ${isExpanded ? 'expanded' : ''}">
+                            ${isExpanded ? '▼' : '▶'}
+                        </div>
                     </div>
-                    <div class="workspace-chats">
-                        ${workspaceChats.map(chat => this.createChatItem(chat)).join('')}
+                    <div class="project-chats ${isExpanded ? 'expanded' : 'collapsed'}">
+                        <div class="chats-grid">
+                            ${projectData.chats.map(chat => this.createChatCard(chat)).join('')}
+                        </div>
                     </div>
                 </div>
             `;
         }).join('');
         
-        // 绑定点击事件
-        chatList.querySelectorAll('.chat-item').forEach(item => {
-            item.addEventListener('click', () => {
-                const sessionId = item.dataset.sessionId;
+        // 绑定项目展开/折叠事件
+        chatList.querySelectorAll('.project-header').forEach(header => {
+            header.addEventListener('click', () => {
+                const projectName = header.dataset.project;
+                this.toggleProject(projectName);
+            });
+        });
+        
+        // 绑定聊天卡片点击事件
+        chatList.querySelectorAll('.chat-card').forEach(card => {
+            card.addEventListener('click', (e) => {
+                // 如果点击的是导出按钮，不触发卡片选择
+                if (e.target.closest('.export-btn')) {
+                    return;
+                }
+                const sessionId = card.dataset.sessionId;
                 this.selectChat(sessionId);
+            });
+        });
+        
+        // 绑定导出按钮点击事件
+        chatList.querySelectorAll('.export-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation(); // 阻止事件冒泡
+                const sessionId = btn.dataset.sessionId;
+                this.exportChatFromCard(sessionId);
             });
         });
     }
     
-    groupChatsByWorkspace(chats) {
+    groupChatsByProject(chats) {
         const grouped = {};
         chats.forEach(chat => {
-            const workspaceId = chat.workspaceId || 'unknown';
-            if (!grouped[workspaceId]) {
-                grouped[workspaceId] = [];
+            const projectName = chat.project?.name || 'Cursor Chat';
+            const projectPath = chat.project?.rootPath || chat.workspaceId || 'Unknown';
+            
+            if (!grouped[projectName]) {
+                grouped[projectName] = {
+                    name: projectName,
+                    path: projectPath,
+                    chats: []
+                };
             }
-            grouped[workspaceId].push(chat);
+            grouped[projectName].chats.push(chat);
         });
         
-        // 按时间排序每个工作区的聊天
-        Object.values(grouped).forEach(workspaceChats => {
-            workspaceChats.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        // 按时间排序每个项目的聊天
+        Object.values(grouped).forEach(projectData => {
+            projectData.chats.sort((a, b) => {
+                const dateA = new Date(a.createdAt || 0).getTime();
+                const dateB = new Date(b.createdAt || 0).getTime();
+                return dateB - dateA;
+            });
         });
         
         return grouped;
@@ -192,28 +236,82 @@ class HistoryManager {
         return div.innerHTML;
     }
 
-    createChatItem(chat) {
+    // 切换项目展开/折叠状态
+    toggleProject(projectName) {
+        this.expandedProjects[projectName] = !this.expandedProjects[projectName];
+        
+        // 更新UI
+        const projectGroup = document.querySelector(`[data-project="${projectName}"]`).closest('.project-group');
+        const projectChats = projectGroup.querySelector('.project-chats');
+        const expandIcon = projectGroup.querySelector('.expand-icon');
+        
+        if (this.expandedProjects[projectName]) {
+            projectChats.classList.remove('collapsed');
+            projectChats.classList.add('expanded');
+            expandIcon.classList.add('expanded');
+            expandIcon.textContent = '▼';
+        } else {
+            projectChats.classList.remove('expanded');
+            projectChats.classList.add('collapsed');
+            expandIcon.classList.remove('expanded');
+            expandIcon.textContent = '▶';
+        }
+    }
+
+    createChatCard(chat) {
         const sessionId = chat.sessionId || 'unknown';
         const shortId = sessionId.length > 8 ? sessionId.substring(0, 8) + '...' : sessionId;
         const createdAt = new Date(chat.createdAt || Date.now()).toLocaleString('zh-CN');
         const messageCount = chat.messageCount || 0;
         const preview = chat.preview || '暂无消息内容';
-        const workspaceId = chat.workspaceId || 'unknown';
-        const shortWorkspace = workspaceId.length > 12 ? workspaceId.substring(0, 12) + '...' : workspaceId;
+        const shortPreview = preview.length > 100 ? preview.substring(0, 100) + '...' : preview;
         
         return `
-            <div class="chat-item" data-session-id="${sessionId}">
-                <div class="chat-header">
-                    <div class="chat-id">${shortId}</div>
-                    <div class="chat-time">${createdAt}</div>
+            <div class="chat-card" data-session-id="${sessionId}">
+                <div class="chat-card-header">
+                    <div class="chat-date">
+                        <span class="date-icon">📅</span>
+                        <span class="date-text">${createdAt}</span>
+                    </div>
                 </div>
-                <div class="chat-preview">${this.escapeHtml(preview)}</div>
-                <div class="chat-meta">
-                    <span>工作区: ${shortWorkspace}</span>
-                    <span class="message-count">${messageCount} 条消息</span>
+                <div class="chat-card-divider"></div>
+                <div class="chat-card-content">
+                    <div class="message-count">
+                        <span class="message-icon">💬</span>
+                        <span class="message-text">${messageCount} messages</span>
+                    </div>
+                    <div class="chat-preview-content">
+                        ${this.escapeHtml(shortPreview)}
+                    </div>
+                </div>
+                <div class="chat-card-footer">
+                    <div class="session-id">ID: ${shortId}</div>
+                    <div class="export-btn" data-session-id="${sessionId}" title="导出聊天记录">
+                        📥
+                    </div>
                 </div>
             </div>
         `;
+    }
+
+    generateChatTitle(messages) {
+        if (!messages || messages.length === 0) {
+            return '新对话';
+        }
+        
+        // 找到第一条用户消息作为标题
+        const userMessage = messages.find(msg => msg.role === 'user');
+        if (userMessage && userMessage.content) {
+            const content = userMessage.content.trim();
+            // 提取第一句话或前50个字符作为标题
+            const firstSentence = content.split(/[。！？.!?]/)[0];
+            if (firstSentence.length > 0 && firstSentence.length <= 50) {
+                return firstSentence;
+            }
+            return content.length > 50 ? content.substring(0, 50) + '...' : content;
+        }
+        
+        return '新对话';
     }
 
     getPreview(messages) {
@@ -366,6 +464,27 @@ class HistoryManager {
             document.body.removeChild(link);
             
             console.log(`📤 导出聊天记录: ${sessionId}.${format}`);
+            
+        } catch (error) {
+            console.error('导出失败:', error);
+            alert(`导出失败: ${error.message}`);
+        }
+    }
+    
+    // 从卡片导出聊天记录（默认导出 JSON 格式）
+    async exportChatFromCard(sessionId) {
+        try {
+            const url = `/api/history/chat/${sessionId}/export?format=json`;
+            
+            // 创建下载链接
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `chat-${sessionId}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            console.log(`📤 导出聊天记录: ${sessionId}.json`);
             
         } catch (error) {
             console.error('导出失败:', error);
