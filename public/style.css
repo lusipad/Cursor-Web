@@ -957,10 +957,8 @@ body {
     flex: 1;
     overflow-y: auto;
     padding: 20px;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-    gap: 16px;
-    align-content: start;
+    display: block;
+    /* 移除grid布局，改为block布局以支持project-group */
 }
 
 /* 项目分组样式 - 参考 cursor-view-main */

@@ -5,7 +5,7 @@ class HistoryManager {
         this.currentChat = null;
         this.isLoading = false;
         this.expandedProjects = {}; // 跟踪项目展开状态
-        this.init();
+        // 不在构造函数中自动调用init，等待手动调用
     }
 
     init() {
@@ -74,14 +74,12 @@ class HistoryManager {
             }
             
             this.chats = await response.json();
+            
             this.renderChatList(this.chats);
             this.updateStats(this.chats.length);
             this.updateStatus('加载完成');
             
-            console.log(`📚 加载了 ${this.chats.length} 个聊天记录`);
-            
         } catch (error) {
-            console.error('加载聊天历史失败:', error);
             this.showError(`加载失败: ${error.message}`);
             this.updateStatus('加载失败');
         } finally {
@@ -115,10 +113,7 @@ class HistoryManager {
             this.updateStats(results.length, `搜索 "${query}" 的结果`);
             this.updateStatus('搜索完成');
             
-            console.log(`🔍 搜索 "${query}" 找到 ${results.length} 个结果`);
-            
         } catch (error) {
-            console.error('搜索失败:', error);
             this.showError(`搜索失败: ${error.message}`);
             this.updateStatus('搜索失败');
         } finally {
@@ -128,7 +123,9 @@ class HistoryManager {
 
     renderChatList(chats) {
         const chatList = document.getElementById('chat-list');
-        if (!chatList) return;
+        if (!chatList) {
+            return;
+        }
         
         if (chats.length === 0) {
             chatList.innerHTML = `
@@ -143,19 +140,23 @@ class HistoryManager {
         // 按项目分组（参考 cursor-view-main 实现）
         const groupedChats = this.groupChatsByProject(chats);
         
-        chatList.innerHTML = Object.entries(groupedChats).map(([projectName, projectData]) => {
-            const isExpanded = this.expandedProjects[projectName] || false;
-            const projectPath = projectData.path || 'Unknown path';
-            const shortPath = projectPath.length > 50 ? '...' + projectPath.substring(projectPath.length - 47) : projectPath;
+        const htmlParts = Object.entries(groupedChats).map(([projectKey, projectData]) => {
+            // 默认展开项目，除非用户明确折叠了
+            const isExpanded = this.expandedProjects[projectKey] !== false;
+            const displayPath = projectData.displayPath || '';
+            
+            const chatCards = projectData.chats.map(chat => {
+                return this.createChatCard(chat);
+            }).join('');
             
             return `
                 <div class="project-group">
-                    <div class="project-header" data-project="${projectName}">
+                    <div class="project-header" data-project="${projectKey}">
                         <div class="project-info">
                             <div class="project-icon">📁</div>
                             <div class="project-details">
-                                <h3 class="project-title">${this.escapeHtml(projectName)}</h3>
-                                <div class="project-path">${this.escapeHtml(shortPath)}</div>
+                                <h3 class="project-title">${this.escapeHtml(projectData.name)}</h3>
+                                ${displayPath ? `<div class="project-path" title="${this.escapeHtml(projectData.path)}">${this.escapeHtml(displayPath)}</div>` : ''}
                             </div>
                             <div class="project-badge">${projectData.chats.length} ${projectData.chats.length === 1 ? 'chat' : 'chats'}</div>
                         </div>
@@ -165,18 +166,21 @@ class HistoryManager {
                     </div>
                     <div class="project-chats ${isExpanded ? 'expanded' : 'collapsed'}">
                         <div class="chats-grid">
-                            ${projectData.chats.map(chat => this.createChatCard(chat)).join('')}
+                            ${chatCards}
                         </div>
                     </div>
                 </div>
             `;
-        }).join('');
+        });
+        
+        const finalHTML = htmlParts.join('');
+        chatList.innerHTML = finalHTML;
         
         // 绑定项目展开/折叠事件
         chatList.querySelectorAll('.project-header').forEach(header => {
             header.addEventListener('click', () => {
-                const projectName = header.dataset.project;
-                this.toggleProject(projectName);
+                const projectKey = header.dataset.project;
+                this.toggleProject(projectKey);
             });
         });
         
@@ -190,6 +194,15 @@ class HistoryManager {
                 const sessionId = card.dataset.sessionId;
                 this.selectChat(sessionId);
             });
+            
+            // 添加键盘事件支持
+            card.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    const sessionId = card.dataset.sessionId;
+                    this.selectChat(sessionId);
+                }
+            });
         });
         
         // 绑定导出按钮点击事件
@@ -199,23 +212,37 @@ class HistoryManager {
                 const sessionId = btn.dataset.sessionId;
                 this.exportChatFromCard(sessionId);
             });
+            
+            // 添加键盘事件支持
+            btn.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const sessionId = btn.dataset.sessionId;
+                    this.exportChatFromCard(sessionId);
+                }
+            });
         });
     }
     
     groupChatsByProject(chats) {
         const grouped = {};
-        chats.forEach(chat => {
+        chats.forEach((chat, index) => {
             const projectName = chat.project?.name || 'Cursor Chat';
-            const projectPath = chat.project?.rootPath || chat.workspaceId || 'Unknown';
+            const projectPath = chat.project?.path || chat.workspaceId || 'Unknown';
             
-            if (!grouped[projectName]) {
-                grouped[projectName] = {
+            // 使用项目路径作为唯一标识符，避免同名项目冲突
+            const projectKey = `${projectName}|${projectPath}`;
+            
+            if (!grouped[projectKey]) {
+                grouped[projectKey] = {
                     name: projectName,
                     path: projectPath,
+                    displayPath: this.getDisplayPath(projectPath),
                     chats: []
                 };
             }
-            grouped[projectName].chats.push(chat);
+            grouped[projectKey].chats.push(chat);
         });
         
         // 按时间排序每个项目的聊天
@@ -229,6 +256,31 @@ class HistoryManager {
         
         return grouped;
     }
+
+    // 获取用于显示的路径（简化长路径）
+    getDisplayPath(fullPath) {
+        if (!fullPath || fullPath === 'Unknown' || fullPath === 'global') {
+            return '';
+        }
+        
+        // 如果是Windows路径，只显示最后两级目录
+        if (fullPath.includes('\\')) {
+            const parts = fullPath.split('\\');
+            if (parts.length > 2) {
+                return `...\\${parts[parts.length - 2]}\\${parts[parts.length - 1]}`;
+            }
+        }
+        
+        // 如果是Unix路径，只显示最后两级目录
+        if (fullPath.includes('/')) {
+            const parts = fullPath.split('/');
+            if (parts.length > 2) {
+                return `.../${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
+            }
+        }
+        
+        return fullPath;
+    }
     
     escapeHtml(text) {
         const div = document.createElement('div');
@@ -237,15 +289,15 @@ class HistoryManager {
     }
 
     // 切换项目展开/折叠状态
-    toggleProject(projectName) {
-        this.expandedProjects[projectName] = !this.expandedProjects[projectName];
+    toggleProject(projectKey) {
+        this.expandedProjects[projectKey] = !this.expandedProjects[projectKey];
         
         // 更新UI
-        const projectGroup = document.querySelector(`[data-project="${projectName}"]`).closest('.project-group');
+        const projectGroup = document.querySelector(`[data-project="${projectKey}"]`).closest('.project-group');
         const projectChats = projectGroup.querySelector('.project-chats');
         const expandIcon = projectGroup.querySelector('.expand-icon');
         
-        if (this.expandedProjects[projectName]) {
+        if (this.expandedProjects[projectKey]) {
             projectChats.classList.remove('collapsed');
             projectChats.classList.add('expanded');
             expandIcon.classList.add('expanded');
@@ -267,17 +319,17 @@ class HistoryManager {
         const shortPreview = preview.length > 100 ? preview.substring(0, 100) + '...' : preview;
         
         return `
-            <div class="chat-card" data-session-id="${sessionId}">
+            <div class="chat-card" data-session-id="${sessionId}" role="button" tabindex="0" aria-label="聊天记录 ${createdAt}, ${messageCount} 条消息">
                 <div class="chat-card-header">
                     <div class="chat-date">
-                        <span class="date-icon">📅</span>
+                        <span class="date-icon" aria-hidden="true">📅</span>
                         <span class="date-text">${createdAt}</span>
                     </div>
                 </div>
                 <div class="chat-card-divider"></div>
                 <div class="chat-card-content">
                     <div class="message-count">
-                        <span class="message-icon">💬</span>
+                        <span class="message-icon" aria-hidden="true">💬</span>
                         <span class="message-text">${messageCount} messages</span>
                     </div>
                     <div class="chat-preview-content">
@@ -286,7 +338,7 @@ class HistoryManager {
                 </div>
                 <div class="chat-card-footer">
                     <div class="session-id">ID: ${shortId}</div>
-                    <div class="export-btn" data-session-id="${sessionId}" title="导出聊天记录">
+                    <div class="export-btn" data-session-id="${sessionId}" title="导出聊天记录" role="button" tabindex="0" aria-label="导出聊天记录">
                         📥
                     </div>
                 </div>
@@ -372,7 +424,6 @@ class HistoryManager {
             this.showChatDetail(chat);
             
         } catch (error) {
-            console.error('加载聊天详情失败:', error);
             this.showError(`加载聊天详情失败: ${error.message}`);
         }
     }
@@ -463,10 +514,9 @@ class HistoryManager {
             link.click();
             document.body.removeChild(link);
             
-            console.log(`📤 导出聊天记录: ${sessionId}.${format}`);
+
             
         } catch (error) {
-            console.error('导出失败:', error);
             alert(`导出失败: ${error.message}`);
         }
     }
@@ -484,10 +534,9 @@ class HistoryManager {
             link.click();
             document.body.removeChild(link);
             
-            console.log(`📤 导出聊天记录: ${sessionId}.json`);
+
             
         } catch (error) {
-            console.error('导出失败:', error);
             alert(`导出失败: ${error.message}`);
         }
     }
@@ -524,6 +573,11 @@ class HistoryManager {
         div.textContent = text;
         return div.innerHTML;
     }
+
+    // 调试状态方法
+    debugState() {
+        // 保留方法以防需要调试
+    }
 }
 
 // 全局历史记录管理器实例
@@ -534,10 +588,17 @@ function initHistoryManager() {
     if (!historyManager) {
         historyManager = new HistoryManager();
         historyManager.init();
-        console.log('📚 历史记录管理器已初始化');
     }
 }
 
 // 导出给全局使用
 window.initHistoryManager = initHistoryManager;
-window.historyManager = historyManager;
+// 注意：historyManager会在initHistoryManager函数调用后才被赋值
+Object.defineProperty(window, 'historyManager', {
+    get: function() {
+        return historyManager;
+    },
+    set: function(value) {
+        historyManager = value;
+    }
+});
