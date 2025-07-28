@@ -1043,42 +1043,174 @@ class HistoryRoutes {
     // 新的聊天详情提取方法，参考 cursor-view-main 实现
     async extractChatDetailByIdNew(sessionId) {
         try {
-            // 根据sessionId找到对应的.sqlite文件
+            console.log(`🔍 查找会话详情: ${sessionId}`);
+            
+            // 参考cursor-view-main的做法：首先尝试通过文件名匹配sessionId
             const sessionDbs = this.findAllSessionDbs();
-            const targetDb = sessionDbs.find(db => db.sessionId === sessionId);
-
-            if (!targetDb) {
-                console.log(`❌ 未找到会话 ${sessionId} 对应的数据库文件`);
-                return null;
+            
+            // 第一步：尝试通过文件名匹配sessionId（类似cursor-view-main的做法）
+            for (const dbInfo of sessionDbs) {
+                const fileName = path.basename(dbInfo.path, path.extname(dbInfo.path));
+                if (fileName.includes(sessionId) || sessionId.includes(fileName)) {
+                    console.log(`✅ 通过文件名匹配找到数据库: ${dbInfo.path}`);
+                    const messages = await this.extractMessagesFromSessionDbLikeCursorView(dbInfo.path, sessionId);
+                    if (messages && messages.length > 0) {
+                        return {
+                            sessionId: sessionId,
+                            workspaceId: 'global',
+                            project: {
+                                name: 'Cursor Chat',
+                                path: 'global'
+                            },
+                            createdAt: dbInfo.modTime.toISOString(),
+                            title: `会话 ${sessionId}`,
+                            messages: messages
+                        };
+                    }
+                }
             }
-
-            console.log(`🔍 提取会话详情: ${sessionId} from ${targetDb.path}`);
-
-            // 提取该会话数据库的所有消息
-            const messages = await this.extractMessagesFromSessionDb(targetDb.path);
-
-            if (messages.length === 0) {
-                console.log(`⚠️ 会话 ${sessionId} 没有找到消息`);
-                return null;
+            
+            // 第二步：在所有数据库中搜索bubbleId相关记录（参考cursor-view-main的_iter_bubble_messages）
+            for (const dbInfo of sessionDbs) {
+                try {
+                    console.log(`🔍 检查数据库: ${dbInfo.path}`);
+                    const messages = await this.extractMessagesFromSessionDbLikeCursorView(dbInfo.path, sessionId);
+                    
+                    if (messages && messages.length > 0) {
+                        console.log(`✅ 会话 ${sessionId} 提取了 ${messages.length} 条消息`);
+                        
+                        return {
+                            sessionId: sessionId,
+                            workspaceId: 'global',
+                            project: {
+                                name: 'Cursor Chat',
+                                path: 'global'
+                            },
+                            createdAt: dbInfo.modTime.toISOString(),
+                            title: `会话 ${sessionId}`,
+                            messages: messages
+                        };
+                    }
+                    
+                } catch (dbError) {
+                    console.log(`⚠️ 检查数据库 ${dbInfo.path} 时出错: ${dbError.message}`);
+                    continue;
+                }
             }
-
-            console.log(`✅ 会话 ${sessionId} 提取了 ${messages.length} 条消息`);
-
-            return {
-                sessionId: sessionId,
-                workspaceId: 'global',
-                project: {
-                    name: await this.extractProjectName('global') || 'Cursor Chat',
-                    path: 'global'
-                },
-                createdAt: targetDb.modTime.toISOString(),
-                title: `会话 ${sessionId}`,
-                messages: messages
-            };
+            
+            console.log(`❌ 未找到会话 ${sessionId} 对应的数据库记录`);
+            return null;
 
         } catch (error) {
             console.error(`提取会话详情失败: ${error.message}`);
             return null;
+        }
+    }
+
+    // 参考cursor-view-main的消息提取逻辑
+    async extractMessagesFromSessionDbLikeCursorView(dbPath, sessionId) {
+        try {
+            const SQL = await initSqlJs();
+            const fileBuffer = fs.readFileSync(dbPath);
+            const db = new SQL.Database(fileBuffer);
+            
+            let messages = [];
+            
+            // 检查是否有cursorDiskKV表（参考cursor-view-main的_iter_bubble_messages）
+            const tables = db.exec("SELECT name FROM sqlite_master WHERE type='table'");
+            const tableNames = tables[0] ? tables[0].values.map(row => row[0]) : [];
+            
+            if (tableNames.includes('cursorDiskKV')) {
+                console.log(`🔍 在cursorDiskKV表中查找bubbleId相关记录`);
+                
+                // 查找所有包含bubbleId的记录
+                const bubbleQuery = `
+                    SELECT key, value FROM cursorDiskKV 
+                    WHERE key LIKE '%bubble%' OR key LIKE '%${sessionId}%'
+                    ORDER BY rowid
+                `;
+                
+                const bubbleResults = db.exec(bubbleQuery);
+                
+                if (bubbleResults[0] && bubbleResults[0].values) {
+                    for (const [key, value] of bubbleResults[0].values) {
+                        try {
+                            if (value && typeof value === 'string') {
+                                const parsed = JSON.parse(value);
+                                
+                                // 检查是否是消息记录
+                                if (parsed.text || parsed.content) {
+                                    const role = this.determineBubbleRole(key, parsed);
+                                    messages.push({
+                                        role: role,
+                                        content: parsed.text || parsed.content || ''
+                                    });
+                                }
+                            }
+                        } catch (parseError) {
+                            // 忽略解析错误
+                        }
+                    }
+                }
+            }
+            
+            // 如果cursorDiskKV没有找到消息，尝试ItemTable
+            if (messages.length === 0 && tableNames.includes('ItemTable')) {
+                console.log(`🔍 在ItemTable中查找会话记录`);
+                
+                const itemQuery = `
+                    SELECT key, value FROM ItemTable 
+                    WHERE (key LIKE '%chat%' OR key LIKE '%conversation%' OR key LIKE '%message%' OR key LIKE '%${sessionId}%')
+                    AND value IS NOT NULL
+                `;
+                
+                const itemResults = db.exec(itemQuery);
+                
+                if (itemResults[0] && itemResults[0].values) {
+                    for (const [key, value] of itemResults[0].values) {
+                        try {
+                            if (value && typeof value === 'string') {
+                                const parsed = JSON.parse(value);
+                                
+                                if (parsed.messages && Array.isArray(parsed.messages)) {
+                                    messages = parsed.messages.map(msg => ({
+                                        role: msg.role || (msg.type === 'user' ? 'user' : 'assistant'),
+                                        content: msg.content || msg.text || ''
+                                    }));
+                                    break;
+                                } else if (parsed.content || parsed.text) {
+                                    messages.push({
+                                        role: 'user',
+                                        content: parsed.content || parsed.text
+                                    });
+                                }
+                            }
+                        } catch (parseError) {
+                            // 忽略解析错误
+                        }
+                    }
+                }
+            }
+            
+            db.close();
+            return messages;
+            
+        } catch (error) {
+            console.error(`提取消息失败: ${error.message}`);
+            return [];
+        }
+    }
+    
+    // 根据key和数据内容判断消息角色
+    determineBubbleRole(key, data) {
+        if (key.includes('user') || data.role === 'user') {
+            return 'user';
+        } else if (key.includes('assistant') || key.includes('ai') || data.role === 'assistant') {
+            return 'assistant';
+        } else {
+            // 默认根据内容长度判断（通常用户消息较短，AI回复较长）
+            const content = data.text || data.content || '';
+            return content.length > 100 ? 'assistant' : 'user';
         }
     }
 

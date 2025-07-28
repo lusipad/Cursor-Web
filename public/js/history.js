@@ -155,8 +155,8 @@ class HistoryManager {
                         <div class="project-info">
                             <div class="project-icon">📁</div>
                             <div class="project-details">
-                                <h3 class="project-title">${this.escapeHtml(projectData.name)}</h3>
-                                ${displayPath ? `<div class="project-path" title="${this.escapeHtml(projectData.path)}">${this.escapeHtml(displayPath)}</div>` : ''}
+                                <h3 class="project-title">${this.escapeHtml(projectData.path)}</h3>
+                                ${projectData.name !== 'Cursor Chat' ? `<div class="project-path" title="${this.escapeHtml(projectData.name)}">${this.escapeHtml(projectData.name)}</div>` : ''}
                             </div>
                             <div class="project-badge">${projectData.chats.length} ${projectData.chats.length === 1 ? 'chat' : 'chats'}</div>
                         </div>
