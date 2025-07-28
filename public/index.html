@@ -16,6 +16,7 @@
         <!-- Tab 导航 -->
         <nav class="tab-nav">
             <button class="tab-btn active" data-tab="chat-tab">聊天</button>
+            <button class="tab-btn" data-tab="history-tab">历史记录</button>
             <button class="tab-btn" data-tab="git-tab">Git 管理</button>
             <button class="tab-btn" data-tab="diagnostic-tab">系统诊断</button>
         </nav>
@@ -42,6 +43,68 @@
                         <button id="clear-btn" type="button">清除</button>
                     </form>
                 </footer>
+            </section>
+
+            <!-- 历史记录 Tab 内容 -->
+            <section id="history-tab" class="tab-content">
+                <div class="history-panel">
+                    <h2>Cursor 聊天历史记录</h2>
+                    <div class="history-controls">
+                        <div class="search-section">
+                            <div class="search-input">
+                                <input type="text" id="history-search" placeholder="搜索聊天内容..." class="search-field">
+                                <button id="search-btn" class="btn btn-primary">搜索</button>
+                                <button id="refresh-history" class="btn btn-secondary">刷新</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="history-stats">
+                        <div class="stats-row">
+                            <span>总聊天数：</span>
+                            <span id="total-chats" class="stat-value">加载中...</span>
+                        </div>
+                        <div class="stats-row">
+                            <span>状态：</span>
+                            <span id="history-status" class="stat-value">准备就绪</span>
+                        </div>
+                    </div>
+                    <div class="history-list">
+                        <div id="chat-list" class="chat-list">
+                            <div class="loading-message">正在加载聊天历史...</div>
+                        </div>
+                    </div>
+                    <div class="chat-detail" id="chat-detail" style="display: none;">
+                        <div class="detail-header">
+                            <h3 id="detail-title">聊天详情</h3>
+                            <div class="detail-actions">
+                                <button id="export-html" class="btn btn-secondary">导出HTML</button>
+                                <button id="export-json" class="btn btn-secondary">导出JSON</button>
+                                <button id="close-detail" class="btn btn-info">关闭</button>
+                            </div>
+                        </div>
+                        <div class="detail-info">
+                            <div class="info-row">
+                                <span>会话ID：</span>
+                                <span id="detail-session-id"></span>
+                            </div>
+                            <div class="info-row">
+                                <span>工作区：</span>
+                                <span id="detail-workspace"></span>
+                            </div>
+                            <div class="info-row">
+                                <span>创建时间：</span>
+                                <span id="detail-created-at"></span>
+                            </div>
+                            <div class="info-row">
+                                <span>消息数量：</span>
+                                <span id="detail-message-count"></span>
+                            </div>
+                        </div>
+                        <div class="detail-messages" id="detail-messages">
+                            <!-- 聊天消息将在这里显示 -->
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <!-- Git 管理 Tab 内容 -->
@@ -133,6 +196,7 @@
     </div>
 
     <script src="js/modules/module-loader.js"></script>
+    <script src="js/history.js"></script>
     <script src="git-manager.js"></script>
     <script>
     // Tab 切换逻辑
@@ -146,6 +210,13 @@
             // 如果切换到诊断tab，更新快速状态
             if (this.dataset.tab === 'diagnostic-tab') {
                 updateQuickStatus();
+            }
+            
+            // 如果切换到历史记录tab，初始化历史记录管理器
+            if (this.dataset.tab === 'history-tab') {
+                if (typeof initHistoryManager === 'function') {
+                    initHistoryManager();
+                }
             }
         });
     });

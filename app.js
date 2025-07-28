@@ -7,6 +7,7 @@ const ChatManager = require('./services/chatManager');
 const WebSocketManager = require('./services/websocketManager');
 const ContentRoutes = require('./routes/contentRoutes');
 const GitRoutes = require('./routes/gitRoutes');
+const HistoryRoutes = require('./routes/historyRoutes');
 const AppMiddleware = require('./middleware/appMiddleware');
 const { setupProcessHandlers, printServerInfo } = require('./utils/serverUtils');
 const config = require('./config/serverConfig');
@@ -25,10 +26,12 @@ new AppMiddleware(app);
 // 设置路由
 const contentRoutes = new ContentRoutes(chatManager, websocketManager);
 const gitRoutes = new GitRoutes();
+const historyRoutes = new HistoryRoutes();
 
 // 注册 API 路由
 app.use('/api', contentRoutes.getRouter());
 app.use('/api', gitRoutes.getRouter());
+app.use('/api', historyRoutes.getRouter());
 
 // 设置进程信号处理
 setupProcessHandlers(server, websocketManager);
