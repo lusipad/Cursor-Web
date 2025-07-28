@@ -12,16 +12,16 @@ class HistoryRoutes {
 
     setupRoutes() {
         // 获取所有聊天历史
-        this.router.get('/chats', this.getAllChats.bind(this));
+        this.router.get('/history/chats', this.getAllChats.bind(this));
         
         // 获取特定聊天详情
-        this.router.get('/chat/:sessionId', this.getChatDetail.bind(this));
+        this.router.get('/history/chat/:sessionId', this.getChatDetail.bind(this));
         
         // 导出聊天记录
-        this.router.get('/chat/:sessionId/export', this.exportChat.bind(this));
+        this.router.get('/history/chat/:sessionId/export', this.exportChat.bind(this));
         
         // 搜索聊天记录
-        this.router.get('/search', this.searchChats.bind(this));
+        this.router.get('/history/search', this.searchChats.bind(this));
     }
 
     // 获取Cursor根目录
@@ -49,11 +49,27 @@ class HistoryRoutes {
     // 获取全局存储数据库路径
     getGlobalStorageDbPath() {
         const cursorRoot = this.getCursorRoot();
-        return path.join(cursorRoot, 'User', 'globalStorage', 'state.vscdb');
+        // 尝试多个可能的路径
+        const possiblePaths = [
+            path.join(cursorRoot, 'User', 'globalStorage', 'cursor.cursor', 'state.sqlite'),
+            path.join(cursorRoot, 'User', 'globalStorage', 'cursor', 'state.sqlite'),
+            path.join(cursorRoot, 'User', 'globalStorage', 'state.vscdb'),
+            path.join(cursorRoot, 'User', 'globalStorage', 'state.sqlite')
+        ];
+        
+        for (const dbPath of possiblePaths) {
+            if (fs.existsSync(dbPath)) {
+                console.log(`✅ 找到全局存储数据库: ${dbPath}`);
+                return dbPath;
+            }
+        }
+        
+        console.log(`❌ 未找到全局存储数据库，尝试的路径:`, possiblePaths);
+        return possiblePaths[0]; // 返回默认路径
     }
 
     // 从数据库提取JSON数据
-    async extractJsonFromDb(dbPath, key) {
+    async extractJsonFromDb(dbPath, key, tableName = 'ItemTable') {
         if (!fs.existsSync(dbPath)) {
             return null;
         }
@@ -62,7 +78,18 @@ class HistoryRoutes {
             const SQL = await initSqlJs();
             const filebuffer = fs.readFileSync(dbPath);
             const db = new SQL.Database(filebuffer);
-            const stmt = db.prepare('SELECT value FROM ItemTable WHERE key = ?');
+            
+            // 检查表是否存在
+            const tables = db.exec("SELECT name FROM sqlite_master WHERE type='table'");
+            const tableNames = tables[0] ? tables[0].values.map(row => row[0]) : [];
+            
+            if (!tableNames.includes(tableName)) {
+                console.log(`⚠️ 表 ${tableName} 不存在于数据库 ${dbPath}，可用表: ${tableNames.join(', ')}`);
+                db.close();
+                return null;
+            }
+            
+            const stmt = db.prepare(`SELECT value FROM ${tableName} WHERE key = ?`);
             stmt.bind([key]);
             
             if (stmt.step()) {
@@ -88,59 +115,470 @@ class HistoryRoutes {
         console.log(`🔍 工作区 ${workspaceId} 数据库路径: ${dbPath}`);
         console.log(`📁 数据库文件存在: ${fs.existsSync(dbPath)}`);
         
-        const chatData = await this.extractJsonFromDb(dbPath, 'aiService.generations');
-        console.log(`💾 从数据库提取的数据:`, chatData ? '有数据' : '无数据');
+        let allChats = [];
         
-        if (!chatData || !Array.isArray(chatData)) {
-            console.log(`❌ 工作区 ${workspaceId} 没有找到generations数据`);
-            return [];
+        // 首先尝试从全局存储数据库提取AI聊天数据（包含AI回复）
+        const globalChats = await this.extractChatsFromGlobalStorage(workspaceId);
+        if (globalChats && globalChats.length > 0) {
+            console.log(`🌐 从全局存储找到 ${globalChats.length} 个聊天会话`);
+            allChats = allChats.concat(globalChats);
         }
         
-        console.log(`✅ 工作区 ${workspaceId} 找到 ${chatData.length} 个生成记录`);
+        // 尝试从多个可能的键提取数据
+        const possibleKeys = [
+            'aiService.generations',
+            'workbench.panel.aichat',
+            'chat.history',
+            'cursor.chat.history',
+            'aiConversationService',
+            'workbench.panel.composerChatViewPane.d91f5fbc-5222-4f7f-902b-5fd068092859'
+        ];
+        
+        // 首先提取AI聊天会话配置
+        const aiChatConfig = await this.extractAIChatSessions(dbPath);
+        if (aiChatConfig && aiChatConfig.length > 0) {
+            console.log(`🤖 找到 ${aiChatConfig.length} 个AI聊天会话`);
+            for (const sessionId of aiChatConfig) {
+                const sessionData = await this.extractAIChatSessionData(dbPath, sessionId);
+                if (sessionData) {
+                    allChats = allChats.concat(sessionData);
+                }
+            }
+        }
+        
+        for (const key of possibleKeys) {
+            const chatData = await this.extractJsonFromDb(dbPath, key);
+            if (chatData) {
+                console.log(`💾 从键 ${key} 提取到数据:`, Array.isArray(chatData) ? `${chatData.length} 条记录` : '对象数据');
+                const chats = await this.processDataFromKey(chatData, key, workspaceId);
+                allChats = allChats.concat(chats);
+            }
+        }
+        
+        // 尝试查找聊天相关的所有键
+        const allChatKeys = await this.findChatKeys(dbPath);
+        for (const key of allChatKeys) {
+            if (!possibleKeys.includes(key)) {
+                const chatData = await this.extractJsonFromDb(dbPath, key);
+                if (chatData) {
+                    console.log(`💾 从发现的键 ${key} 提取到数据`);
+                    const chats = await this.processDataFromKey(chatData, key, workspaceId);
+                    allChats = allChats.concat(chats);
+                }
+            }
+        }
+        
+        // 去重并合并相同会话的聊天
+        const uniqueChats = this.mergeDuplicateChats(allChats);
+        
+        console.log(`✅ 工作区 ${workspaceId} 总共找到 ${uniqueChats.length} 个聊天会话`);
+        return uniqueChats;
+    }
+    
+    // 从全局存储数据库提取AI聊天数据（完全参考cursor-view-main实现）
+    async extractChatsFromGlobalStorage() {
+        try {
+            const globalDbPath = this.getGlobalStorageDbPath();
+            console.log(`🌐 尝试从全局存储数据库提取AI聊天: ${globalDbPath}`);
+            
+            if (!fs.existsSync(globalDbPath)) {
+                console.log(`❌ 全局存储数据库不存在: ${globalDbPath}`);
+                return [];
+            }
+            
+            const SQL = await initSqlJs();
+            const fileBuffer = fs.readFileSync(globalDbPath);
+            const db = new SQL.Database(fileBuffer);
+            
+            // 检查是否有cursorDiskKV表
+            const tables = db.exec("SELECT name FROM sqlite_master WHERE type='table'");
+            const tableNames = tables[0] ? tables[0].values.map(row => row[0]) : [];
+            
+            if (!tableNames.includes('cursorDiskKV')) {
+                console.log(`⚠️ cursorDiskKV表不存在，可用表: ${tableNames.join(', ')}`);
+                db.close();
+                return [];
+            }
+            
+            // 按cursor-view-main逻辑：按composerId分组会话
+            const sessions = {};
+            const comp_meta = {};
+            
+            // 1. 处理bubble数据
+            const stmt = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'");
+            let msg_count = 0;
+            
+            while (stmt.step()) {
+                const row = stmt.getAsObject();
+                try {
+                    const bubble = JSON.parse(row.value);
+                    if (!bubble || typeof bubble !== 'object') {
+                        continue;
+                    }
+                    
+                    const text = (bubble.text || bubble.richText || '').trim();
+                    if (!text) continue;
+                    
+                    const role = bubble.type === 1 ? 'user' : 'assistant';
+                    const composerId = row.key.split(':')[1]; // bubbleId:composerId:bubbleId格式
+                    
+                    if (!sessions[composerId]) {
+                        sessions[composerId] = { messages: [] };
+                    }
+                    
+                    sessions[composerId].messages.push({ role, content: text });
+                    msg_count++;
+                    
+                    if (!comp_meta[composerId]) {
+                        comp_meta[composerId] = {
+                            title: `Chat ${composerId.substring(0, 8)}`,
+                            createdAt: bubble.createdAt || Date.now(),
+                            lastUpdatedAt: bubble.createdAt || Date.now()
+                        };
+                    }
+                } catch (error) {
+                    // 静默处理解析错误，避免日志污染
+                }
+            }
+            
+            stmt.free();
+            
+            // 2. 处理composer数据
+            const composerStmt = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'");
+            let comp_count = 0;
+            
+            while (composerStmt.step()) {
+                const row = composerStmt.getAsObject();
+                try {
+                    const composerData = JSON.parse(row.value);
+                    if (!composerData || typeof composerData !== 'object') {
+                        continue;
+                    }
+                    
+                    const composerId = row.key.split(':')[1];
+                    
+                    if (!comp_meta[composerId]) {
+                        comp_meta[composerId] = {
+                            title: `Chat ${composerId.substring(0, 8)}`,
+                            createdAt: composerData.createdAt || Date.now(),
+                            lastUpdatedAt: composerData.createdAt || Date.now()
+                        };
+                    }
+                    
+                    const conversation = composerData.conversation || [];
+                    if (Array.isArray(conversation) && conversation.length > 0) {
+                        if (!sessions[composerId]) {
+                            sessions[composerId] = { messages: [] };
+                        }
+                        
+                        for (const msg of conversation) {
+                            if (!msg || msg.type === undefined) continue;
+                            
+                            const role = msg.type === 1 ? 'user' : 'assistant';
+                            const content = msg.text || '';
+                            if (content && typeof content === 'string') {
+                                sessions[composerId].messages.push({ role, content });
+                            }
+                        }
+                        comp_count++;
+                    }
+                } catch (error) {
+                    // 静默处理解析错误，避免日志污染
+                }
+            }
+            
+            composerStmt.free();
+            db.close();
+            
+            console.log(`🎯 从bubble提取 ${msg_count} 条消息，从composer提取 ${comp_count} 个会话`);
+            
+            // 3. 构建最终输出
+            const out = [];
+            for (const [composerId, data] of Object.entries(sessions)) {
+                if (!data.messages || data.messages.length === 0) continue;
+                
+                const meta = comp_meta[composerId] || {
+                    title: 'untitled',
+                    createdAt: null,
+                    lastUpdatedAt: null
+                };
+                
+                out.push({
+                    sessionId: composerId,
+                    workspaceId: '(global)',
+                    project: { name: 'Cursor Chat' },
+                    createdAt: meta.createdAt || Date.now(),
+                    messages: data.messages
+                });
+            }
+            
+            // 按最后更新时间排序
+            out.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+            
+            console.log(`💬 创建了 ${out.length} 个聊天会话`);
+            return out;
+            
+        } catch (error) {
+            console.error('从全局存储提取AI聊天数据失败:', error);
+            return [];
+        }
+    }
+    
 
-        // 将generations数据转换为聊天格式
-        const chats = [];
+    
+
+
+    // 提取AI聊天会话配置
+    async extractAIChatSessions(dbPath) {
+        try {
+            const configData = await this.extractJsonFromDb(dbPath, 'workbench.panel.composerChatViewPane.d91f5fbc-5222-4f7f-902b-5fd068092859');
+            if (configData && typeof configData === 'object') {
+                const sessionIds = [];
+                for (const key in configData) {
+                    if (key.includes('workbench.panel.aichat.view.')) {
+                        const sessionId = key.replace('workbench.panel.aichat.view.', '');
+                        sessionIds.push(sessionId);
+                    }
+                }
+                return sessionIds;
+            }
+        } catch (error) {
+            console.error('提取AI聊天会话配置失败:', error);
+        }
+        return [];
+    }
+
+    // 提取具体AI聊天会话数据
+    async extractAIChatSessionData(dbPath, sessionId) {
+        try {
+            // 尝试多种可能的键格式
+            const possibleKeys = [
+                `workbench.panel.aichat.view.${sessionId}`,
+                `aichat.view.${sessionId}`,
+                `chat.session.${sessionId}`,
+                `bubbleId:${sessionId}`
+            ];
+            
+            for (const key of possibleKeys) {
+                const sessionData = await this.extractJsonFromDb(dbPath, key);
+                if (sessionData) {
+                    console.log(`🎯 从键 ${key} 找到会话数据`);
+                    return this.parseAIChatSession(sessionData, sessionId);
+                }
+            }
+        } catch (error) {
+            console.error(`提取AI聊天会话 ${sessionId} 数据失败:`, error);
+        }
+        return null;
+    }
+
+    // 解析AI聊天会话数据
+    parseAIChatSession(sessionData, sessionId) {
+        try {
+            const messages = [];
+            
+            // 如果是数组格式的消息
+            if (Array.isArray(sessionData)) {
+                for (const message of sessionData) {
+                    if (message.role && message.content) {
+                        messages.push({
+                            role: message.role,
+                            content: message.content,
+                            timestamp: message.timestamp || Date.now(),
+                            type: 'ai_chat'
+                        });
+                    }
+                }
+            }
+            // 如果是对象格式，尝试提取消息
+            else if (sessionData && typeof sessionData === 'object') {
+                if (sessionData.messages && Array.isArray(sessionData.messages)) {
+                    for (const message of sessionData.messages) {
+                        if (message.role && message.content) {
+                            messages.push({
+                                role: message.role,
+                                content: message.content,
+                                timestamp: message.timestamp || Date.now(),
+                                type: 'ai_chat'
+                            });
+                        }
+                    }
+                }
+            }
+            
+            if (messages.length > 0) {
+                return [{
+                    sessionId: sessionId,
+                    workspace: 'AI Chat',
+                    timestamp: Math.min(...messages.map(m => m.timestamp)),
+                    messages: messages
+                }];
+            }
+        } catch (error) {
+            console.error('解析AI聊天会话数据失败:', error);
+        }
+        return null;
+    }
+
+    // 查找所有可能包含聊天数据的键
+    async findChatKeys(dbPath) {
+        try {
+            if (!fs.existsSync(dbPath)) return [];
+            
+            const SQL = await initSqlJs();
+            const fileBuffer = fs.readFileSync(dbPath);
+            const db = new SQL.Database(fileBuffer);
+            
+            const stmt = db.prepare("SELECT key FROM ItemTable WHERE key LIKE '%chat%' OR key LIKE '%ai%' OR key LIKE '%conversation%' OR key LIKE '%bubble%'");
+            const keys = [];
+            
+            while (stmt.step()) {
+                const row = stmt.getAsObject();
+                keys.push(row.key);
+            }
+            
+            stmt.free();
+            db.close();
+            
+            return keys;
+        } catch (error) {
+            console.error('查找聊天键时出错:', error);
+            return [];
+        }
+    }
+    
+    // 根据不同的键处理数据
+    async processDataFromKey(data, key, workspaceId) {
         const chatGroups = {};
         
-        chatData.forEach((generation, index) => {
-            const sessionId = generation.generationUUID || `session_${index}`;
+        if (key === 'aiService.generations' && Array.isArray(data)) {
+            // 按时间分组聊天会话（相近时间的消息归为一个会话）
+            const timeGroupedSessions = this.groupByTimeProximity(data);
             
-            if (!chatGroups[sessionId]) {
+            timeGroupedSessions.forEach((sessionData, sessionIndex) => {
+                const sessionId = `session_${sessionIndex}_${sessionData[0].unixMs}`;
+                
                 chatGroups[sessionId] = {
                     sessionId,
                     workspaceId,
                     messages: [],
-                    createdAt: generation.unixMs || Date.now(),
+                    createdAt: sessionData[0].unixMs || Date.now(),
                     project: {
                         name: this.extractProjectName(workspaceId)
                     }
                 };
-            }
-            
-            // 添加用户消息
-            if (generation.textDescription) {
-                chatGroups[sessionId].messages.push({
-                    role: 'user',
-                    content: generation.textDescription,
-                    timestamp: generation.unixMs || Date.now()
+                
+                sessionData.forEach(generation => {
+                     // 只添加真实的用户消息，不添加模拟的AI回复
+                     if (generation.textDescription && generation.textDescription.trim()) {
+                         chatGroups[sessionId].messages.push({
+                             role: 'user',
+                             content: generation.textDescription.trim(),
+                             timestamp: generation.unixMs || Date.now(),
+                             type: generation.type || 'unknown'
+                         });
+                     }
+                 });
+            });
+        } else if (key.includes('chat') || key.includes('conversation')) {
+            // 处理其他可能的聊天数据格式
+            if (Array.isArray(data)) {
+                data.forEach((item, index) => {
+                    const sessionId = item.id || item.sessionId || `session_${index}`;
+                    
+                    if (!chatGroups[sessionId]) {
+                        chatGroups[sessionId] = {
+                            sessionId,
+                            workspaceId,
+                            messages: [],
+                            createdAt: item.timestamp || item.createdAt || Date.now(),
+                            project: {
+                                name: this.extractProjectName(workspaceId)
+                            }
+                        };
+                    }
+                    
+                    // 尝试提取消息
+                    if (item.messages && Array.isArray(item.messages)) {
+                        chatGroups[sessionId].messages = chatGroups[sessionId].messages.concat(item.messages);
+                    } else if (item.content || item.text) {
+                        chatGroups[sessionId].messages.push({
+                            role: item.role || 'user',
+                            content: item.content || item.text,
+                            timestamp: item.timestamp || Date.now()
+                        });
+                    }
                 });
             }
-            
-            // 添加AI回复（如果有）
-            if (generation.response || generation.content) {
-                chatGroups[sessionId].messages.push({
-                    role: 'assistant',
-                    content: generation.response || generation.content,
-                    timestamp: (generation.unixMs || Date.now()) + 1000
-                });
-            }
-        });
+        }
         
         return Object.values(chatGroups).map(chat => {
             // 按时间戳排序消息
             chat.messages.sort((a, b) => a.timestamp - b.timestamp);
             return chat;
+        }).filter(chat => chat.messages.length > 0); // 只返回有消息的会话
+    }
+    
+    // 按时间接近程度分组（30分钟内的消息归为一个会话）
+    groupByTimeProximity(generations) {
+        if (!generations || generations.length === 0) return [];
+        
+        // 按时间排序
+        const sorted = [...generations].sort((a, b) => (a.unixMs || 0) - (b.unixMs || 0));
+        const groups = [];
+        let currentGroup = [sorted[0]];
+        
+        for (let i = 1; i < sorted.length; i++) {
+            const current = sorted[i];
+            const previous = sorted[i - 1];
+            const timeDiff = (current.unixMs || 0) - (previous.unixMs || 0);
+            
+            // 如果时间差超过30分钟（1800000毫秒），开始新的会话
+            if (timeDiff > 1800000) {
+                groups.push(currentGroup);
+                currentGroup = [current];
+            } else {
+                currentGroup.push(current);
+            }
+        }
+        
+        groups.push(currentGroup);
+        return groups;
+    }
+    
+    // 合并重复的聊天会话
+    mergeDuplicateChats(chats) {
+        const merged = {};
+        let uniqueIdCounter = 0;
+        
+        chats.forEach(chat => {
+            // 如果sessionId为空或undefined，生成一个唯一的key
+            let key = chat.sessionId;
+            if (!key || key.trim() === '') {
+                key = `generated_session_${uniqueIdCounter++}_${chat.createdAt || Date.now()}`;
+                chat.sessionId = key; // 更新chat对象的sessionId
+            }
+            
+            if (!merged[key]) {
+                merged[key] = chat;
+            } else {
+                // 合并消息
+                merged[key].messages = merged[key].messages.concat(chat.messages);
+                // 去重消息
+                const uniqueMessages = [];
+                const seen = new Set();
+                merged[key].messages.forEach(msg => {
+                    const msgKey = `${msg.role}_${msg.content}_${msg.timestamp}`;
+                    if (!seen.has(msgKey)) {
+                        seen.add(msgKey);
+                        uniqueMessages.push(msg);
+                    }
+                });
+                merged[key].messages = uniqueMessages.sort((a, b) => a.timestamp - b.timestamp);
+            }
         });
+        
+        return Object.values(merged);
     }
 
     // 提取项目名称
@@ -182,30 +620,39 @@ class HistoryRoutes {
         }
     }
 
-    // 获取所有聊天记录
+    // 获取所有聊天记录（仅基本信息，用于列表显示）
     async getAllChats(req, res) {
         try {
             console.log('📚 开始获取聊天历史记录...');
-            const workspaces = this.getAllWorkspaces();
-            console.log(`📁 找到 ${workspaces.length} 个工作区:`, workspaces);
-            let allChats = [];
             
-            for (const workspaceId of workspaces) {
-                try {
-                    console.log(`🔍 正在处理工作区: ${workspaceId}`);
-                    const chats = await this.extractChatsFromWorkspace(workspaceId);
-                    console.log(`💬 工作区 ${workspaceId} 找到 ${chats.length} 个聊天记录`);
-                    allChats = allChats.concat(chats);
-                } catch (error) {
-                    console.error(`❌ 提取工作区 ${workspaceId} 的聊天记录失败:`, error);
-                }
-            }
+            // 直接从全局存储提取聊天数据，参考cursor-view-main的简化方式
+            const allChats = await this.extractChatsFromGlobalStorage();
             
             // 按创建时间排序（最新的在前）
             allChats.sort((a, b) => b.createdAt - a.createdAt);
             
-            console.log(`✅ 总共找到 ${allChats.length} 个聊天记录`);
-            res.json(allChats);
+            // 优化：只返回基本信息，不包含详细消息内容
+            const chatSummaries = allChats.map(chat => {
+                const firstUserMessage = chat.messages.find(msg => msg.role === 'user');
+                const preview = firstUserMessage ? 
+                    (firstUserMessage.content.length > 100 ? 
+                        firstUserMessage.content.substring(0, 100) + '...' : 
+                        firstUserMessage.content) : 
+                    '暂无消息内容';
+                
+                return {
+                    sessionId: chat.sessionId,
+                    workspaceId: chat.workspaceId,
+                    project: chat.project,
+                    createdAt: chat.createdAt,
+                    messageCount: chat.messages.length,
+                    preview: preview,
+                    // 不包含完整的messages数组，减少数据传输量
+                };
+            });
+            
+            console.log(`✅ 总共找到 ${allChats.length} 个聊天记录，返回基本信息`);
+            res.json(chatSummaries);
         } catch (error) {
             console.error('❌ 获取聊天历史失败:', error);
             res.status(500).json({ error: error.message });

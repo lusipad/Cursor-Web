@@ -945,6 +945,40 @@ body {
     padding: 16px;
 }
 
+.workspace-group {
+    margin-bottom: 24px;
+}
+
+.workspace-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background-color: #2d2d2d;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    border-left: 4px solid #3b82f6;
+}
+
+.workspace-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #ffffff;
+    margin: 0;
+}
+
+.workspace-count {
+    font-size: 12px;
+    color: #888888;
+    background-color: #404040;
+    padding: 4px 8px;
+    border-radius: 12px;
+}
+
+.workspace-chats {
+    padding-left: 12px;
+}
+
 .loading-message {
     text-align: center;
     color: #888888;

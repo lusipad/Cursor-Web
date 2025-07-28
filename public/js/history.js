@@ -66,7 +66,7 @@ class HistoryManager {
         this.updateStatus('正在加载...');
         
         try {
-            const response = await fetch('/api/chats');
+            const response = await fetch('/api/history/chats');
             
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -103,7 +103,7 @@ class HistoryManager {
         this.updateStatus('正在搜索...');
         
         try {
-            const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+            const response = await fetch(`/api/history/search?q=${encodeURIComponent(query)}`);
             
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -139,7 +139,25 @@ class HistoryManager {
             return;
         }
         
-        chatList.innerHTML = chats.map(chat => this.createChatItem(chat)).join('');
+        // 按工作区分组
+        const groupedChats = this.groupChatsByWorkspace(chats);
+        
+        chatList.innerHTML = Object.entries(groupedChats).map(([workspaceId, workspaceChats]) => {
+            const workspaceName = workspaceChats[0].project?.name || workspaceId;
+            const shortWorkspace = workspaceName.length > 30 ? workspaceName.substring(0, 30) + '...' : workspaceName;
+            
+            return `
+                <div class="workspace-group">
+                    <div class="workspace-header">
+                        <h3 class="workspace-title">${this.escapeHtml(shortWorkspace)}</h3>
+                        <span class="workspace-count">${workspaceChats.length} 个对话</span>
+                    </div>
+                    <div class="workspace-chats">
+                        ${workspaceChats.map(chat => this.createChatItem(chat)).join('')}
+                    </div>
+                </div>
+            `;
+        }).join('');
         
         // 绑定点击事件
         chatList.querySelectorAll('.chat-item').forEach(item => {
@@ -149,13 +167,37 @@ class HistoryManager {
             });
         });
     }
+    
+    groupChatsByWorkspace(chats) {
+        const grouped = {};
+        chats.forEach(chat => {
+            const workspaceId = chat.workspaceId || 'unknown';
+            if (!grouped[workspaceId]) {
+                grouped[workspaceId] = [];
+            }
+            grouped[workspaceId].push(chat);
+        });
+        
+        // 按时间排序每个工作区的聊天
+        Object.values(grouped).forEach(workspaceChats => {
+            workspaceChats.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        });
+        
+        return grouped;
+    }
+    
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
 
     createChatItem(chat) {
         const sessionId = chat.sessionId || 'unknown';
         const shortId = sessionId.length > 8 ? sessionId.substring(0, 8) + '...' : sessionId;
         const createdAt = new Date(chat.createdAt || Date.now()).toLocaleString('zh-CN');
-        const messageCount = chat.messages ? chat.messages.length : 0;
-        const preview = this.getPreview(chat.messages);
+        const messageCount = chat.messageCount || 0;
+        const preview = chat.preview || '暂无消息内容';
         const workspaceId = chat.workspaceId || 'unknown';
         const shortWorkspace = workspaceId.length > 12 ? workspaceId.substring(0, 12) + '...' : workspaceId;
         
@@ -165,7 +207,7 @@ class HistoryManager {
                     <div class="chat-id">${shortId}</div>
                     <div class="chat-time">${createdAt}</div>
                 </div>
-                <div class="chat-preview">${preview}</div>
+                <div class="chat-preview">${this.escapeHtml(preview)}</div>
                 <div class="chat-meta">
                     <span>工作区: ${shortWorkspace}</span>
                     <span class="message-count">${messageCount} 条消息</span>
@@ -207,9 +249,21 @@ class HistoryManager {
             selectedItem.classList.add('selected');
         }
         
+        // 显示加载状态
+        this.showChatDetail({
+            sessionId: sessionId,
+            messages: [{
+                role: 'system',
+                content: '正在加载聊天详情...',
+                timestamp: Date.now()
+            }],
+            project: { name: '加载中...' },
+            createdAt: Date.now()
+        });
+        
         // 加载聊天详情
         try {
-            const response = await fetch(`/api/chat/${sessionId}`);
+            const response = await fetch(`/api/history/chat/${sessionId}`);
             
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -301,7 +355,7 @@ class HistoryManager {
         
         try {
             const sessionId = this.currentChat.sessionId;
-            const url = `/api/chat/${sessionId}/export?format=${format}`;
+            const url = `/api/history/chat/${sessionId}/export?format=${format}`;
             
             // 创建下载链接
             const link = document.createElement('a');
