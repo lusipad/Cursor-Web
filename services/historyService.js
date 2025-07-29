@@ -438,12 +438,19 @@ class HistoryService {
         const cursorRoot = this.getCursorRoot();
         const sessionDbs = [];
         
-        const searchDirs = [
+        // 搜索所有可能的数据库文件
+        const searchPaths = [
+            // 全局存储
             path.join(cursorRoot, 'User', 'globalStorage'),
-            path.join(cursorRoot, 'User', 'workspaceStorage')
+            path.join(cursorRoot, 'User', 'globalStorage', 'cursor'),
+            path.join(cursorRoot, 'User', 'globalStorage', 'cursor.cursor'),
+            // 工作区存储
+            path.join(cursorRoot, 'User', 'workspaceStorage'),
+            // 扩展存储
+            path.join(cursorRoot, 'extensions')
         ];
         
-        const searchDirectory = (dir, maxDepth = 2, currentDepth = 0) => {
+        const searchDirectory = (dir, maxDepth = 3, currentDepth = 0) => {
             if (!fs.existsSync(dir) || currentDepth > maxDepth) return;
             
             try {
@@ -452,26 +459,73 @@ class HistoryService {
                 for (const item of items) {
                     const fullPath = path.join(dir, item.name);
                     
-                    if (item.isFile() && 
-                        (item.name.endsWith('.sqlite') || item.name.endsWith('.vscdb'))) {
-                        const stats = fs.statSync(fullPath);
-                        sessionDbs.push({
-                            path: fullPath,
-                            filename: item.name,
-                            sessionId: path.parse(item.name).name,
-                            modTime: stats.mtime
-                        });
+                    if (item.isFile()) {
+                        const ext = path.extname(item.name).toLowerCase();
+                        if (ext === '.sqlite' || ext === '.vscdb' || ext === '.db') {
+                            const stats = fs.statSync(fullPath);
+                            const relativePath = path.relative(cursorRoot, fullPath);
+                            
+                            sessionDbs.push({
+                                path: fullPath,
+                                filename: item.name,
+                                type: this.determineDbType(relativePath),
+                                workspaceId: this.extractWorkspaceId(relativePath),
+                                modTime: stats.mtime,
+                                relativePath: relativePath
+                            });
+                        }
                     } else if (item.isDirectory() && currentDepth < maxDepth) {
-                        searchDirectory(fullPath, maxDepth, currentDepth + 1);
+                        // 跳过node_modules等目录
+                        if (!item.name.startsWith('.') && item.name !== 'node_modules') {
+                            searchDirectory(fullPath, maxDepth, currentDepth + 1);
+                        }
                     }
                 }
             } catch (error) {
-                // 忽略无法访问的目录
+                console.warn(`访问目录失败: ${dir}`, error.message);
             }
         };
         
-        searchDirs.forEach(dir => searchDirectory(dir));
-        return sessionDbs;
+        searchPaths.forEach(dir => {
+            if (fs.existsSync(dir)) {
+                searchDirectory(dir);
+            }
+        });
+        
+        // 去重并按修改时间排序
+        const uniqueDbs = [];
+        const seen = new Set();
+        sessionDbs.forEach(db => {
+            if (!seen.has(db.path)) {
+                seen.add(db.path);
+                uniqueDbs.push(db);
+            }
+        });
+        
+        return uniqueDbs.sort((a, b) => b.modTime - a.modTime);
+    }
+
+    /**
+     * 确定数据库类型
+     * @param {string} relativePath - 相对路径
+     * @returns {string} 数据库类型
+     */
+    determineDbType(relativePath) {
+        if (relativePath.includes('workspaceStorage')) return 'workspace';
+        if (relativePath.includes('globalStorage')) return 'global';
+        if (relativePath.includes('cursor') && relativePath.includes('sqlite')) return 'cursor';
+        return 'unknown';
+    }
+
+    /**
+     * 从路径中提取工作区ID
+     * @param {string} relativePath - 相对路径
+     * @returns {string} 工作区ID
+     */
+    extractWorkspaceId(relativePath) {
+        const workspaceMatch = relativePath.match(/workspaceStorage[/\\]([^/\\]+)/);
+        if (workspaceMatch) return workspaceMatch[1];
+        return 'global';
     }
 
     getAllWorkspaces() {
@@ -510,19 +564,209 @@ class HistoryService {
     }
 
     async getProjectInfoFromWorkspace(workspaceId) {
-        // 简化的项目信息获取逻辑
-        return {
-            name: workspaceId.substring(0, 20) + '...',
-            rootPath: workspaceId,
-            id: workspaceId
-        };
+        try {
+            const cursorRoot = this.getCursorRoot();
+            const workspaceDbPath = path.join(cursorRoot, 'User', 'workspaceStorage', workspaceId, 'state.vscdb');
+            
+            if (!fs.existsSync(workspaceDbPath)) {
+                return null;
+            }
+
+            const SQL = await initSqlJs();
+            const fileBuffer = fs.readFileSync(workspaceDbPath);
+            const db = new SQL.Database(fileBuffer);
+
+            // 提取项目信息
+            let projectName = 'Unknown Project';
+            let rootPath = 'Unknown Path';
+
+            try {
+                // 尝试从history.entries获取项目根路径
+                const historyResult = db.exec("SELECT value FROM ItemTable WHERE key='history.entries'");
+                if (historyResult[0] && historyResult[0].values[0]) {
+                    const historyData = JSON.parse(historyResult[0].values[0][0]);
+                    const filePaths = [];
+                    
+                    for (const entry of historyData) {
+                        const resource = entry?.editor?.resource;
+                        if (resource && resource.startsWith('file:///')) {
+                            filePaths.push(resource.substring(7)); // 移除 'file://'
+                        }
+                    }
+
+                    if (filePaths.length > 0) {
+                        const commonPrefix = this.getCommonPathPrefix(filePaths);
+                        if (commonPrefix) {
+                            rootPath = commonPrefix;
+                            projectName = this.extractProjectNameFromPath(commonPrefix);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn('从history.entries获取项目信息失败:', error.message);
+            }
+
+            // 如果上面方法失败，尝试从debug.selectedroot获取
+            if (projectName === 'Unknown Project') {
+                try {
+                    const selectedRootResult = db.exec("SELECT value FROM ItemTable WHERE key='debug.selectedroot'");
+                    if (selectedRootResult[0] && selectedRootResult[0].values[0]) {
+                        const selectedRoot = JSON.parse(selectedRootResult[0].values[0][0]);
+                        if (selectedRoot && selectedRoot.startsWith('file:///')) {
+                            rootPath = selectedRoot.substring(7);
+                            projectName = this.extractProjectNameFromPath(rootPath);
+                        }
+                    }
+                } catch (error) {
+                    console.warn('从debug.selectedroot获取项目信息失败:', error.message);
+                }
+            }
+
+            // 如果还是未知，尝试从git仓库获取
+            if (projectName === 'Unknown Project') {
+                try {
+                    const gitReposResult = db.exec("SELECT value FROM ItemTable WHERE key='scm:view:visibleRepositories'");
+                    if (gitReposResult[0] && gitReposResult[0].values[0]) {
+                        const gitData = JSON.parse(gitReposResult[0].values[0][0]);
+                        if (gitData && gitData.all && gitData.all.length > 0) {
+                            const firstRepo = gitData.all[0];
+                            if (typeof firstRepo === 'string' && firstRepo.includes('git:Git:file:///')) {
+                                const repoPath = firstRepo.split('file:///')[1];
+                                if (repoPath) {
+                                    projectName = this.extractProjectNameFromPath(repoPath);
+                                    rootPath = '/' + repoPath.replace(/\\/g, '/').replace(/^\//, '');
+                                }
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.warn('从git仓库获取项目信息失败:', error.message);
+                }
+            }
+
+            db.close();
+
+            return {
+                name: projectName,
+                rootPath: rootPath,
+                id: workspaceId
+            };
+
+        } catch (error) {
+            console.error(`获取工作区 ${workspaceId} 项目信息失败:`, error.message);
+            return {
+                name: workspaceId.substring(0, 8) + '...',
+                rootPath: workspaceId,
+                id: workspaceId
+            };
+        }
+    }
+
+    /**
+     * 从路径中提取项目名称
+     * @param {string} fullPath - 完整路径
+     * @returns {string} 项目名称
+     */
+    extractProjectNameFromPath(fullPath) {
+        if (!fullPath || fullPath === '/') return 'Root';
+        
+        const pathParts = fullPath.split(/[/\\]/).filter(part => part && part.trim());
+        if (pathParts.length === 0) return 'Root';
+        
+        // 获取用户名用于排除
+        const username = os.userInfo().username;
+        const homeDir = os.homedir();
+        
+        // 清理路径
+        let cleanPath = fullPath;
+        if (fullPath.startsWith(homeDir)) {
+            cleanPath = fullPath.substring(homeDir.length);
+        }
+        
+        const parts = cleanPath.split(/[/\\]/).filter(part => part && part.trim());
+        
+        // 跳过系统目录
+        const skipDirs = ['Users', 'home', 'homebrew', 'opt', 'var', 'usr', 'mnt', 'c', 'C'];
+        const containerDirs = ['Documents', 'Projects', 'Code', 'workspace', 'repos', 'git', 'src', 'codebase', 'Development'];
+        
+        let projectName = null;
+        
+        // 从后向前查找合适的目录名
+        for (let i = parts.length - 1; i >= 0; i--) {
+            const part = parts[i];
+            if (part === username || skipDirs.includes(part)) continue;
+            if (containerDirs.includes(part)) continue;
+            if (part.length < 2) continue;
+            
+            projectName = part;
+            break;
+        }
+        
+        if (!projectName) {
+            projectName = parts[parts.length - 1] || 'Unknown Project';
+        }
+        
+        return projectName;
+    }
+
+    /**
+     * 获取路径的共同前缀
+     * @param {Array<string>} paths - 路径列表
+     * @returns {string} 共同前缀路径
+     */
+    getCommonPathPrefix(paths) {
+        if (!paths || paths.length === 0) return '';
+        
+        const normalizedPaths = paths.map(p => p.replace(/\\/g, '/'));
+        const commonPrefix = normalizedPaths.reduce((prefix, path) => {
+            let i = 0;
+            while (i < prefix.length && i < path.length && prefix[i] === path[i]) {
+                i++;
+            }
+            return prefix.substring(0, i);
+        });
+        
+        // 确保路径是完整的目录
+        const lastSlash = commonPrefix.lastIndexOf('/');
+        return lastSlash > 0 ? commonPrefix.substring(0, lastSlash) : commonPrefix;
     }
 
     matchWorkspace(session, workspaceProjects) {
-        // 简化的工作区匹配逻辑
+        if (!session) {
+            return {
+                id: 'global',
+                project: { name: 'Global Chat', path: 'global', workspace_id: 'global' }
+            };
+        }
+
+        // 优先使用session中的workspaceId
+        if (session.workspaceId && workspaceProjects.has(session.workspaceId)) {
+            const project = workspaceProjects.get(session.workspaceId);
+            return {
+                id: session.workspaceId,
+                project: project
+            };
+        }
+
+        // 尝试基于文件路径匹配
+        if (session.filePaths && session.filePaths.length > 0) {
+            for (const filePath of session.filePaths) {
+                for (const [workspaceId, project] of workspaceProjects.entries()) {
+                    if (filePath.includes(project.rootPath) || 
+                        project.rootPath.includes(filePath)) {
+                        return {
+                            id: workspaceId,
+                            project: project
+                        };
+                    }
+                }
+            }
+        }
+
+        // 默认全局
         return {
             id: 'global',
-            project: { name: 'Global Chat', path: 'global' }
+            project: { name: 'Global Chat', path: 'global', workspace_id: 'global' }
         };
     }
 

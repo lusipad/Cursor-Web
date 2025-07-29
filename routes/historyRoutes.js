@@ -264,11 +264,21 @@ class HistoryRoutes {
      * @returns {string} HTML字符串
      */
     generateChatHtml(chat) {
-        const messagesHtml = chat.messages.map(message => `
+        const formatTime = (timestamp) => {
+            if (!timestamp) return '';
+            return new Date(timestamp).toLocaleString('zh-CN');
+        };
+
+        const messagesHtml = chat.messages.map((message, index) => `
             <div class="message ${message.role}">
                 <div class="message-header">
-                    <strong>${message.role === 'user' ? '用户' : 'AI助手'}</strong>
-                    ${message.formattedTime ? `<span class="time">${message.formattedTime}</span>` : ''}
+                    <div class="avatar ${message.role}">
+                        ${message.role === 'user' ? '👤' : '🤖'}
+                    </div>
+                    <div class="message-info">
+                        <strong>${message.role === 'user' ? 'You' : 'Cursor Assistant'}</strong>
+                        ${message.timestamp ? `<span class="time">${formatTime(message.timestamp)}</span>` : ''}
+                    </div>
                 </div>
                 <div class="message-content">
                     ${this.escapeHtml(message.content).replace(/\n/g, '<br>')}
@@ -276,93 +286,239 @@ class HistoryRoutes {
             </div>
         `).join('');
 
+        const projectName = chat.project?.name || 'Unknown Project';
+        const projectPath = chat.project?.rootPath || 'Unknown Path';
+
         return `
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${this.escapeHtml(chat.title)} - 聊天记录</title>
+    <title>${this.escapeHtml(chat.title)} - Cursor Chat Export</title>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             line-height: 1.6;
             color: #333;
-            max-width: 800px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
             margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .header {
             background: white;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .header h1 {
-            margin: 0 0 10px 0;
-            color: #2c3e50;
-        }
-        .meta {
-            color: #666;
-            font-size: 14px;
-        }
-        .messages {
-            background: white;
-            border-radius: 8px;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
             overflow: hidden;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .meta {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+
+        .messages {
+            padding: 40px;
+            background: #fafafa;
+        }
+
         .message {
-            padding: 20px;
-            border-bottom: 1px solid #eee;
+            margin-bottom: 30px;
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
         }
-        .message:last-child {
-            border-bottom: none;
-        }
+
         .message.user {
-            background-color: #f8f9fa;
+            flex-direction: row-reverse;
         }
-        .message.assistant {
-            background-color: #fff;
+
+        .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            flex-shrink: 0;
         }
+
+        .avatar.user {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+        }
+
+        .avatar.assistant {
+            background: linear-gradient(135deg, #f093fb, #f5576c);
+        }
+
+        .message-info {
+            flex: 1;
+            max-width: 70%;
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .message.user .message-info {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+
         .message-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 10px;
         }
+
         .message-header strong {
-            color: #2c3e50;
+            font-weight: 600;
         }
+
         .time {
-            color: #666;
-            font-size: 12px;
+            font-size: 0.8rem;
+            opacity: 0.7;
         }
+
         .message-content {
             white-space: pre-wrap;
             word-wrap: break-word;
+            line-height: 1.7;
         }
+
         code {
-            background-color: #f1f1f1;
-            padding: 2px 4px;
-            border-radius: 3px;
-            font-family: 'Monaco', 'Consolas', monospace;
+            background: #f1f1f1;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Consolas', 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        pre {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+
+        pre code {
+            background: none;
+            padding: 0;
+        }
+
+        .footer {
+            padding: 20px;
+            text-align: center;
+            background: #f8f9fa;
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+            
+            .container {
+                margin: 0;
+                border-radius: 0;
+            }
+            
+            .header {
+                padding: 30px 20px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .messages {
+                padding: 20px;
+            }
+            
+            .message {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .message.user {
+                align-items: flex-end;
+            }
+            
+            .message-info {
+                max-width: 100%;
+                margin-top: 10px;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>${this.escapeHtml(chat.title)}</h1>
-        <div class="meta">
-            <div>导出时间: ${new Date().toLocaleString('zh-CN')}</div>
-            <div>消息数量: ${chat.messages.length}</div>
-            ${chat.project ? `<div>项目: ${this.escapeHtml(chat.project.name)}</div>` : ''}
+    <div class="container">
+        <div class="header">
+            <h1>${this.escapeHtml(chat.title)}</h1>
+            <div class="meta">
+                <div class="meta-item">
+                    <span>📁</span>
+                    <span>${this.escapeHtml(projectName)}</span>
+                </div>
+                <div class="meta-item">
+                    <span>📍</span>
+                    <span>${this.escapeHtml(projectPath)}</span>
+                </div>
+                <div class="meta-item">
+                    <span>📅</span>
+                    <span>导出时间: ${new Date().toLocaleString('zh-CN')}</span>
+                </div>
+                <div class="meta-item">
+                    <span>💬</span>
+                    <span>${chat.messages.length} 条消息</span>
+                </div>
+            </div>
         </div>
-    </div>
-    <div class="messages">
-        ${messagesHtml}
+        
+        <div class="messages">
+            ${messagesHtml}
+        </div>
+        
+        <div class="footer">
+            <p>导出自 Cursor Chat History • ${new Date().toLocaleString('zh-CN')}</p>
+        </div>
     </div>
 </body>
 </html>
