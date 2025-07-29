@@ -1533,8 +1533,14 @@ body {
     }
     
     .search-input {
-        flex-direction: column;
-        align-items: stretch;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    
+    .search-input .btn {
+        flex: 0 0 auto;
+        min-width: 80px;
     }
     
     .detail-actions {

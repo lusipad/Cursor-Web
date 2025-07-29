@@ -198,7 +198,7 @@
     </div>
 
     <script src="js/modules/module-loader.js"></script>
-    <script src="js/history.js"></script>
+    <!-- 历史记录功能现在通过模块系统加载 -->
     <script src="git-manager.js"></script>
     <script>
     // 页面加载完成后初始化
@@ -212,43 +212,48 @@
          }
          
          setTimeout(function() {
-             if (typeof initHistoryManager === 'function') {
-                 try {
-                     initHistoryManager();
-                     console.log('✅ 历史记录管理器初始化成功');
-                     
-                     // 等待2秒后检查结果
-                     setTimeout(() => {
-                         const chatListAfter = document.getElementById('chat-list');
-                         if (chatListAfter) {
-                             console.log('📋 2秒后聊天列表内容长度:', chatListAfter.innerHTML.length);
-                             if (chatListAfter.innerHTML.length < 200) {
-                                 chatListAfter.innerHTML = '<div style="color: red; padding: 10px;">❌ 聊天记录加载失败，请检查控制台日志</div>';
+             // 使用模块系统加载历史记录管理器
+             if (window.ModuleLoader) {
+                 ModuleLoader.loadModule('HistoryManager').then(async () => {
+                     if (window.HistoryManager) {
+                          try {
+                              const historyContainer = document.querySelector('#history-tab');
+                              window.historyManager = new window.HistoryManager(historyContainer);
+                              await window.historyManager.init();
+                             console.log('✅ 历史记录管理器初始化成功');
+                             
+                             // 等待2秒后检查结果
+                             setTimeout(() => {
+                                 const chatListAfter = document.getElementById('chat-list');
+                                 if (chatListAfter) {
+                                     console.log('📋 2秒后聊天列表内容长度:', chatListAfter.innerHTML.length);
+                                     if (chatListAfter.innerHTML.length < 200) {
+                                         chatListAfter.innerHTML = '<div style="color: red; padding: 10px;">❌ 聊天记录加载失败，请检查控制台日志</div>';
+                                     }
+                                 }
+                             }, 2000);
+                         } catch (error) {
+                             console.error('❌ 历史记录管理器初始化失败:', error);
+                             if (chatList) {
+                                 chatList.innerHTML = `<div style="color: red; padding: 10px;">❌ 初始化失败: ${error.message}</div>`;
                              }
                          }
-                     }, 2000);
-                     
-                 } catch (error) {
-                     console.error('❌ 历史记录管理器初始化失败:', error);
-                     if (chatList) {
-                         chatList.innerHTML = `<div style="color: red; padding: 10px;">❌ 初始化失败: ${error.message}</div>`;
+                     } else {
+                         console.error('❌ HistoryManager模块加载失败');
+                         if (chatList) {
+                             chatList.innerHTML = '<div style="color: red; padding: 10px;">❌ HistoryManager模块加载失败</div>';
+                         }
                      }
-                 }
-             } else if (typeof HistoryManager !== 'undefined') {
-                 try {
-                     window.historyManager = new HistoryManager();
-                     window.historyManager.init();
-                     console.log('✅ 手动初始化成功');
-                 } catch (error) {
-                     console.error('❌ 手动初始化失败:', error);
+                 }).catch(error => {
+                     console.error('❌ 模块加载失败:', error);
                      if (chatList) {
-                         chatList.innerHTML = `<div style="color: red; padding: 10px;">❌ 手动初始化失败: ${error.message}</div>`;
+                         chatList.innerHTML = `<div style="color: red; padding: 10px;">❌ 模块加载失败: ${error.message}</div>`;
                      }
-                 }
+                 });
              } else {
-                 console.error('❌ HistoryManager和initHistoryManager都未找到');
+                 console.error('❌ ModuleLoader未找到');
                  if (chatList) {
-                     chatList.innerHTML = '<div style="color: red; padding: 10px;">❌ HistoryManager类未找到</div>';
+                     chatList.innerHTML = '<div style="color: red; padding: 10px;">❌ ModuleLoader未找到</div>';
                  }
              }
          }, 500);
@@ -269,8 +274,16 @@
             
             // 如果切换到历史记录tab，初始化历史记录管理器
             if (this.dataset.tab === 'history-tab') {
-                if (typeof initHistoryManager === 'function') {
-                    initHistoryManager();
+                if (window.ModuleLoader && !window.historyManager) {
+                    ModuleLoader.loadModule('HistoryManager').then(async () => {
+                        if (window.HistoryManager && !window.historyManager) {
+                             const historyContainer = document.querySelector('#history-tab');
+                             window.historyManager = new window.HistoryManager(historyContainer);
+                             await window.historyManager.init();
+                        }
+                    }).catch(error => {
+                        console.error('❌ 历史记录管理器加载失败:', error);
+                    });
                 }
             }
         });
@@ -388,29 +401,45 @@
                 chatList.innerHTML = '<div style="color: yellow; padding: 10px;">🔄 强制重新初始化中...</div>';
             }
             
-            // 初始化
-            if (typeof initHistoryManager === 'function') {
-                initHistoryManager();
-                console.log('✅ 强制初始化完成');
-                
-                // 等待一秒后检查结果
-                setTimeout(() => {
-                    if (window.historyManager && window.historyManager.chats) {
-                        console.log('📊 加载的聊天数量:', window.historyManager.chats.length);
-                        if (chatList) {
-                            console.log('📋 当前chat-list内容长度:', chatList.innerHTML.length);
-                        }
+            // 使用模块系统初始化
+            if (window.ModuleLoader) {
+                ModuleLoader.loadModule('HistoryManager').then(async () => {
+                    if (window.HistoryManager) {
+                        const historyContainer = document.querySelector('#history-tab');
+                         window.historyManager = new window.HistoryManager(historyContainer);
+                        await window.historyManager.init();
+                        console.log('✅ 强制初始化完成');
+                        
+                        // 等待一秒后检查结果
+                        setTimeout(() => {
+                            if (window.historyManager && window.historyManager.chats) {
+                                console.log('📊 加载的聊天数量:', window.historyManager.chats.length);
+                                if (chatList) {
+                                    console.log('📋 当前chat-list内容长度:', chatList.innerHTML.length);
+                                }
+                            } else {
+                                console.error('❌ historyManager或chats为空');
+                                if (chatList) {
+                                    chatList.innerHTML = '<div style="color: red; padding: 10px;">❌ 初始化失败，historyManager为空</div>';
+                                }
+                            }
+                        }, 1000);
                     } else {
-                        console.error('❌ historyManager或chats为空');
+                        console.error('❌ HistoryManager模块加载失败');
                         if (chatList) {
-                            chatList.innerHTML = '<div style="color: red; padding: 10px;">❌ 初始化失败，historyManager为空</div>';
+                            chatList.innerHTML = '<div style="color: red; padding: 10px;">❌ HistoryManager模块加载失败</div>';
                         }
                     }
-                }, 1000);
+                }).catch(error => {
+                    console.error('❌ 模块加载失败:', error);
+                    if (chatList) {
+                        chatList.innerHTML = `<div style="color: red; padding: 10px;">❌ 模块加载失败: ${error.message}</div>`;
+                    }
+                });
             } else {
-                console.error('❌ initHistoryManager函数未找到');
+                console.error('❌ ModuleLoader未找到');
                 if (chatList) {
-                    chatList.innerHTML = '<div style="color: red; padding: 10px;">❌ initHistoryManager函数未找到</div>';
+                    chatList.innerHTML = '<div style="color: red; padding: 10px;">❌ ModuleLoader未找到</div>';
                 }
             }
         } catch (error) {
@@ -424,8 +453,8 @@
     // 调试状态函数
     window.debugHistoryManager = function() {
         console.log('=== 调试信息 ===');
-        console.log('HistoryManager类型:', typeof HistoryManager);
-        console.log('initHistoryManager函数:', typeof initHistoryManager);
+        console.log('HistoryManager类型:', typeof window.HistoryManager);
+        console.log('ModuleLoader:', typeof window.ModuleLoader);
         console.log('historyManager实例:', window.historyManager);
         console.log('chat-list元素:', document.getElementById('chat-list'));
         
@@ -462,12 +491,13 @@
     };
     
     // 强制初始化函数（保持向后兼容）
-    function forceInit() {
+    async function forceInit() {
         console.log('🔧 强制初始化历史记录管理器');
         try {
             if (typeof HistoryManager !== 'undefined') {
-                window.historyManager = new HistoryManager();
-                window.historyManager.init();
+                const historyContainer = document.querySelector('#history-tab');
+                window.historyManager = new HistoryManager(historyContainer);
+                await window.historyManager.init();
                 console.log('✅ 强制初始化成功');
             } else {
                 console.error('❌ HistoryManager类未找到');
