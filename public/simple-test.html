@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>简单测试 - 聊天详情显示</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .chat-card {
+            border: 1px solid #ddd;
+            margin: 10px 0;
+            padding: 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .chat-card:hover {
+            background-color: #f9f9f9;
+            transform: translateY(-1px);
+        }
+        .chat-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .chat-preview {
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .chat-meta {
+            font-size: 12px;
+            color: #999;
+        }
+        .message {
+            border-left: 3px solid #007acc;
+            margin: 10px 0;
+            padding: 10px;
+            background: #f9f9f9;
+        }
+        .message.user {
+            border-left-color: #28a745;
+        }
+        .message.assistant {
+            border-left-color: #6f42c1;
+        }
+        .message-header {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .message-content {
+            white-space: pre-wrap;
+            line-height: 1.5;
+        }
+        .loading {
+            text-align: center;
+            color: #007acc;
+            padding: 20px;
+        }
+        .error {
+            color: red;
+            padding: 20px;
+            background: #ffe6e6;
+            border-radius: 8px;
+        }
+        .detail-panel {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Cursor 聊天历史记录 - 简单测试</h1>
+        <p>这个页面直接测试聊天历史和详情显示功能</p>
+        
+        <div id="status" class="loading">正在加载...</div>
+        <div id="chat-list"></div>
+        <div id="chat-detail" class="detail-panel">
+            <h3>聊天详情</h3>
+            <button onclick="closeDetail()">关闭</button>
+            <div id="detail-content"></div>
+        </div>
+    </div>
+
+    <script>
+        // 简单的API客户端
+        class SimpleApiClient {
+            async getAllChats() {
+                const response = await fetch('/api/history/chats');
+                const data = await response.json();
+                return data;
+            }
+
+            async getChatDetail(sessionId) {
+                const response = await fetch(`/api/history/chat/${sessionId}`);
+                const data = await response.json();
+                return data;
+            }
+        }
+
+        const api = new SimpleApiClient();
+
+        // 加载聊天列表
+        async function loadChats() {
+            try {
+                document.getElementById('status').textContent = '正在加载聊天列表...';
+                const response = await api.getAllChats();
+                
+                if (response.success && response.data) {
+                    displayChats(response.data);
+                    document.getElementById('status').textContent = `找到 ${response.data.length} 条聊天记录`;
+                } else {
+                    throw new Error(response.error || '未找到聊天记录');
+                }
+            } catch (error) {
+                console.error('加载失败:', error);
+                document.getElementById('status').innerHTML = `<div class="error">错误: ${error.message}</div>`;
+            }
+        }
+
+        // 显示聊天列表
+        function displayChats(chats) {
+            const container = document.getElementById('chat-list');
+            if (!chats || chats.length === 0) {
+                container.innerHTML = '<div class="error">没有找到聊天记录</div>';
+                return;
+            }
+
+            let html = '';
+            chats.forEach(chat => {
+                html += `
+                    <div class="chat-card" onclick="loadChatDetail('${chat.sessionId}')">
+                        <div class="chat-title">${chat.title}</div>
+                        <div class="chat-preview">${chat.preview || '暂无预览'}</div>
+                        <div class="chat-meta">
+                            项目: ${chat.project?.name || '未知'} | 
+                            消息: ${chat.messages?.length || 0} | 
+                            时间: ${new Date(chat.lastModified).toLocaleString()}
+                        </div>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        // 加载聊天详情
+        async function loadChatDetail(sessionId) {
+            try {
+                document.getElementById('status').textContent = '正在加载聊天详情...';
+                const response = await api.getChatDetail(sessionId);
+                
+                if (response.success && response.data) {
+                    displayChatDetail(response.data);
+                    document.getElementById('status').textContent = '聊天详情加载完成';
+                } else {
+                    throw new Error(response.error || '未找到聊天详情');
+                }
+            } catch (error) {
+                console.error('加载详情失败:', error);
+                document.getElementById('status').innerHTML = `<div class="error">错误: ${error.message}</div>`;
+            }
+        }
+
+        // 显示聊天详情
+        function displayChatDetail(chat) {
+            const detailPanel = document.getElementById('chat-detail');
+            const content = document.getElementById('detail-content');
+            
+            let html = `
+                <div style="margin-bottom: 20px;">
+                    <h4>${chat.title}</h4>
+                    <p><strong>会话ID:</strong> ${chat.sessionId}</p>
+                    <p><strong>项目:</strong> ${chat.project?.name || '未知'}</p>
+                    <p><strong>消息数量:</strong> ${chat.messages?.length || 0}</p>
+                    <p><strong>创建时间:</strong> ${new Date(chat.timestamp).toLocaleString()}</p>
+                </div>
+                <hr>
+            `;
+
+            if (chat.messages && chat.messages.length > 0) {
+                chat.messages.forEach((message, index) => {
+                    html += `
+                        <div class="message ${message.role}">
+                            <div class="message-header">
+                                ${message.role === 'user' ? '👤 用户' : '🤖 AI'} - 
+                                ${new Date(message.timestamp).toLocaleString()}
+                            </div>
+                            <div class="message-content">${message.content}</div>
+                        </div>
+                    `;
+                });
+            } else {
+                html += '<p>暂无消息</p>';
+            }
+
+            content.innerHTML = html;
+            detailPanel.style.display = 'block';
+        }
+
+        // 关闭详情
+        function closeDetail() {
+            document.getElementById('chat-detail').style.display = 'none';
+        }
+
+        // 页面加载完成后自动加载
+        window.addEventListener('load', loadChats);
+    </script>
+</body>
+</html>

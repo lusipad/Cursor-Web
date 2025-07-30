@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cursor 聊天历史记录</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            margin: 0; 
+            padding: 20px; 
+            background: #f5f5f5;
+            line-height: 1.6;
+        }
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+            background: white; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header { 
+            background: #007acc; 
+            color: white; 
+            padding: 20px; 
+            text-align: center;
+        }
+        .controls { 
+            padding: 20px; 
+            border-bottom: 1px solid #eee; 
+            display: flex; 
+            gap: 10px; 
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .controls input, .controls button {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .controls button {
+            background: #007acc;
+            color: white;
+            cursor: pointer;
+            border: none;
+        }
+        .controls button:hover {
+            background: #005a9e;
+        }
+        .stats { 
+            padding: 10px 20px; 
+            background: #f9f9f9; 
+            border-bottom: 1px solid #eee; 
+            font-size: 14px;
+        }
+        .chat-list { 
+            padding: 20px; 
+            height: 400px; 
+            overflow-y: auto; 
+            border-right: 1px solid #eee;
+        }
+        .chat-detail { 
+            padding: 20px; 
+            height: 400px; 
+            overflow-y: auto;
+        }
+        .chat-card {
+            border: 1px solid #e1e4e8;
+            margin: 10px 0;
+            padding: 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .chat-card:hover {
+            background: #f6f8fa;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .chat-title { font-size: 16px; font-weight: 600; margin-bottom: 5px; }
+        .chat-preview { color: #586069; font-size: 14px; margin-bottom: 5px; }
+        .chat-meta { font-size: 12px; color: #959da5; display: flex; gap: 15px; }
+        .message {
+            margin: 10px 0;
+            padding: 12px;
+            border-radius: 6px;
+            border-left: 3px solid #e1e4e8;
+        }
+        .message.user { border-left-color: #28a745; background: #f6ffed; }
+        .message.assistant { border-left-color: #6f42c1; background: #f3f0ff; }
+        .message-header {
+            font-size: 12px;
+            color: #586069;
+            margin-bottom: 8px;
+        }
+        .message-content {
+            font-size: 14px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+        }
+        .loading { text-align: center; padding: 40px; color: #586069; }
+        .error { color: #d73a49; background: #ffeef0; padding: 10px; border-radius: 4px; }
+        .split-container { display: flex; height: 500px; }
+        .split-container .chat-list { flex: 1; border-right: 1px solid #eee; }
+        .split-container .chat-detail { flex: 2; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Cursor 聊天历史记录</h1>
+            <p>独立版本 - 无需复杂模块系统</p>
+        </div>
+        
+        <div class="controls">
+            <input type="text" id="search-input" placeholder="搜索聊天内容..." />
+            <button onclick="searchChats()">搜索</button>
+            <button onclick="refreshChats()">刷新</button>
+            <button onclick="clearCache()">清除缓存</button>
+        </div>
+        
+        <div class="stats" id="stats">准备就绪...</div>
+        
+        <div class="split-container">
+            <div class="chat-list">
+                <div id="chats-container">
+                    <div class="loading">正在加载聊天记录...</div>
+                </div>
+            </div>
+            
+            <div class="chat-detail">
+                <div id="detail-container">
+                    <div class="loading">选择一个聊天查看详情...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API客户端
+        class HistoryApiClient {
+            constructor() {
+                this.baseUrl = '/api/history';
+            }
+
+            async getAllChats(options = {}) {
+                const params = new URLSearchParams();
+                if (options.limit) params.append('limit', options.limit);
+                if (options.offset) params.append('offset', options.offset);
+                if (options.workspaceId) params.append('workspaceId', options.workspaceId);
+                
+                const url = `${this.baseUrl}/chats${params.toString() ? '?' + params.toString() : ''}`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                return await response.json();
+            }
+
+            async getChatDetail(sessionId) {
+                const response = await fetch(`${this.baseUrl}/chat/${encodeURIComponent(sessionId)}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                return await response.json();
+            }
+
+            async searchChats(query) {
+                const response = await fetch(`${this.baseUrl}/search?q=${encodeURIComponent(query)}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                return await response.json();
+            }
+
+            async clearCache() {
+                const response = await fetch(`${this.baseUrl}/cache`, { method: 'DELETE' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                return await response.json();
+            }
+        }
+
+        // 服务层
+        class HistoryService {
+            constructor() {
+                this.apiClient = new HistoryApiClient();
+                this.cache = new Map();
+                this.cacheTimeout = 5 * 60 * 1000; // 5分钟
+            }
+
+            async getChatList(options = {}) {
+                const cacheKey = `all_chats_${JSON.stringify(options)}`;
+                const cached = this.cache.get(cacheKey);
+                
+                if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
+                    return cached.data;
+                }
+
+                try {
+                    const response = await this.apiClient.getAllChats(options);
+                    
+                    let chats;
+                    if (response && response.success && Array.isArray(response.data)) {
+                        chats = response.data;
+                    } else if (Array.isArray(response)) {
+                        chats = response;
+                    } else {
+                        console.warn('意外的API响应格式:', response);
+                        chats = [];
+                    }
+
+                    const processedChats = this.processChats(chats);
+                    this.cache.set(cacheKey, { data: processedChats, timestamp: Date.now() });
+                    return processedChats;
+                } catch (error) {
+                    console.error('获取聊天列表失败:', error);
+                    throw error;
+                }
+            }
+
+            async getChatDetail(sessionId) {
+                const cacheKey = `chat_detail_${sessionId}`;
+                const cached = this.cache.get(cacheKey);
+                
+                if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
+                    return cached.data;
+                }
+
+                try {
+                    const response = await this.apiClient.getChatDetail(sessionId);
+                    const chatDetail = response.data;
+                    const processedDetail = this.processChatDetail(chatDetail);
+                    this.cache.set(cacheKey, { data: processedDetail, timestamp: Date.now() });
+                    return processedDetail;
+                } catch (error) {
+                    console.error('获取聊天详情失败:', error);
+                    throw error;
+                }
+            }
+
+            async searchChats(query) {
+                if (!query || query.trim() === '') {
+                    return this.getChatList();
+                }
+
+                try {
+                    const response = await this.apiClient.searchChats(query);
+                    return this.processChats(response.data || []);
+                } catch (error) {
+                    console.error('搜索聊天记录失败:', error);
+                    throw error;
+                }
+            }
+
+            async clearCache() {
+                this.cache.clear();
+                return await this.apiClient.clearCache();
+            }
+
+            processChats(chats) {
+                if (!Array.isArray(chats)) {
+                    console.warn('processChats: 期望数组但收到:', typeof chats, chats);
+                    return [];
+                }
+                
+                return chats.map(chat => ({
+                    ...chat,
+                    title: this.generateChatTitle(chat),
+                    preview: this.generateChatPreview(chat),
+                    formattedTime: this.formatTime(chat.timestamp || chat.lastModified),
+                    messageCount: chat.messages ? chat.messages.length : 0
+                }));
+            }
+
+            processChatDetail(chatDetail) {
+                return {
+                    ...chatDetail,
+                    title: this.generateChatTitle(chatDetail),
+                    formattedTime: this.formatTime(chatDetail.timestamp || chatDetail.lastModified),
+                    messages: chatDetail.messages ? chatDetail.messages.map(msg => ({
+                        ...msg,
+                        formattedTime: this.formatTime(msg.timestamp)
+                    })) : []
+                };
+            }
+
+            generateChatTitle(chat) {
+                if (chat.title) return chat.title;
+                
+                if (chat.messages && chat.messages.length > 0) {
+                    const firstUserMessage = chat.messages.find(msg => msg.role === 'user');
+                    if (firstUserMessage) {
+                        return firstUserMessage.content.substring(0, 50) + 
+                               (firstUserMessage.content.length > 50 ? '...' : '');
+                    }
+                }
+                
+                return `聊天记录 ${this.formatTime(chat.timestamp || Date.now())}`;
+            }
+
+            generateChatPreview(chat) {
+                if (chat.messages && chat.messages.length > 0) {
+                    const lastMessage = chat.messages[chat.messages.length - 1];
+                    return lastMessage.content.substring(0, 100) + 
+                           (lastMessage.content.length > 100 ? '...' : '');
+                }
+                return '暂无消息';
+            }
+
+            formatTime(timestamp) {
+                if (!timestamp) return '未知时间';
+                
+                const date = new Date(timestamp);
+                const now = new Date();
+                const diff = now - date;
+                
+                if (diff < 60000) return '刚刚';
+                if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`;
+                if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`;
+                if (diff < 604800000) return `${Math.floor(diff / 86400000)}天前`;
+                return date.toLocaleDateString('zh-CN');
+            }
+        }
+
+        // 全局变量
+        let service = new HistoryService();
+        let currentChats = [];
+
+        // 功能函数
+        async function loadChats() {
+            updateStats('正在加载...');
+            document.getElementById('chats-container').innerHTML = '<div class="loading">正在加载聊天记录...</div>';
+            
+            try {
+                currentChats = await service.getChatList();
+                displayChats(currentChats);
+                updateStats(`找到 ${currentChats.length} 条聊天记录`);
+            } catch (error) {
+                console.error('加载失败:', error);
+                updateStats(`加载失败: ${error.message}`);
+                document.getElementById('chats-container').innerHTML = `<div class="error">加载失败: ${error.message}</div>`;
+            }
+        }
+
+        function displayChats(chats) {
+            const container = document.getElementById('chats-container');
+            if (!chats || chats.length === 0) {
+                container.innerHTML = '<div class="error">没有找到聊天记录</div>';
+                return;
+            }
+
+            let html = '';
+            chats.forEach(chat => {
+                html += `
+                    <div class="chat-card" onclick="loadChatDetail('${chat.sessionId}')">
+                        <div class="chat-title">${chat.title}</div>
+                        <div class="chat-preview">${chat.preview}</div>
+                        <div class="chat-meta">
+                            <span>项目: ${chat.project?.name || '未知'}</span>
+                            <span>消息: ${chat.messageCount}</span>
+                            <span>${chat.formattedTime}</span>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+
+        async function loadChatDetail(sessionId) {
+            updateStats('正在加载聊天详情...');
+            document.getElementById('detail-container').innerHTML = '<div class="loading">正在加载聊天详情...</div>';
+            
+            try {
+                const chat = await service.getChatDetail(sessionId);
+                displayChatDetail(chat);
+                updateStats(`显示聊天详情: ${chat.title}`);
+            } catch (error) {
+                console.error('加载详情失败:', error);
+                updateStats(`加载详情失败: ${error.message}`);
+                document.getElementById('detail-container').innerHTML = `<div class="error">加载详情失败: ${error.message}</div>`;
+            }
+        }
+
+        function displayChatDetail(chat) {
+            const container = document.getElementById('detail-container');
+            
+            let html = `
+                <h3>${chat.title}</h3>
+                <div style="margin: 10px 0; font-size: 14px; color: #666;">
+                    <p><strong>会话ID:</strong> ${chat.sessionId}</p>
+                    <p><strong>项目:</strong> ${chat.project?.name || '未知'}</p>
+                    <p><strong>消息数量:</strong> ${chat.messages?.length || 0}</p>
+                    <p><strong>时间:</strong> ${chat.formattedTime}</p>
+                </div>
+                <hr>
+            `;
+
+            if (chat.messages && chat.messages.length > 0) {
+                chat.messages.forEach((msg, index) => {
+                    html += `
+                        <div class="message ${msg.role}">
+                            <div class="message-header">
+                                ${msg.role === 'user' ? '👤 用户' : '🤖 AI'} - ${msg.formattedTime}
+                            </div>
+                            <div class="message-content">${msg.content}</div>
+                        </div>
+                    `;
+                });
+            } else {
+                html += '<p>暂无消息</p>';
+            }
+
+            container.innerHTML = html;
+        }
+
+        async function searchChats() {
+            const query = document.getElementById('search-input').value.trim();
+            if (!query) {
+                displayChats(currentChats);
+                return;
+            }
+            
+            updateStats(`正在搜索: ${query}...`);
+            try {
+                const results = await service.searchChats(query);
+                displayChats(results);
+                updateStats(`搜索完成: ${results.length} 条结果`);
+            } catch (error) {
+                updateStats(`搜索失败: ${error.message}`);
+            }
+        }
+
+        async function refreshChats() {
+            await service.clearCache();
+            await loadChats();
+        }
+
+        function clearCache() {
+            service.clearCache();
+            updateStats('缓存已清除');
+        }
+
+        function updateStats(message) {
+            document.getElementById('stats').textContent = message;
+        }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', loadChats);
+    </script>
+</body>
+</html>
