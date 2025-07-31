@@ -868,22 +868,22 @@ body {
     color: #ffffff;
 }
 
-/* 历史记录样式 - 参考 cursor-view-main 设计 */
+/* 历史记录样式 - 改进颜色对比度 */
 .history-panel {
     display: flex;
     flex-direction: column;
     height: 100%;
     padding: 24px;
     gap: 24px;
-    background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 100%);
+    background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
 }
 
 .history-controls {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(45, 45, 45, 0.8);
     backdrop-filter: blur(10px);
     border-radius: 12px;
     padding: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
@@ -900,8 +900,8 @@ body {
 .search-field {
     flex: 1;
     padding: 12px 16px;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(30, 30, 30, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 8px;
     color: #ffffff;
     font-size: 14px;
@@ -916,15 +916,15 @@ body {
 }
 
 .search-field::placeholder {
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.7);
 }
 
 .history-stats {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(45, 45, 45, 0.8);
     backdrop-filter: blur(10px);
     border-radius: 12px;
     padding: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
     display: flex;
     gap: 32px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
@@ -938,15 +938,15 @@ body {
 
 .stat-value {
     font-weight: 600;
-    color: #6366f1;
+    color: #818cf8;
     font-size: 16px;
 }
 
 .history-list {
     flex: 1;
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(30, 30, 30, 0.6);
     border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -961,14 +961,14 @@ body {
     /* 移除grid布局，改为block布局以支持project-group */
 }
 
-/* 项目分组样式 - 参考 cursor-view-main */
+/* 项目分组样式 - 改进对比度 */
 .project-group {
     margin-bottom: 32px;
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(40, 40, 40, 0.7);
     border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
     overflow: hidden;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
 .project-header {
@@ -976,16 +976,16 @@ body {
     align-items: center;
     justify-content: space-between;
     padding: 20px 24px;
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(50, 50, 50, 0.8);
     backdrop-filter: blur(10px);
     cursor: pointer;
     transition: all 0.3s ease;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 .project-header:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-bottom-color: rgba(99, 102, 241, 0.3);
+    background: rgba(60, 60, 60, 0.9);
+    border-bottom-color: rgba(99, 102, 241, 0.5);
 }
 
 .project-info {
@@ -1013,7 +1013,7 @@ body {
 
 .project-path {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgba(255, 255, 255, 0.8);
     font-family: 'Courier New', monospace;
 }
 
@@ -1070,22 +1070,22 @@ body {
 
 .loading-message {
     text-align: center;
-    color: #888888;
+    color: #aaaaaa;
     padding: 40px;
     font-style: italic;
 }
 
-/* 聊天卡片样式 - 参考 cursor-view-main */
+/* 聊天卡片样式 - 改进对比度 */
 .chat-card {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(45, 45, 45, 0.8);
     backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.17, 0.67, 0.83, 0.67);
     position: relative;
     overflow: hidden;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -1105,10 +1105,10 @@ body {
 }
 
 .chat-card:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(0, 187, 255, 0.5);
+    background: rgba(55, 55, 55, 0.9);
+    border-color: rgba(0, 187, 255, 0.6);
     transform: translateY(-8px);
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
 }
 
 .chat-card:hover::before {
@@ -1134,7 +1134,7 @@ body {
     align-items: center;
     gap: 8px;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgba(255, 255, 255, 0.8);
 }
 
 .date-icon {
@@ -1159,7 +1159,7 @@ body {
     margin-bottom: 8px;
     font-size: 11px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.8);
+    color: rgba(255, 255, 255, 0.9);
 }
 
 .message-icon {
@@ -1167,12 +1167,12 @@ body {
 }
 
 .chat-preview-content {
-    background: rgba(0, 187, 255, 0.1);
+    background: rgba(0, 187, 255, 0.15);
     border-radius: 6px;
     padding: 8px;
-    border: 1px solid rgba(0, 187, 255, 0.2);
+    border: 1px solid rgba(0, 187, 255, 0.3);
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.9);
+    color: #ffffff;
     line-height: 1.3;
     overflow: hidden;
     display: -webkit-box;
@@ -1192,7 +1192,7 @@ body {
 
 .session-id {
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.7);
     font-family: 'Courier New', monospace;
 }
 
@@ -1263,7 +1263,7 @@ body {
 }
 
 .chat-preview {
-    color: rgba(255, 255, 255, 0.7);
+    color: rgba(255, 255, 255, 0.85);
     font-size: 14px;
     line-height: 1.5;
     margin: 12px 0;
@@ -1284,7 +1284,7 @@ body {
 
 .chat-date {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.7);
 }
 
 .chat-message-count {
@@ -1298,11 +1298,11 @@ body {
 
 .chat-time {
     font-size: 12px;
-    color: #888888;
+    color: #aaaaaa;
 }
 
 .chat-preview {
-    color: #cccccc;
+    color: #dddddd;
     font-size: 13px;
     line-height: 1.4;
     max-height: 40px;
@@ -1318,7 +1318,7 @@ body {
     align-items: center;
     margin-top: 8px;
     font-size: 12px;
-    color: #888888;
+    color: #aaaaaa;
 }
 
 .message-count {
@@ -1429,7 +1429,7 @@ body {
 
 .empty-state {
     text-align: center;
-    color: #888888;
+    color: #aaaaaa;
     padding: 40px;
 }
 
