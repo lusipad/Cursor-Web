@@ -48,62 +48,35 @@
             <!-- 历史记录 Tab 内容 -->
             <section id="history-tab" class="tab-content active">
                 <div class="history-panel">
-                    <h2>Cursor 聊天历史记录</h2>
-                    <div class="history-controls">
-                        <div class="search-section">
-                            <div class="search-input">
-                                <input type="text" id="history-search" placeholder="搜索聊天内容..." class="search-field">
-                                <button id="search-btn" class="btn btn-primary">搜索</button>
-                                <button id="refresh-history" class="btn btn-secondary">刷新</button>
-                                <button id="force-init-btn" class="btn btn-primary" onclick="forceInitAndLoad()">强制初始化</button>
-                                <button id="debug-btn" class="btn btn-info" onclick="debugHistoryManager()">调试状态</button>
-                            </div>
+                    <div style="padding: 20px; border-bottom: 1px solid #eee;">
+                        <h2 style="margin: 0 0 15px 0; color: #333;">Cursor 聊天历史记录</h2>
+                        
+                        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                            <input type="text" id="history-search" placeholder="搜索聊天内容..." 
+                                   style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; min-width: 200px;">
+                            <button onclick="searchChats()" class="btn btn-primary">搜索</button>
+                            <button onclick="refreshChats()" class="btn btn-secondary">刷新</button>
+                            <button onclick="clearCache()" class="btn btn-info">清除缓存</button>
                         </div>
                     </div>
-                    <div class="history-stats">
-                        <div class="stats-row">
-                            <span>总聊天数：</span>
-                            <span id="total-chats" class="stat-value">加载中...</span>
-                        </div>
-                        <div class="stats-row">
-                            <span>状态：</span>
-                            <span id="history-status" class="stat-value">准备就绪</span>
-                        </div>
+                    
+                    <div id="history-stats" style="padding: 10px 20px; background: #f9f9f9; border-bottom: 1px solid #eee; font-size: 14px;">
+                        准备就绪...
                     </div>
-                    <div class="history-list">
-                        <div id="chat-list" class="chat-list">
-                            <div class="loading-message">正在加载聊天历史...</div>
-                        </div>
-                    </div>
-                    <div class="chat-detail" id="chat-detail" style="display: none;">
-                        <div class="detail-header">
-                            <h3 id="detail-title">聊天详情</h3>
-                            <div class="detail-actions">
-                                <button id="export-html" class="btn btn-secondary">导出HTML</button>
-                                <button id="export-json" class="btn btn-secondary">导出JSON</button>
-                                <button id="close-detail" class="btn btn-info">关闭</button>
+                    
+                    <div style="display: flex; height: 500px;">
+                        <!-- 聊天列表 -->
+                        <div style="flex: 1; border-right: 1px solid #eee; overflow-y: auto; padding: 20px;">
+                            <div id="chat-list-container">
+                                <div class="loading">正在加载聊天记录...</div>
                             </div>
                         </div>
-                        <div class="detail-info">
-                            <div class="info-row">
-                                <span>会话ID：</span>
-                                <span id="detail-session-id"></span>
+                        
+                        <!-- 聊天详情 -->
+                        <div style="flex: 2; overflow-y: auto; padding: 20px;">
+                            <div id="chat-detail-container">
+                                <div class="loading">选择一个聊天查看详情...</div>
                             </div>
-                            <div class="info-row">
-                                <span>工作区：</span>
-                                <span id="detail-workspace"></span>
-                            </div>
-                            <div class="info-row">
-                                <span>创建时间：</span>
-                                <span id="detail-created-at"></span>
-                            </div>
-                            <div class="info-row">
-                                <span>消息数量：</span>
-                                <span id="detail-message-count"></span>
-                            </div>
-                        </div>
-                        <div class="detail-messages" id="detail-messages">
-                            <!-- 聊天消息将在这里显示 -->
                         </div>
                     </div>
                 </div>
@@ -197,9 +170,336 @@
         </main>
     </div>
 
-    <script src="js/modules/module-loader.js"></script>
-    <!-- 历史记录功能现在通过模块系统加载 -->
-    <script src="git-manager.js"></script>
+    <script src="js/modules/git-manager.js"></script>
+    <script>
+        // 历史记录功能 - 独立实现
+        class HistoryApiClient {
+            constructor() {
+                this.baseUrl = '/api/history';
+            }
+
+            async getAllChats(options = {}) {
+                const params = new URLSearchParams();
+                if (options.limit) params.append('limit', options.limit);
+                if (options.offset) params.append('offset', options.offset);
+                
+                const url = `${this.baseUrl}/chats${params.toString() ? '?' + params.toString() : ''}`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                return await response.json();
+            }
+
+            async getChatDetail(sessionId) {
+                const response = await fetch(`${this.baseUrl}/chat/${encodeURIComponent(sessionId)}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                return await response.json();
+            }
+
+            async searchChats(query) {
+                const response = await fetch(`${this.baseUrl}/search?q=${encodeURIComponent(query)}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                return await response.json();
+            }
+
+            async clearCache() {
+                const response = await fetch(`${this.baseUrl}/cache`, { method: 'DELETE' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                return await response.json();
+            }
+        }
+
+        class HistoryService {
+            constructor() {
+                this.apiClient = new HistoryApiClient();
+                this.cache = new Map();
+                this.cacheTimeout = 5 * 60 * 1000;
+            }
+
+            async getChatList(options = {}) {
+                const cacheKey = `all_chats_${JSON.stringify(options)}`;
+                const cached = this.cache.get(cacheKey);
+                
+                if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
+                    return cached.data;
+                }
+
+                try {
+                    const response = await this.apiClient.getAllChats(options);
+                    
+                    let chats;
+                    if (response && response.success && Array.isArray(response.data)) {
+                        chats = response.data;
+                    } else {
+                        console.warn('意外的API响应格式:', response);
+                        chats = [];
+                    }
+
+                    const processedChats = this.processChats(chats);
+                    this.cache.set(cacheKey, { data: processedChats, timestamp: Date.now() });
+                    return processedChats;
+                } catch (error) {
+                    console.error('获取聊天列表失败:', error);
+                    throw error;
+                }
+            }
+
+            async getChatDetail(sessionId) {
+                try {
+                    const response = await this.apiClient.getChatDetail(sessionId);
+                    const chatDetail = response.data;
+                    return this.processChatDetail(chatDetail);
+                } catch (error) {
+                    console.error('获取聊天详情失败:', error);
+                    throw error;
+                }
+            }
+
+            async searchChats(query) {
+                if (!query || query.trim() === '') {
+                    return this.getChatList();
+                }
+
+                try {
+                    const response = await this.apiClient.searchChats(query);
+                    return this.processChats(response.data || []);
+                } catch (error) {
+                    console.error('搜索聊天记录失败:', error);
+                    throw error;
+                }
+            }
+
+            async clearCache() {
+                this.cache.clear();
+                return await this.apiClient.clearCache();
+            }
+
+            processChats(chats) {
+                if (!Array.isArray(chats)) {
+                    console.warn('processChats: 期望数组但收到:', typeof chats, chats);
+                    return [];
+                }
+                
+                return chats.map(chat => ({
+                    ...chat,
+                    title: this.generateChatTitle(chat),
+                    preview: this.generateChatPreview(chat),
+                    formattedTime: this.formatTime(chat.timestamp || chat.lastModified),
+                    messageCount: chat.messages ? chat.messages.length : 0
+                }));
+            }
+
+            processChatDetail(chatDetail) {
+                return {
+                    ...chatDetail,
+                    title: this.generateChatTitle(chatDetail),
+                    formattedTime: this.formatTime(chatDetail.timestamp || chatDetail.lastModified),
+                    messages: chatDetail.messages ? chatDetail.messages.map(msg => ({
+                        ...msg,
+                        formattedTime: this.formatTime(msg.timestamp)
+                    })) : []
+                };
+            }
+
+            generateChatTitle(chat) {
+                if (chat.title) return chat.title;
+                
+                if (chat.messages && chat.messages.length > 0) {
+                    const firstUserMessage = chat.messages.find(msg => msg.role === 'user');
+                    if (firstUserMessage) {
+                        return firstUserMessage.content.substring(0, 50) + 
+                               (firstUserMessage.content.length > 50 ? '...' : '');
+                    }
+                }
+                
+                return `聊天记录 ${this.formatTime(chat.timestamp || Date.now())}`;
+            }
+
+            generateChatPreview(chat) {
+                if (chat.messages && chat.messages.length > 0) {
+                    const lastMessage = chat.messages[chat.messages.length - 1];
+                    return lastMessage.content.substring(0, 100) + 
+                           (lastMessage.content.length > 100 ? '...' : '');
+                }
+                return '暂无消息';
+            }
+
+            formatTime(timestamp) {
+                if (!timestamp) return '未知时间';
+                
+                const date = new Date(timestamp);
+                const now = new Date();
+                const diff = now - date;
+                
+                if (diff < 60000) return '刚刚';
+                if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`;
+                if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`;
+                if (diff < 604800000) return `${Math.floor(diff / 86400000)}天前`;
+                return date.toLocaleDateString('zh-CN');
+            }
+        }
+
+        // 历史记录管理器
+        let historyService = new HistoryService();
+        let currentChats = [];
+
+        // 功能函数
+        async function loadHistoryChats() {
+            updateHistoryStats('正在加载聊天记录...');
+            document.getElementById('chat-list-container').innerHTML = 
+                '<div class="loading">正在加载聊天记录...</div>';
+            
+            try {
+                currentChats = await historyService.getChatList();
+                displayHistoryChats(currentChats);
+                updateHistoryStats(`找到 ${currentChats.length} 条聊天记录`);
+            } catch (error) {
+                console.error('加载失败:', error);
+                updateHistoryStats(`加载失败: ${error.message}`);
+                document.getElementById('chat-list-container').innerHTML = 
+                    `<div class="error">加载失败: ${error.message}</div>`;
+            }
+        }
+
+        function displayHistoryChats(chats) {
+            const container = document.getElementById('chat-list-container');
+            if (!chats || chats.length === 0) {
+                container.innerHTML = '<div class="error">没有找到聊天记录</div>';
+                return;
+            }
+
+            let html = '';
+            chats.forEach(chat => {
+                html += `
+                    <div class="chat-card" onclick="loadHistoryChatDetail('${chat.sessionId}')" 
+                         style="border: 1px solid #e1e4e8; margin: 8px 0; padding: 12px; border-radius: 6px; cursor: pointer; transition: all 0.2s ease;"
+                         onmouseover="this.style.background='#f6f8fa'" 
+                         onmouseout="this.style.background='white'">
+                        <div style="font-size: 16px; font-weight: 600; margin-bottom: 5px; color: #0366d6;">${chat.title}</div>
+                        <div style="color: #586069; font-size: 14px; margin-bottom: 5px;">${chat.preview}</div>
+                        <div style="font-size: 12px; color: #959da5; display: flex; gap: 15px;">
+                            <span>项目: ${chat.project?.name || '未知'}</span>
+                            <span>消息: ${chat.messageCount}</span>
+                            <span>${chat.formattedTime}</span>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+
+        async function loadHistoryChatDetail(sessionId) {
+            updateHistoryStats('正在加载聊天详情...');
+            document.getElementById('chat-detail-container').innerHTML = 
+                '<div class="loading">正在加载聊天详情...</div>';
+            
+            try {
+                const chat = await historyService.getChatDetail(sessionId);
+                displayHistoryChatDetail(chat);
+                updateHistoryStats(`显示聊天详情: ${chat.title}`);
+            } catch (error) {
+                console.error('加载详情失败:', error);
+                updateHistoryStats(`加载详情失败: ${error.message}`);
+                document.getElementById('chat-detail-container').innerHTML = 
+                    `<div class="error">加载详情失败: ${error.message}</div>`;
+            }
+        }
+
+        function displayHistoryChatDetail(chat) {
+            const container = document.getElementById('chat-detail-container');
+            
+            let html = `
+                <h3 style="margin: 0 0 15px 0; color: #333;">${chat.title}</h3>
+                <div style="margin: 15px 0; font-size: 14px; color: #666; background: #f9f9f9; padding: 15px; border-radius: 4px;">
+                    <p style="margin: 5px 0;"><strong>会话ID:</strong> <code>${chat.sessionId}</code></p>
+                    <p style="margin: 5px 0;"><strong>项目:</strong> ${chat.project?.name || '未知'}</p>
+                    <p style="margin: 5px 0;"><strong>消息数量:</strong> ${chat.messages?.length || 0}</p>
+                    <p style="margin: 5px 0;"><strong>时间:</strong> ${chat.formattedTime}</p>
+                </div>
+                <hr style="margin: 20px 0; border: none; border-top: 1px solid #eee;">
+            `;
+
+            if (chat.messages && chat.messages.length > 0) {
+                chat.messages.forEach((msg, index) => {
+                    html += `
+                        <div style="margin: 15px 0; padding: 15px; border-radius: 6px; border-left: 3px solid ${msg.role === 'user' ? '#28a745' : '#6f42c1'}; background: ${msg.role === 'user' ? '#f6ffed' : '#f3f0ff'};">
+                            <div style="font-size: 12px; color: #666; margin-bottom: 8px;">
+                                ${msg.role === 'user' ? '👤 用户' : '🤖 AI'} - ${msg.formattedTime}
+                            </div>
+                            <div style="font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${msg.content}</div>
+                        </div>
+                    `;
+                });
+            } else {
+                html += '<p style="color: #666; text-align: center; padding: 20px;">暂无消息</p>';
+            }
+
+            container.innerHTML = html;
+        }
+
+        async function searchChats() {
+            const query = document.getElementById('history-search').value.trim();
+            if (!query) {
+                displayHistoryChats(currentChats);
+                return;
+            }
+            
+            updateHistoryStats(`正在搜索: ${query}...`);
+            try {
+                const results = await historyService.searchChats(query);
+                displayHistoryChats(results);
+                updateHistoryStats(`搜索完成: ${results.length} 条结果`);
+            } catch (error) {
+                updateHistoryStats(`搜索失败: ${error.message}`);
+            }
+        }
+
+        async function refreshChats() {
+            await historyService.clearCache();
+            await loadHistoryChats();
+        }
+
+        async function clearCache() {
+            await historyService.clearCache();
+            updateHistoryStats('缓存已清除');
+            await loadHistoryChats();
+        }
+
+        function updateHistoryStats(message) {
+            document.getElementById('history-stats').textContent = message;
+        }
+
+        // 初始化历史记录（当切换到历史记录标签时）
+        document.addEventListener('DOMContentLoaded', () => {
+            // 监听标签切换事件
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    // 如果切换到历史记录标签，加载数据
+                    if (this.dataset.tab === 'history-tab') {
+                        // 延迟加载，确保标签已切换
+                        setTimeout(() => {
+                            loadHistoryChats();
+                        }, 100);
+                    }
+                });
+            });
+
+            // 绑定搜索事件
+            document.getElementById('history-search').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    searchChats();
+                }
+            });
+        });
+
+        // 页面加载完成后立即加载历史记录
+        setTimeout(() => {
+            if (document.querySelector('.tab-btn[data-tab="history-tab"]').classList.contains('active')) {
+                loadHistoryChats();
+            }
+        }, 500);
+    </script>
+    <script src="js/modules/git-manager.js"></script>
     <script>
     // 页面加载完成后初始化
      window.addEventListener('load', function() {
