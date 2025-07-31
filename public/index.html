@@ -48,12 +48,12 @@
             <!-- 历史记录 Tab 内容 -->
             <section id="history-tab" class="tab-content active">
                 <div class="history-panel">
-                    <div style="padding: 20px; border-bottom: 1px solid #eee;">
-                        <h2 style="margin: 0 0 15px 0; color: #333;">Cursor 聊天历史记录</h2>
+                    <div style="padding: 20px; border-bottom: 1px solid #404040;">
+                        <h2 style="margin: 0 0 15px 0; color: #ffffff;">Cursor 聊天历史记录</h2>
                         
                         <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                             <input type="text" id="history-search" placeholder="搜索聊天内容..." 
-                                   style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; min-width: 200px;">
+                                   style="padding: 8px 12px; border: 1px solid #404040; border-radius: 4px; font-size: 14px; min-width: 200px; background: #2d2d2d; color: #ffffff;">
                             <button onclick="searchChats()" class="btn btn-primary">搜索</button>
                             <button onclick="refreshChats()" class="btn btn-secondary">刷新</button>
                             <button onclick="clearCache()" class="btn btn-info">清除缓存</button>
@@ -63,32 +63,32 @@
                         </div>
                     </div>
                     
-                    <div id="history-stats" style="padding: 10px 20px; background: #f9f9f9; border-bottom: 1px solid #eee; font-size: 14px;">
+                    <div id="history-stats" style="padding: 10px 20px; background: #2d2d2d; border-bottom: 1px solid #404040; font-size: 14px; color: #cccccc;">
                         准备就绪...
                     </div>
                     
                     <div style="display: flex; height: 500px;">
                         <!-- 项目文件夹导航 -->
-                        <div style="width: 250px; border-right: 1px solid #eee; overflow-y: auto; padding: 0; background: #f8f9fa;">
-                            <div style="padding: 10px; border-bottom: 1px solid #eee; font-weight: 600; background: #e9ecef;">
+                        <div style="width: 250px; border-right: 1px solid #404040; overflow-y: auto; padding: 0; background: #2d2d2d;">
+                            <div style="padding: 10px; border-bottom: 1px solid #404040; font-weight: 600; background: #404040; color: #ffffff;">
                                 项目文件夹
                             </div>
                             <div id="project-folders" style="padding: 0;">
-                                <div class="loading" style="padding: 20px; text-align: center;">正在加载项目...</div>
+                                <div class="loading" style="padding: 20px; text-align: center; color: #cccccc;">正在加载项目...</div>
                             </div>
                         </div>
                         
                         <!-- 聊天列表 -->
-                        <div style="flex: 1; border-right: 1px solid #eee; overflow-y: auto; padding: 20px;">
+                        <div style="flex: 1; border-right: 1px solid #404040; overflow-y: auto; padding: 20px; background: #1a1a1a;">
                             <div id="chat-list-container">
-                                <div class="loading">正在加载聊天记录...</div>
+                                <div class="loading" style="color: #cccccc;">正在加载聊天记录...</div>
                             </div>
                         </div>
                         
                         <!-- 聊天详情 -->
-                        <div style="flex: 2; overflow-y: auto; padding: 20px;">
+                        <div style="flex: 2; overflow-y: auto; padding: 20px; background: #1a1a1a;">
                             <div id="chat-detail-container">
-                                <div class="loading">选择一个聊天查看详情...</div>
+                                <div class="loading" style="color: #cccccc;">选择一个聊天查看详情...</div>
                             </div>
                         </div>
                     </div>
@@ -429,7 +429,7 @@
         function displayHistoryChats(chats) {
             const container = document.getElementById('chat-list-container');
             if (!chats || chats.length === 0) {
-                container.innerHTML = '<div class="error">没有找到聊天记录</div>';
+                container.innerHTML = '<div class="error" style="color: #cccccc;">没有找到聊天记录</div>';
                 return;
             }
 
@@ -437,12 +437,12 @@
             chats.forEach(chat => {
                 html += `
                     <div class="chat-card" onclick="loadHistoryChatDetail('${chat.sessionId}')" 
-                         style="border: 1px solid #e1e4e8; margin: 8px 0; padding: 12px; border-radius: 6px; cursor: pointer; transition: all 0.2s ease;"
-                         onmouseover="this.style.background='#f6f8fa'" 
-                         onmouseout="this.style.background='white'">
-                        <div style="font-size: 16px; font-weight: 600; margin-bottom: 5px; color: #0366d6;">${chat.title}</div>
-                        <div style="color: #586069; font-size: 14px; margin-bottom: 5px;">${chat.preview}</div>
-                        <div style="font-size: 12px; color: #959da5; display: flex; gap: 15px;">
+                         style="border: 1px solid #404040; margin: 8px 0; padding: 12px; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; background: #2d2d2d;"
+                         onmouseover="this.style.background='#3d3d3d'" 
+                         onmouseout="this.style.background='#2d2d2d'">
+                        <div style="font-size: 16px; font-weight: 600; margin-bottom: 5px; color: #ffffff;">${chat.title}</div>
+                        <div style="color: #cccccc; font-size: 14px; margin-bottom: 5px;">${chat.preview}</div>
+                        <div style="font-size: 12px; color: #888888; display: flex; gap: 15px;">
                             <span>项目: ${chat.project?.name || '未知'}</span>
                             <span>消息: ${chat.messageCount}</span>
                             <span>${chat.formattedTime}</span>
@@ -475,29 +475,29 @@
             const container = document.getElementById('chat-detail-container');
             
             let html = `
-                <h3 style="margin: 0 0 15px 0; color: #333;">${chat.title}</h3>
-                <div style="margin: 15px 0; font-size: 14px; color: #666; background: #f9f9f9; padding: 15px; border-radius: 4px;">
-                    <p style="margin: 5px 0;"><strong>会话ID:</strong> <code>${chat.sessionId}</code></p>
+                <h3 style="margin: 0 0 15px 0; color: #ffffff;">${chat.title}</h3>
+                <div style="margin: 15px 0; font-size: 14px; color: #cccccc; background: #2d2d2d; padding: 15px; border-radius: 4px; border: 1px solid #404040;">
+                    <p style="margin: 5px 0;"><strong>会话ID:</strong> <code style="color: #ffffff;">${chat.sessionId}</code></p>
                     <p style="margin: 5px 0;"><strong>项目:</strong> ${chat.project?.name || '未知'}</p>
                     <p style="margin: 5px 0;"><strong>消息数量:</strong> ${chat.messages?.length || 0}</p>
                     <p style="margin: 5px 0;"><strong>时间:</strong> ${chat.formattedTime}</p>
                 </div>
-                <hr style="margin: 20px 0; border: none; border-top: 1px solid #eee;">
+                <hr style="margin: 20px 0; border: none; border-top: 1px solid #404040;">
             `;
 
             if (chat.messages && chat.messages.length > 0) {
                 chat.messages.forEach((msg, index) => {
                     html += `
-                        <div style="margin: 15px 0; padding: 15px; border-radius: 6px; border-left: 3px solid ${msg.role === 'user' ? '#28a745' : '#6f42c1'}; background: ${msg.role === 'user' ? '#f6ffed' : '#f3f0ff'};">
-                            <div style="font-size: 12px; color: #666; margin-bottom: 8px;">
+                        <div style="margin: 15px 0; padding: 15px; border-radius: 6px; border-left: 3px solid ${msg.role === 'user' ? '#22c55e' : '#3b82f6'}; background: ${msg.role === 'user' ? '#1a3a1a' : '#1a2a3a'};">
+                            <div style="font-size: 12px; color: #cccccc; margin-bottom: 8px;">
                                 ${msg.role === 'user' ? '👤 用户' : '🤖 AI'} - ${msg.formattedTime}
                             </div>
-                            <div style="font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${msg.content}</div>
+                            <div style="font-size: 14px; line-height: 1.6; white-space: pre-wrap; color: #ffffff;">${msg.content}</div>
                         </div>
                     `;
                 });
             } else {
-                html += '<p style="color: #666; text-align: center; padding: 20px;">暂无消息</p>';
+                html += '<p style="color: #cccccc; text-align: center; padding: 20px;">暂无消息</p>';
             }
 
             container.innerHTML = html;
@@ -652,7 +652,7 @@
             const container = document.getElementById('project-folders');
             
             if (Object.keys(projects).length === 0) {
-                container.innerHTML = '<div class="error" style="padding: 20px; text-align: center; color: #666;">没有找到项目</div>';
+                container.innerHTML = '<div class="error" style="padding: 20px; text-align: center; color: #cccccc;">没有找到项目</div>';
                 return;
             }
 
@@ -661,7 +661,7 @@
             // 添加当前Git目录指示器
             if (currentGitPath && !showAllProjects) {
                 html += `
-                    <div class="current-git-indicator" style="padding: 8px 12px; background: #e8f5e8; border-left: 3px solid #28a745; font-size: 12px; color: #155724; margin-bottom: 10px;">
+                    <div class="current-git-indicator" style="padding: 8px 12px; background: #1a3a1a; border-left: 3px solid #22c55e; font-size: 12px; color: #22c55e; margin-bottom: 10px;">
                         📁 当前目录：${currentGitPath}
                     </div>
                 `;
@@ -672,14 +672,14 @@
                 const isActive = !showAllProjects && currentGitPath && project.path.includes(currentGitPath);
                 
                 html += `
-                    <div class="project-folder" style="padding: 10px 15px; border-bottom: 1px solid #eee; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: space-between; ${isActive ? 'background: #e3f2fd; border-left: 3px solid #007acc;' : ''}" 
+                    <div class="project-folder" style="padding: 10px 15px; border-bottom: 1px solid #404040; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: space-between; ${isActive ? 'background: #1a2a3a; border-left: 3px solid #3b82f6;' : ''}" 
                          onclick="selectProject('${projectName}')" 
                          data-project="${projectName}">
                         <div style="display: flex; align-items: center; flex: 1;">
                             <span style="margin-right: 8px; color: #ffa000;">📁</span>
-                            <span style="font-weight: 500; color: #333; font-size: 14px;">${projectName}</span>
+                            <span style="font-weight: 500; color: #ffffff; font-size: 14px;">${projectName}</span>
                         </div>
-                        <span style="background: #007acc; color: white; padding: 2px 6px; border-radius: 10px; font-size: 12px; min-width: 20px; text-align: center;">${project.chats.length}</span>
+                        <span style="background: #3b82f6; color: white; padding: 2px 6px; border-radius: 10px; font-size: 12px; min-width: 20px; text-align: center;">${project.chats.length}</span>
                     </div>
                 `;
             });
