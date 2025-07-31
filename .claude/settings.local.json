@@ -14,7 +14,11 @@
       "Bash(true)",
       "Bash(ls:*)",
       "Bash(find:*)",
-      "Bash(killall:*)"
+      "Bash(killall:*)",
+      "Bash(npm start)",
+      "Bash(npm test:*)",
+      "Bash(npm run test:integration:*)",
+      "Bash(rm:*)"
     ],
     "deny": []
   }

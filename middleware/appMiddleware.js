@@ -13,6 +13,9 @@ class AppMiddleware {
         // JSON 解析中间件
         this.app.use(express.json({ limit: config.middleware.jsonLimit }));
 
+        // URL 编码参数解析中间件
+        this.app.use(express.urlencoded({ extended: true, limit: config.middleware.jsonLimit }));
+
         // 静态文件服务
         this.app.use(express.static(config.server.publicPath));
 

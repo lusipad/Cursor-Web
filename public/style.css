@@ -1603,3 +1603,70 @@ body {
     text-align: center;
     display: inline-block;
 }
+
+/* 历史页面布局优化 */
+.history-panel {
+    height: calc(100vh - 120px);
+    display: flex;
+    flex-direction: column;
+}
+
+.history-content {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+
+.project-folders-nav {
+    width: 250px;
+    border-right: 1px solid #404040;
+    overflow-y: auto;
+    padding: 0;
+    background: #2d2d2d;
+    flex-shrink: 0;
+}
+
+.project-folders {
+    height: 100%;
+    overflow-y: auto;
+}
+
+.chat-list-section {
+    flex: 1;
+    border-right: 1px solid #404040;
+    overflow-y: auto;
+    padding: 20px;
+    background: #1a1a1a;
+    min-width: 0;
+}
+
+.chat-list-container {
+    height: 100%;
+    overflow-y: auto;
+}
+
+.chat-detail-section {
+    flex: 2;
+    overflow-y: auto;
+    padding: 20px;
+    background: #1a1a1a;
+    min-width: 0;
+}
+
+.chat-detail-container {
+    height: 100%;
+    overflow-y: auto;
+}
+
+/* 响应式高度调整 */
+@media (max-height: 768px) {
+    .history-panel {
+        height: calc(100vh - 100px);
+    }
+}
+
+@media (max-height: 600px) {
+    .history-panel {
+        height: calc(100vh - 80px);
+    }
+}
