@@ -14,6 +14,9 @@ class GitRoutes {
         // 获取分支信息
         router.get('/git/branches', this.handleGetBranches.bind(this));
 
+        // 获取当前Git路径
+        router.get('/git/current-path', this.handleGetCurrentPath.bind(this));
+
         // 切换分支
         router.post('/git/checkout', this.handleCheckout.bind(this));
 
@@ -335,6 +338,28 @@ class GitRoutes {
             res.status(500).json({
                 success: false,
                 message: '代码推送失败',
+                error: error.message
+            });
+        }
+    }
+
+    // 获取当前Git路径
+    async handleGetCurrentPath(req, res) {
+        try {
+            const gitInstance = this.checkAndUpdateGitPath();
+            const currentPath = process.cwd();
+            
+            res.json({
+                success: true,
+                currentPath: currentPath,
+                isGitRepo: gitInstance !== null,
+                timestamp: Date.now()
+            });
+        } catch (error) {
+            console.log('❌ 获取当前Git路径失败：', error.message);
+            res.status(500).json({
+                success: false,
+                message: '获取当前路径失败',
                 error: error.message
             });
         }
