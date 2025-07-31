@@ -1077,15 +1077,15 @@ body {
 
 /* 聊天卡片样式 - 改进对比度 */
 .chat-card {
-    background: rgba(45, 45, 45, 0.8);
+    background: rgba(25, 25, 25, 0.9);
     backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.17, 0.67, 0.83, 0.67);
     position: relative;
     overflow: hidden;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -1105,10 +1105,10 @@ body {
 }
 
 .chat-card:hover {
-    background: rgba(55, 55, 55, 0.9);
+    background: rgba(35, 35, 35, 0.95);
     border-color: rgba(0, 187, 255, 0.6);
     transform: translateY(-8px);
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3);
 }
 
 .chat-card:hover::before {
@@ -1116,9 +1116,9 @@ body {
 }
 
 .chat-card.selected {
-    background: rgba(0, 187, 255, 0.15);
+    background: rgba(0, 50, 100, 0.4);
     border-color: #00bbff;
-    box-shadow: 0 8px 32px rgba(0, 187, 255, 0.3);
+    box-shadow: 0 8px 32px rgba(0, 187, 255, 0.4);
 }
 
 .chat-card.selected::before {
@@ -1167,10 +1167,10 @@ body {
 }
 
 .chat-preview-content {
-    background: rgba(0, 187, 255, 0.15);
+    background: rgba(0, 0, 0, 0.4);
     border-radius: 6px;
     padding: 8px;
-    border: 1px solid rgba(0, 187, 255, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     font-size: 11px;
     color: #ffffff;
     line-height: 1.3;
