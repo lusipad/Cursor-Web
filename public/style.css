@@ -1547,3 +1547,59 @@ body {
         flex-direction: column;
     }
 }
+
+/* 文件夹树样式 */
+.folder-node {
+    user-select: none;
+}
+
+.folder-header {
+    border-radius: 4px;
+    margin-bottom: 2px;
+}
+
+.folder-header:hover {
+    background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.folder-children {
+    margin-left: 10px;
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    padding-left: 5px;
+}
+
+.project-folder:hover {
+    background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.current-git-indicator {
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+}
+
+/* 文件夹树动画 */
+.folder-children {
+    transition: all 0.3s ease;
+}
+
+.folder-header span:first-child {
+    transition: transform 0.2s ease;
+}
+
+/* 项目文件夹徽章 */
+.project-folder span:last-child {
+    font-family: 'Courier New', monospace;
+    font-weight: 600;
+}
+
+/* 文件夹计数器 */
+.folder-header span:last-child {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 11px;
+    min-width: 20px;
+    text-align: center;
+    display: inline-block;
+}

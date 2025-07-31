@@ -54,6 +54,8 @@
                         <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                             <input type="text" id="history-search" placeholder="搜索聊天内容..." 
                                    style="padding: 8px 12px; border: 1px solid #404040; border-radius: 4px; font-size: 14px; min-width: 200px; background: #2d2d2d; color: #ffffff;">
+                            <input type="text" id="folder-search" placeholder="筛选文件夹..." 
+                                   style="padding: 8px 12px; border: 1px solid #404040; border-radius: 4px; font-size: 14px; min-width: 150px; background: #2d2d2d; color: #ffffff;">
                             <button onclick="searchChats()" class="btn btn-primary">搜索</button>
                             <button onclick="refreshChats()" class="btn btn-secondary">刷新</button>
                             <button onclick="clearCache()" class="btn btn-info">清除缓存</button>
@@ -376,7 +378,11 @@
                 const projects = groupChatsByProject(chats);
                 allProjects = projects;
                 
-                displayProjectFolders(projects);
+                // 应用文件夹筛选
+                const folderFilter = document.getElementById('folder-search').value;
+                const filteredProjects = filterProjects(projects, folderFilter);
+                
+                displayProjectFolders(filteredProjects);
             } catch (error) {
                 console.error('加载项目失败:', error);
                 projectContainer.innerHTML = '<div class="error" style="padding: 20px; text-align: center; color: red;">加载失败</div>';
@@ -414,6 +420,7 @@
                 }
                 
                 currentChats = chats;
+                allCurrentChats = chats; // 存储所有聊天记录用于虚拟滚动
                 displayHistoryChats(chats);
                 
                 const totalCount = Object.values(allProjects).reduce((sum, project) => sum + project.chats.length, 0);
@@ -433,8 +440,15 @@
                 return;
             }
 
+            // 性能优化：虚拟滚动
+            const performanceStart = performance.now();
+            
+            // 限制一次渲染的最大数量
+            const MAX_CHATS_TO_RENDER = 100;
+            const chatsToRender = chats.slice(0, MAX_CHATS_TO_RENDER);
+            
             let html = '';
-            chats.forEach(chat => {
+            chatsToRender.forEach(chat => {
                 html += `
                     <div class="chat-card" onclick="loadHistoryChatDetail('${chat.sessionId}')" 
                          style="border: 1px solid #404040; margin: 8px 0; padding: 12px; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; background: #2d2d2d;"
@@ -451,7 +465,81 @@
                 `;
             });
             
+            // 如果聊天数量超过限制，显示加载更多按钮
+            if (chats.length > MAX_CHATS_TO_RENDER) {
+                html += `
+                    <div style="text-align: center; padding: 20px;">
+                        <button onclick="loadMoreChats()" class="btn btn-secondary" style="background: #404040; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">
+                            加载更多聊天记录 (${chats.length - MAX_CHATS_TO_RENDER} 条未显示)
+                        </button>
+                    </div>
+                `;
+            }
+            
             container.innerHTML = html;
+            
+            const performanceEnd = performance.now();
+            console.log(`🚀 渲染 ${chatsToRender.length} 个聊天卡片耗时: ${(performanceEnd - performanceStart).toFixed(2)}ms`);
+        }
+
+        // 全局变量用于存储所有聊天记录
+        let allCurrentChats = [];
+
+        function loadMoreChats() {
+            const container = document.getElementById('chat-list-container');
+            const currentCount = container.querySelectorAll('.chat-card').length;
+            const remainingChats = allCurrentChats.slice(currentCount);
+            
+            if (remainingChats.length === 0) {
+                updateHistoryStats('没有更多聊天记录了');
+                return;
+            }
+            
+            // 追加更多聊天记录
+            const MAX_BATCH_SIZE = 50;
+            const chatsToAppend = remainingChats.slice(0, MAX_BATCH_SIZE);
+            
+            let html = '';
+            chatsToAppend.forEach(chat => {
+                html += `
+                    <div class="chat-card" onclick="loadHistoryChatDetail('${chat.sessionId}')" 
+                         style="border: 1px solid #404040; margin: 8px 0; padding: 12px; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; background: #2d2d2d;"
+                         onmouseover="this.style.background='#3d3d3d'" 
+                         onmouseout="this.style.background='#2d2d2d'">
+                        <div style="font-size: 16px; font-weight: 600; margin-bottom: 5px; color: #ffffff;">${chat.title}</div>
+                        <div style="color: #cccccc; font-size: 14px; margin-bottom: 5px;">${chat.preview}</div>
+                        <div style="font-size: 12px; color: #888888; display: flex; gap: 15px;">
+                            <span>项目: ${chat.project?.name || '未知'}</span>
+                            <span>消息: ${chat.messageCount}</span>
+                            <span>${chat.formattedTime}</span>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            // 移除现有的加载更多按钮
+            const loadMoreBtn = container.querySelector('button');
+            if (loadMoreBtn) {
+                loadMoreBtn.remove();
+            }
+            
+            // 追加新的聊天记录
+            container.insertAdjacentHTML('beforeend', html);
+            
+            // 如果还有更多聊天记录，重新添加加载更多按钮
+            const newCurrentCount = container.querySelectorAll('.chat-card').length;
+            if (newCurrentCount < allCurrentChats.length) {
+                const remaining = allCurrentChats.length - newCurrentCount;
+                container.insertAdjacentHTML('beforeend', `
+                    <div style="text-align: center; padding: 20px;">
+                        <button onclick="loadMoreChats()" class="btn btn-secondary" style="background: #404040; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">
+                            加载更多聊天记录 (${remaining} 条未显示)
+                        </button>
+                    </div>
+                `);
+            }
+            
+            updateHistoryStats(`已显示 ${newCurrentCount} / ${allCurrentChats.length} 条聊天记录`);
         }
 
         async function loadHistoryChatDetail(sessionId) {
@@ -523,6 +611,8 @@
                     );
                 }
                 
+                currentChats = filteredResults;
+                allCurrentChats = filteredResults; // 存储搜索结果用于虚拟滚动
                 displayHistoryChats(filteredResults);
                 updateHistoryStats(`搜索完成: ${filteredResults.length} 条结果`);
             } catch (error) {
@@ -550,7 +640,7 @@
             
             chats.forEach(chat => {
                 // 使用cursor-view-main的实际项目检测逻辑
-                const projectPath = chat.project?.path || '';
+                const projectPath = chat.project?.path || chat.project?.rootPath || '';
                 let projectName = 'Unknown Project';
                 
                 if (projectPath) {
@@ -559,6 +649,9 @@
                 } else if (chat.workspaceId) {
                     // 使用workspace ID作为项目标识
                     projectName = `Workspace ${chat.workspaceId.substring(0, 8)}`;
+                } else if (chat.project?.name) {
+                    // 使用项目名称
+                    projectName = chat.project.name;
                 }
                 
                 const normalizedPath = normalizeProjectPath(projectPath);
@@ -582,7 +675,7 @@
             if (!path) return 'Unknown Project';
             
             // 基于cursor-view-main的实际实现
-            const knownProjects = ['genaisf', 'cursor-view', 'cursor', 'cursor-apps'];
+            const knownProjects = ['genaisf', 'cursor-view', 'cursor', 'cursor-apps', 'Cursor-Web', 'claude-api'];
             
             // 处理file:///协议
             let cleanPath = path;
@@ -611,8 +704,15 @@
                 }
             }
             
+            if (parts.includes('Repos')) {
+                const idx = parts.indexOf('Repos');
+                if (idx + 1 < parts.length) {
+                    return parts[idx + 1];
+                }
+            }
+            
             // 跳过容器目录
-            const skipDirs = ['Users', 'Documents', 'Code', 'Projects', 'workspace', 'Desktop', 'home'];
+            const skipDirs = ['Users', 'Documents', 'Code', 'Projects', 'workspace', 'Desktop', 'home', 'opt', 'var', 'usr', 'root'];
             let meaningfulParts = parts.filter(part => !skipDirs.includes(part));
             
             if (meaningfulParts.length > 0) {
@@ -638,11 +738,20 @@
                 normalized = path.substring(7);
             }
             
-            // 移除末尾的斜杠和文件名
-            normalized = normalized.replace(/[\\/]$/, '');
-            const lastSlash = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'));
+            // 标准化路径分隔符
+            normalized = normalized.replace(/\\/g, '/');
+            
+            // 移除末尾的斜杠
+            normalized = normalized.replace(/\/$/, '');
+            
+            // 如果路径包含文件名，移除文件名
+            const lastSlash = normalized.lastIndexOf('/');
             if (lastSlash > 0) {
-                normalized = normalized.substring(0, lastSlash);
+                const lastPart = normalized.substring(lastSlash + 1);
+                // 如果最后一部分包含点号，可能是文件名
+                if (lastPart.includes('.') && !lastPart.startsWith('.')) {
+                    normalized = normalized.substring(0, lastSlash);
+                }
             }
             
             return normalized;
@@ -656,6 +765,9 @@
                 return;
             }
 
+            // 创建文件夹树结构
+            const folderTree = buildFolderTree(projects);
+            
             let html = '';
             
             // 添加当前Git目录指示器
@@ -667,24 +779,149 @@
                 `;
             }
 
-            // 显示所有项目
-            Object.entries(projects).forEach(([projectName, project]) => {
-                const isActive = !showAllProjects && currentGitPath && project.path.includes(currentGitPath);
-                
-                html += `
-                    <div class="project-folder" style="padding: 10px 15px; border-bottom: 1px solid #404040; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: space-between; ${isActive ? 'background: #1a2a3a; border-left: 3px solid #3b82f6;' : ''}" 
-                         onclick="selectProject('${projectName}')" 
-                         data-project="${projectName}">
-                        <div style="display: flex; align-items: center; flex: 1;">
-                            <span style="margin-right: 8px; color: #ffa000;">📁</span>
-                            <span style="font-weight: 500; color: #ffffff; font-size: 14px;">${projectName}</span>
-                        </div>
-                        <span style="background: #3b82f6; color: white; padding: 2px 6px; border-radius: 10px; font-size: 12px; min-width: 20px; text-align: center;">${project.chats.length}</span>
-                    </div>
-                `;
-            });
+            // 渲染文件夹树
+            html += renderFolderTree(folderTree, projects);
 
             container.innerHTML = html;
+        }
+
+        function filterProjects(projects, filterText) {
+            if (!filterText || filterText.trim() === '') {
+                return projects;
+            }
+
+            const filtered = {};
+            const filterLower = filterText.toLowerCase();
+
+            Object.entries(projects).forEach(([key, project]) => {
+                const projectName = project.name.toLowerCase();
+                const projectPath = (project.path || '').toLowerCase();
+                
+                // 检查项目名称或路径是否包含筛选文本
+                if (projectName.includes(filterLower) || projectPath.includes(filterLower)) {
+                    filtered[key] = project;
+                }
+            });
+
+            return filtered;
+        }
+
+        function buildFolderTree(projects) {
+            const tree = {};
+            const performanceStart = performance.now();
+            
+            Object.entries(projects).forEach(([projectName, project]) => {
+                const path = project.path || '';
+                const pathParts = path.split('/').filter(part => part && part.length > 0);
+                
+                let currentLevel = tree;
+                pathParts.forEach(part => {
+                    if (!currentLevel[part]) {
+                        currentLevel[part] = {
+                            type: 'folder',
+                            children: {},
+                            chatCount: 0 // 预计算聊天数量
+                        };
+                    }
+                    currentLevel = currentLevel[part].children;
+                });
+                
+                // 添加项目到最终位置
+                currentLevel[projectName] = {
+                    type: 'project',
+                    project: project,
+                    projectName: projectName
+                };
+            });
+            
+            // 预计算文件夹的聊天数量
+            calculateFolderChatCounts(tree);
+            
+            const performanceEnd = performance.now();
+            console.log(`🚀 构建文件夹树耗时: ${(performanceEnd - performanceStart).toFixed(2)}ms`);
+            
+            return tree;
+        }
+
+        function calculateFolderChatCounts(tree) {
+            Object.values(tree).forEach(node => {
+                if (node.type === 'folder') {
+                    // 递归计算子文件夹的聊天数量
+                    if (node.children) {
+                        calculateFolderChatCounts(node.children);
+                        node.chatCount = Object.values(node.children).reduce((sum, child) => {
+                            return sum + (child.type === 'project' ? child.project.chats.length : (child.chatCount || 0));
+                        }, 0);
+                    }
+                }
+            });
+        }
+
+        function renderFolderTree(tree, projects, level = 0, parentPath = '') {
+            let html = '';
+            const sortedKeys = Object.keys(tree).sort();
+            
+            sortedKeys.forEach(key => {
+                const node = tree[key];
+                const fullPath = parentPath ? `${parentPath}/${key}` : key;
+                
+                if (node.type === 'folder') {
+                    const isActive = !showAllProjects && currentGitPath && fullPath.includes(currentGitPath);
+                    const isExpanded = isActive || level < 2; // 默认展开前两级
+                    
+                    html += `
+                        <div class="folder-node" style="margin-left: ${level * 15}px;">
+                            <div class="folder-header" style="padding: 8px 12px; border-bottom: 1px solid #404040; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: space-between; ${isActive ? 'background: #1a2a3a; border-left: 3px solid #3b82f6;' : ''}" 
+                                 onclick="toggleFolder('${fullPath.replace(/'/g, "\\'")}')">
+                                <div style="display: flex; align-items: center; flex: 1;">
+                                    <span style="margin-right: 8px; color: #ffa000;">${isExpanded ? '📂' : '📁'}</span>
+                                    <span style="font-weight: 500; color: #ffffff; font-size: 14px;">${key}</span>
+                                </div>
+                                <span style="color: #888888; font-size: 12px;">${countItemsInFolder(node)}</span>
+                            </div>
+                            <div class="folder-children" id="folder-${fullPath.replace(/\//g, '-')}" style="${isExpanded ? '' : 'display: none;'}">
+                                ${renderFolderTree(node.children, projects, level + 1, fullPath)}
+                            </div>
+                        </div>
+                    `;
+                } else if (node.type === 'project') {
+                    const isActive = !showAllProjects && currentGitPath && node.project.path.includes(currentGitPath);
+                    
+                    html += `
+                        <div class="project-folder" style="margin-left: ${level * 15}px; padding: 8px 12px; border-bottom: 1px solid #404040; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: space-between; ${isActive ? 'background: #1a2a3a; border-left: 3px solid #3b82f6;' : ''}" 
+                             onclick="selectProject('${node.projectName.replace(/'/g, "\\'")}')" 
+                             data-project="${node.projectName}">
+                            <div style="display: flex; align-items: center; flex: 1;">
+                                <span style="margin-right: 8px; color: #00bbff;">💬</span>
+                                <span style="font-weight: 500; color: #ffffff; font-size: 14px;">${node.projectName}</span>
+                            </div>
+                            <span style="background: #3b82f6; color: white; padding: 2px 6px; border-radius: 10px; font-size: 12px; min-width: 20px; text-align: center;">${node.project.chats.length}</span>
+                        </div>
+                    `;
+                }
+            });
+            
+            return html;
+        }
+
+        function countItemsInFolder(folderNode) {
+            // 使用预计算的聊天数量
+            return folderNode.chatCount || 0;
+        }
+
+        function toggleFolder(folderPath) {
+            const folderId = `folder-${folderPath.replace(/\//g, '-')}`;
+            const folderElement = document.getElementById(folderId);
+            const folderHeader = folderElement.previousElementSibling;
+            const icon = folderHeader.querySelector('span');
+            
+            if (folderElement.style.display === 'none') {
+                folderElement.style.display = 'block';
+                icon.textContent = '📂';
+            } else {
+                folderElement.style.display = 'none';
+                icon.textContent = '📁';
+            }
         }
 
         function selectProject(projectName) {
@@ -710,7 +947,7 @@
             }
             
             loadChatsForCurrentProject();
-            displayProjectFolders(allProjects); // 重新渲染项目列表
+            filterFolders(); // 重新应用文件夹筛选
         }
 
         // 初始化历史记录（当切换到历史记录标签时）
@@ -734,7 +971,27 @@
                     searchChats();
                 }
             });
+
+            // 绑定文件夹筛选事件
+            document.getElementById('folder-search').addEventListener('input', (e) => {
+                filterFolders();
+            });
         });
+
+        function filterFolders() {
+            const folderFilter = document.getElementById('folder-search').value;
+            const filteredProjects = filterProjects(allProjects, folderFilter);
+            displayProjectFolders(filteredProjects);
+            
+            const totalCount = Object.values(allProjects).reduce((sum, project) => sum + project.chats.length, 0);
+            const filteredCount = Object.values(filteredProjects).reduce((sum, project) => sum + project.chats.length, 0);
+            
+            if (folderFilter) {
+                updateHistoryStats(`显示 ${filteredCount} / ${totalCount} 条聊天记录 (筛选: ${folderFilter})`);
+            } else {
+                updateHistoryStats(`显示 ${filteredCount} / ${totalCount} 条聊天记录`);
+            }
+        }
 
         // 页面加载完成后立即加载历史记录
         setTimeout(() => {
