@@ -549,20 +549,103 @@
             const groups = {};
             
             chats.forEach(chat => {
-                const projectName = chat.project?.name || 'Unknown Project';
+                // 使用cursor-view-main的实际项目检测逻辑
                 const projectPath = chat.project?.path || '';
+                let projectName = 'Unknown Project';
                 
-                if (!groups[projectName]) {
-                    groups[projectName] = {
+                if (projectPath) {
+                    // 基于cursor-view-main的项目名称提取逻辑
+                    projectName = extractProjectNameFromPath(projectPath);
+                } else if (chat.workspaceId) {
+                    // 使用workspace ID作为项目标识
+                    projectName = `Workspace ${chat.workspaceId.substring(0, 8)}`;
+                }
+                
+                const normalizedPath = normalizeProjectPath(projectPath);
+                const key = `${projectName}|${normalizedPath}`;
+                
+                if (!groups[key]) {
+                    groups[key] = {
                         name: projectName,
-                        path: projectPath,
-                        chats: []
+                        path: normalizedPath,
+                        chats: [],
+                        workspaceId: chat.workspaceId
                     };
                 }
-                groups[projectName].chats.push(chat);
+                groups[key].chats.push(chat);
             });
             
             return groups;
+        }
+
+        function extractProjectNameFromPath(path) {
+            if (!path) return 'Unknown Project';
+            
+            // 基于cursor-view-main的实际实现
+            const knownProjects = ['genaisf', 'cursor-view', 'cursor', 'cursor-apps'];
+            
+            // 处理file:///协议
+            let cleanPath = path;
+            if (path.startsWith('file:///')) {
+                cleanPath = path.substring(7); // 移除file://
+            }
+            
+            // 标准化路径分隔符
+            cleanPath = cleanPath.replace(/\\/g, '/');
+            const parts = cleanPath.split('/').filter(p => p && p.length > 0);
+            
+            if (parts.length === 0) return 'Root Directory';
+            
+            // 查找已知项目名称
+            for (const known of knownProjects) {
+                if (parts.some(part => part.toLowerCase() === known.toLowerCase())) {
+                    return known;
+                }
+            }
+            
+            // 处理特殊目录结构
+            if (parts.includes('Documents') && parts.includes('codebase')) {
+                const idx = parts.indexOf('codebase');
+                if (idx + 1 < parts.length) {
+                    return parts[idx + 1];
+                }
+            }
+            
+            // 跳过容器目录
+            const skipDirs = ['Users', 'Documents', 'Code', 'Projects', 'workspace', 'Desktop', 'home'];
+            let meaningfulParts = parts.filter(part => !skipDirs.includes(part));
+            
+            if (meaningfulParts.length > 0) {
+                return meaningfulParts[meaningfulParts.length - 1];
+            }
+            
+            // 使用最后一个有意义的部分
+            for (let i = parts.length - 1; i >= 0; i--) {
+                if (parts[i] && !parts[i].startsWith('.')) {
+                    return parts[i];
+                }
+            }
+            
+            return parts[parts.length - 1] || 'Unknown Project';
+        }
+
+        function normalizeProjectPath(path) {
+            if (!path) return '';
+            
+            // 标准化路径并处理file:///协议
+            let normalized = path;
+            if (path.startsWith('file:///')) {
+                normalized = path.substring(7);
+            }
+            
+            // 移除末尾的斜杠和文件名
+            normalized = normalized.replace(/[\\/]$/, '');
+            const lastSlash = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'));
+            if (lastSlash > 0) {
+                normalized = normalized.substring(0, lastSlash);
+            }
+            
+            return normalized;
         }
 
         function displayProjectFolders(projects) {
