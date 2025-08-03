@@ -16,7 +16,8 @@
       "Bash(fuser:*)",
       "Bash(BROWSER=none npm start)",
       "Bash(BROWSER=none DANGEROUSLY_DISABLE_HOST_CHECK=true npm start)",
-      "Bash(kill:*)"
+      "Bash(kill:*)",
+      "Bash(apt:*)"
     ],
     "deny": []
   }
