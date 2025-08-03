@@ -15,6 +15,9 @@ class HistoryRoutes {
         // 获取统计信息
         router.get('/history/stats', this.getStats.bind(this));
         
+        // 调试信息
+        router.get('/history/debug', this.getDebugInfo.bind(this));
+        
         // 搜索历史记录
         router.get('/history/search', this.searchHistory.bind(this));
         
@@ -249,6 +252,98 @@ class HistoryRoutes {
             res.status(500).json({
                 success: false,
                 error: '导出历史记录失败'
+            });
+        }
+    }
+
+    // 调试信息端点
+    async getDebugInfo(req, res) {
+        try {
+            console.log('📊 获取调试信息...');
+            
+            const debugInfo = {
+                timestamp: new Date().toISOString(),
+                cursorPath: this.historyManager.cursorStoragePath,
+                platform: process.platform
+            };
+
+            // 检查路径是否存在
+            const fs = require('fs');
+            const path = require('path');
+            
+            const globalDbPath = path.join(this.historyManager.cursorStoragePath, 'User/globalStorage/state.vscdb');
+            debugInfo.globalDbExists = fs.existsSync(globalDbPath);
+            debugInfo.globalDbPath = globalDbPath;
+            
+            if (debugInfo.globalDbExists) {
+                const stats = fs.statSync(globalDbPath);
+                debugInfo.globalDbSize = stats.size;
+                debugInfo.globalDbModified = stats.mtime;
+            }
+
+            // 尝试测试SQLite
+            try {
+                const Database = require('better-sqlite3');
+                debugInfo.betterSqlite3Available = true;
+                
+                if (debugInfo.globalDbExists) {
+                    const db = new Database(globalDbPath, { readonly: true });
+                    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+                    debugInfo.tables = tables.map(t => t.name);
+                    
+                    if (tables.some(t => t.name === 'cursorDiskKV')) {
+                        const bubbleCount = db.prepare("SELECT COUNT(*) as count FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'").get();
+                        debugInfo.bubbleCount = bubbleCount.count;
+                        
+                        if (bubbleCount.count > 0) {
+                            const sample = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' LIMIT 1").get();
+                            debugInfo.sampleBubble = {
+                                key: sample.key,
+                                valueLength: sample.value ? sample.value.length : 0,
+                                valuePreview: sample.value ? sample.value.substring(0, 200) : null
+                            };
+                        }
+                    }
+                    
+                    db.close();
+                }
+            } catch (error) {
+                debugInfo.betterSqlite3Available = false;
+                debugInfo.betterSqlite3Error = error.message;
+            }
+
+            // 尝试调用实际的数据提取
+            try {
+                console.log('🔍 测试实际数据提取...');
+                const chats = await this.historyManager.getChats();
+                debugInfo.extractedChats = chats.length;
+                debugInfo.extractionSuccess = true;
+                
+                if (chats.length > 0) {
+                    debugInfo.sampleChat = {
+                        sessionId: chats[0].sessionId,
+                        messageCount: chats[0].messages.length,
+                        projectName: chats[0].project?.name,
+                        isRealData: chats[0].isRealData,
+                        dataSource: chats[0].dataSource
+                    };
+                }
+            } catch (error) {
+                debugInfo.extractionSuccess = false;
+                debugInfo.extractionError = error.message;
+                debugInfo.extractionStack = error.stack;
+            }
+
+            res.json({
+                success: true,
+                data: debugInfo
+            });
+        } catch (error) {
+            console.error('获取调试信息失败:', error);
+            res.status(500).json({
+                success: false,
+                error: '获取调试信息失败',
+                details: error.message
             });
         }
     }

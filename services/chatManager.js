@@ -587,8 +587,8 @@ class CursorHistoryManager {
     
     // 从资源字符串提取文件名
     getFileNameFromResource(resource) {
-        const path = this.extractPathFromResource(resource);
-        return path.split('/').pop() || 'Unknown File';
+        const filePath = this.extractPathFromResource(resource);
+        return filePath.split('/').pop() || 'Unknown File';
     }
 
     // 从全局数据库提取聊天记录

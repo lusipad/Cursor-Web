@@ -215,7 +215,6 @@ class CursorDataTester {
         if (paths.length === 0) return '/';
         if (paths.length === 1) {
             // 如果只有一个路径，返回其目录
-            const path = require('path');
             return path.dirname(paths[0]);
         }
 
@@ -226,7 +225,6 @@ class CursorDataTester {
         }
         
         // 确保返回的是目录路径
-        const path = require('path');
         const fs = require('fs');
         try {
             if (fs.existsSync(commonPath) && fs.statSync(commonPath).isFile()) {
@@ -241,10 +239,9 @@ class CursorDataTester {
     }
 
     // 获取两个路径的共同前缀
-    getCommonPrefix(path1, path2) {
-        const path = require('path');
-        const parts1 = path1.split(/[\/\\]/);
-        const parts2 = path2.split(/[\/\\]/);
+    getCommonPrefix(pathA, pathB) {
+        const parts1 = pathA.split(/[\/\\]/);
+        const parts2 = pathB.split(/[\/\\]/);
         
         const commonParts = [];
         const minLength = Math.min(parts1.length, parts2.length);
@@ -262,7 +259,6 @@ class CursorDataTester {
 
     // 从路径提取项目名称
     extractProjectNameFromPath(projectPath) {
-        const path = require('path');
         const os = require('os');
         
         if (!projectPath || projectPath === '/') {
@@ -587,7 +583,14 @@ async function runTest() {
 
 // 如果直接运行此脚本
 if (require.main === module) {
-    runTest().catch(console.error);
+    runTest().then(result => {
+        // 如果有命令行参数 --json，输出JSON格式
+        if (process.argv.includes('--json')) {
+            console.log('\n=== JSON OUTPUT START ===');
+            console.log(JSON.stringify(result || [], null, 2));
+            console.log('=== JSON OUTPUT END ===');
+        }
+    }).catch(console.error);
 }
 
 module.exports = { CursorDataTester, runTest };

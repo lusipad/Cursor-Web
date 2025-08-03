@@ -2,9 +2,11 @@
 const express = require('express');
 const { createServer } = require('http');
 
-// 导入模块
-const ChatManager = require('./services/chatManager');
-const CursorHistoryManager = require('./services/cursorHistoryManager');
+// 导入模块 - 使用真实数据版本
+console.log('🔄 使用真实数据版本的历史管理器');
+const ChatManager = require('./services/chatManager-fallback');
+const CursorHistoryManager = require('./services/cursorHistoryManager-final');
+
 const WebSocketManager = require('./services/websocketManager');
 const ContentRoutes = require('./routes/contentRoutes');
 const GitRoutes = require('./routes/gitRoutes');
