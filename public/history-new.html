@@ -691,29 +691,11 @@
         </div>
     </div>
 
-    <!-- Chat Detail Modal -->
-    <div id="chatDetailModal" class="modal">
-        <div class="modal-content" style="max-width: 900px;">
-            <div class="modal-header">
-                <h2 id="chatDetailTitle">聊天详情</h2>
-                <span class="close" onclick="hideChatDetail()">&times;</span>
-            </div>
-            <div class="modal-body" id="chatDetailContent">
-                <!-- Chat content will be loaded here -->
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="hideChatDetail()">关闭</button>
-                <button class="btn btn-primary" onclick="exportSingleChat()">
-                    📥 导出此对话
-                </button>
-            </div>
-        </div>
-    </div>
+
 
     <script>
         let currentViewMode = 'grouped';
         let currentHistory = [];
-        let currentChatDetail = null;
 
         // 页面加载时初始化
         document.addEventListener('DOMContentLoaded', function() {
@@ -908,54 +890,11 @@
 
         // 显示聊天详情
         function showChatDetail(chatId) {
-            const chat = currentHistory.find(c => (c.id || c.sessionId) === chatId);
-            if (!chat) return;
-
-            currentChatDetail = chat;
-            
-            const modal = document.getElementById('chatDetailModal');
-            const title = document.getElementById('chatDetailTitle');
-            const content = document.getElementById('chatDetailContent');
-
-            title.textContent = `💬 ${chat.project?.name || 'Unknown Project'} - 聊天详情`;
-            
-            const messagesHtml = (chat.messages || []).map((msg, index) => `
-                <div style="margin-bottom: 20px; padding: 15px; background-color: ${msg.role === 'user' ? 'var(--primary-color)' : 'var(--surface-hover)'}; border-radius: 10px;">
-                    <div style="font-weight: 600; margin-bottom: 8px; color: ${msg.role === 'user' ? 'white' : 'var(--text-primary)'};">
-                        ${msg.role === 'user' ? '👤 用户' : '🤖 AI 助手'} 
-                        <span style="font-weight: normal; opacity: 0.8; font-size: 0.9rem;">
-                            (#${index + 1})
-                        </span>
-                    </div>
-                    <div style="line-height: 1.6; white-space: pre-wrap; color: ${msg.role === 'user' ? 'white' : 'var(--text-primary)'};">
-                        ${escapeHtml(msg.content)}
-                    </div>
-                </div>
-            `).join('');
-
-            content.innerHTML = `
-                <div style="margin-bottom: 20px; padding: 15px; background-color: var(--surface-color); border-radius: 10px;">
-                    <h4>📊 对话信息</h4>
-                    <p><strong>项目:</strong> ${chat.project?.name || 'Unknown'}</p>
-                    <p><strong>路径:</strong> ${chat.project?.rootPath || 'N/A'}</p>
-                    <p><strong>会话ID:</strong> ${chat.sessionId || 'N/A'}</p>
-                    <p><strong>工作区:</strong> ${chat.workspaceId || 'N/A'}</p>
-                    <p><strong>时间:</strong> ${formatTimestamp(chat.timestamp || chat.date)}</p>
-                    <p><strong>消息数量:</strong> ${chat.messages?.length || 0} 条</p>
-                </div>
-                <div style="max-height: 500px; overflow-y: auto;">
-                    ${messagesHtml}
-                </div>
-            `;
-
-            modal.style.display = 'block';
+            const sessionId = encodeURIComponent(chatId);
+            window.open(`/chat-detail.html?sessionId=${sessionId}`, '_blank');
         }
 
-        // 隐藏聊天详情
-        function hideChatDetail() {
-            document.getElementById('chatDetailModal').style.display = 'none';
-            currentChatDetail = null;
-        }
+
 
         // 加载统计信息
         async function loadStats() {
@@ -1065,20 +1004,8 @@
 
         // 导出单个聊天
         function exportSingleChat(chatId) {
-            if (chatId) {
-                const chat = currentHistory.find(c => (c.id || c.sessionId) === chatId);
-                if (chat) {
-                    currentChatDetail = chat;
-                }
-            }
-
-            if (!currentChatDetail) return;
-
-            const content = generateHTML([currentChatDetail]);
-            const projectName = currentChatDetail.project?.name || 'Unknown';
-            const filename = `cursor-chat-${projectName}-${new Date().toISOString().split('T')[0]}.html`;
-            
-            downloadFile(content, filename, 'text/html');
+            // 直接跳转到聊天详情页面，在那里进行导出
+            showChatDetail(chatId);
         }
 
         // 生成Markdown格式

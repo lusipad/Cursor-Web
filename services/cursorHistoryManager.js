@@ -152,39 +152,31 @@ class CursorHistoryManager {
         }
         
         const allChats = [];
-        const processedDbs = new Set(); // 用于追踪已处理的数据库，避免重复
+        const processedWorkspaces = new Set(); // 用于追踪已处理的workspace，避免重复
         
         // 处理每个工作区
         for (const workspace of workspaces) {
             console.log(`📂 处理工作区: ${workspace.workspaceId}`);
             
-            // 处理每个session数据库
-            for (const sessionDb of workspace.sessionDbs) {
-                // 检查是否已经处理过这个数据库
-                if (processedDbs.has(sessionDb)) {
-                    console.log(`⏭️ 跳过已处理的数据库: ${path.basename(sessionDb)}`);
-                    continue;
+            // 检查是否已经处理过这个workspace
+            if (processedWorkspaces.has(workspace.workspaceId)) {
+                console.log(`⏭️ 跳过已处理的工作区: ${workspace.workspaceId}`);
+                continue;
+            }
+            
+            try {
+                // 从当前workspace的数据库中提取项目信息和聊天数据
+                const workspaceChats = await this.extractWorkspaceChats(workspace);
+                
+                if (workspaceChats && workspaceChats.length > 0) {
+                    allChats.push(...workspaceChats);
+                    console.log(`✅ 从工作区 ${workspace.workspaceId} 提取了 ${workspaceChats.length} 个聊天会话`);
                 }
                 
-                try {
-                    const chatSession = await this.extractChatSession(workspace.workspaceDb, sessionDb);
-                    if (chatSession && chatSession.messages.length > 0) {
-                        // 添加元数据
-                        const chatData = {
-                            ...chatSession,
-                            date: new Date(fs.statSync(sessionDb).mtime).toISOString(),
-                            sessionId: path.basename(sessionDb, path.extname(sessionDb)),
-                            workspaceId: workspace.workspaceId
-                        };
-                        allChats.push(chatData);
-                        console.log(`✅ 从 ${sessionDb} 提取了 ${chatSession.messages.length} 条消息`);
-                    }
-                    
-                    // 标记为已处理
-                    processedDbs.add(sessionDb);
-                } catch (error) {
-                    console.error(`❌ 处理session数据库失败 ${sessionDb}:`, error);
-                }
+                // 标记为已处理
+                processedWorkspaces.add(workspace.workspaceId);
+            } catch (error) {
+                console.error(`❌ 处理工作区失败 ${workspace.workspaceId}:`, error);
             }
         }
         
@@ -207,6 +199,88 @@ class CursorHistoryManager {
             chats: allChats,
             isRealData: true
         };
+    }
+
+    // 提取单个workspace的聊天数据
+    async extractWorkspaceChats(workspace) {
+        try {
+            const Database = require('better-sqlite3');
+            
+            // 从workspace数据库提取项目信息
+            const project = this.extractProjectInfo(workspace.workspaceDb);
+            console.log(`📁 工作区项目: ${project.name} (${project.rootPath})`);
+            
+            const workspaceChats = [];
+            
+            // 尝试从workspace数据库本身提取聊天数据
+            const db = new Database(workspace.workspaceDb, { readonly: true });
+            
+            // 检查数据库包含的表
+            const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+            const tableNames = tables.map(t => t.name);
+            console.log(`📋 数据库 ${path.basename(workspace.workspaceDb)} 包含 表: ${tableNames.join(', ')}`);
+            
+            let messages = [];
+            
+            // 优先尝试从ItemTable提取
+            if (tableNames.includes('ItemTable')) {
+                messages = this.extractFromItemTable(db);
+                console.log(`📝 从ItemTable提取了 ${messages.length} 条消息`);
+            }
+            
+            // 如果ItemTable没有数据，尝试从cursorDiskKV提取
+            if (messages.length === 0 && tableNames.includes('cursorDiskKV')) {
+                messages = this.extractFromCursorDiskKV(db);
+                console.log(`📝 从cursorDiskKV提取了 ${messages.length} 条消息`);
+            }
+            
+            db.close();
+            
+            // 如果找到了消息，创建聊天会话
+            if (messages.length > 0) {
+                // 按消息内容分组（简单的分组逻辑）
+                const chatGroups = this.groupMessagesIntoChats(messages);
+                
+                for (let i = 0; i < chatGroups.length; i++) {
+                    const chatMessages = chatGroups[i];
+                    const sessionId = `${workspace.workspaceId}_chat_${i + 1}`;
+                    
+                    const chatData = {
+                        project: project,
+                        messages: chatMessages,
+                        date: new Date().toISOString(), // 使用当前时间作为默认
+                        sessionId: sessionId,
+                        workspaceId: workspace.workspaceId,
+                        dbPath: workspace.workspaceDb
+                    };
+                    
+                    workspaceChats.push(chatData);
+                }
+            }
+            
+            return workspaceChats;
+        } catch (error) {
+            console.error(`提取workspace聊天数据失败:`, error);
+            return [];
+        }
+    }
+
+    // 将消息分组为聊天会话（简单的启发式方法）
+    groupMessagesIntoChats(messages) {
+        if (messages.length === 0) return [];
+        
+        // 如果消息数量不多，就作为一个聊天会话
+        if (messages.length <= 50) {
+            return [messages];
+        }
+        
+        // 简单的分组逻辑：每30条消息作为一个会话
+        const groups = [];
+        for (let i = 0; i < messages.length; i += 30) {
+            groups.push(messages.slice(i, i + 30));
+        }
+        
+        return groups;
     }
 
     // 查找工作区数据库

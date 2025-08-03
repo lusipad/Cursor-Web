@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>聊天详情 - Cursor Chat History</title>
+    <style>
+        :root {
+            --primary-color: #00bbff;
+            --primary-light: #66d6ff;
+            --primary-dark: #005e80;
+            --secondary-color: #FF6B35;
+            --tertiary-color: #3EBD64;
+            --bg-color: #121212;
+            --surface-color: #1E1E1E;
+            --surface-hover: #2A2A2A;
+            --text-primary: #FFFFFF;
+            --text-secondary: #B3B3B3;
+            --border-color: #333333;
+            --shadow-color: rgba(12, 188, 255, 0.3);
+            --gradient: linear-gradient(135deg, #6E2CF4 0%, #FF6B35 50%, #3EBD64 100%);
+            --user-bg: linear-gradient(135deg, #00bbff, #66d6ff);
+            --assistant-bg: linear-gradient(135deg, #2A2A2A, #3D3D3D);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Header */
+        .header {
+            background: var(--gradient);
+            padding: 20px 30px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 20px var(--shadow-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-content h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .header-subtitle {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 0.95rem;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 15px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--primary-dark);
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background-color: var(--secondary-color);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background-color: #E04F1D;
+            transform: translateY(-2px);
+        }
+
+        .btn-outline {
+            background-color: transparent;
+            color: var(--text-primary);
+            border: 2px solid var(--border-color);
+        }
+
+        .btn-outline:hover {
+            border-color: var(--primary-color);
+            background-color: rgba(0, 187, 255, 0.1);
+        }
+
+        /* Chat Info */
+        .chat-info {
+            background-color: var(--surface-color);
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 15px var(--shadow-color);
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .info-item {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .info-label {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+
+        .info-value {
+            font-size: 1rem;
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .project-name {
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+
+        /* Messages */
+        .messages-container {
+            background-color: var(--surface-color);
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 4px 15px var(--shadow-color);
+        }
+
+        .messages-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .messages-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .messages-count {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .message {
+            margin-bottom: 25px;
+            padding: 20px;
+            border-radius: 15px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .message.user {
+            background: var(--user-bg);
+            color: white;
+            margin-left: 40px;
+        }
+
+        .message.assistant {
+            background: var(--assistant-bg);
+            color: var(--text-primary);
+            margin-right: 40px;
+        }
+
+        .message-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .message-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+        }
+
+        .message.user .message-icon {
+            background-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .message.assistant .message-icon {
+            background-color: var(--primary-color);
+        }
+
+        .message-number {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            font-weight: normal;
+        }
+
+        .message-content {
+            font-size: 1rem;
+            line-height: 1.7;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .message.user .message-content {
+            color: white;
+        }
+
+        .message.assistant .message-content {
+            color: var(--text-primary);
+        }
+
+        /* Code blocks in messages */
+        .message-content code {
+            background-color: rgba(0, 0, 0, 0.3);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Fira Code', 'Monaco', 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .message-content pre {
+            background-color: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 10px 0;
+            font-family: 'Fira Code', 'Monaco', 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        /* Actions */
+        .export-actions {
+            margin-top: 30px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+            padding: 25px;
+            background-color: var(--bg-color);
+            border-radius: 15px;
+        }
+
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid var(--border-color);
+            border-top: 4px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Error */
+        .error {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .error-icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+            color: var(--secondary-color);
+        }
+
+        .error h3 {
+            font-size: 1.3rem;
+            margin-bottom: 10px;
+            color: var(--text-primary);
+        }
+
+        .error p {
+            font-size: 1rem;
+            line-height: 1.6;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+            
+            .header {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+            }
+            
+            .header-actions {
+                justify-content: center;
+            }
+            
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .message.user {
+                margin-left: 10px;
+            }
+            
+            .message.assistant {
+                margin-right: 10px;
+            }
+            
+            .export-actions {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .header {
+                padding: 15px 20px;
+            }
+            
+            .header-content h1 {
+                font-size: 1.4rem;
+            }
+            
+            .message {
+                padding: 15px;
+                margin-bottom: 20px;
+            }
+            
+            .message.user {
+                margin-left: 0;
+            }
+            
+            .message.assistant {
+                margin-right: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-content">
+                <h1 id="chatTitle">💬 聊天详情</h1>
+                <div class="header-subtitle" id="chatSubtitle">正在加载聊天信息...</div>
+            </div>
+            <div class="header-actions">
+                <a href="/history-new.html" class="btn btn-outline">
+                    ← 返回列表
+                </a>
+                <button class="btn btn-secondary" onclick="showExportOptions()">
+                    📥 导出对话
+                </button>
+            </div>
+        </div>
+
+        <!-- Chat Info -->
+        <div class="chat-info" id="chatInfo" style="display: none;">
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">项目名称</div>
+                    <div class="info-value project-name" id="projectName">-</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">项目路径</div>
+                    <div class="info-value" id="projectPath">-</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">工作区ID</div>
+                    <div class="info-value" id="workspaceId">-</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">会话ID</div>
+                    <div class="info-value" id="sessionId">-</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">创建时间</div>
+                    <div class="info-value" id="createTime">-</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">消息数量</div>
+                    <div class="info-value" id="messageCount">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Messages -->
+        <div class="messages-container" id="messagesContainer">
+            <div class="loading">
+                <div class="spinner"></div>
+                <div>正在加载聊天记录...</div>
+            </div>
+        </div>
+
+        <!-- Export Actions -->
+        <div class="export-actions" id="exportActions" style="display: none;">
+            <button class="btn btn-primary" onclick="exportChat('html')">
+                🌐 导出为 HTML
+            </button>
+            <button class="btn btn-primary" onclick="exportChat('markdown')">
+                📝 导出为 Markdown
+            </button>
+            <button class="btn btn-primary" onclick="exportChat('json')">
+                📄 导出为 JSON
+            </button>
+            <button class="btn btn-secondary" onclick="copyToClipboard()">
+                📋 复制到剪贴板
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let currentChat = null;
+
+        // 页面加载时初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const sessionId = urlParams.get('sessionId');
+            
+            if (sessionId) {
+                loadChatDetail(sessionId);
+            } else {
+                showError('未提供会话ID参数');
+            }
+        });
+
+        // 加载聊天详情
+        async function loadChatDetail(sessionId) {
+            try {
+                const response = await fetch(`/api/history/${sessionId}`);
+                const result = await response.json();
+
+                if (result.success && result.data) {
+                    currentChat = result.data;
+                    renderChatDetail(currentChat);
+                } else {
+                    showError('未找到指定的聊天记录: ' + (result.error || '未知错误'));
+                }
+            } catch (error) {
+                showError('加载聊天详情失败: ' + error.message);
+            }
+        }
+
+        // 渲染聊天详情
+        function renderChatDetail(chat) {
+            // 更新标题和副标题
+            const projectName = chat.project?.name || 'Unknown Project';
+            const messageCount = chat.messages?.length || 0;
+            
+            document.getElementById('chatTitle').textContent = `💬 ${projectName} - 聊天详情`;
+            document.getElementById('chatSubtitle').textContent = `${messageCount} 条消息 • ${formatTimestamp(chat.date)}`;
+
+            // 更新聊天信息
+            document.getElementById('projectName').textContent = projectName;
+            document.getElementById('projectPath').textContent = chat.project?.rootPath || 'N/A';
+            document.getElementById('workspaceId').textContent = chat.workspaceId || 'N/A';
+            document.getElementById('sessionId').textContent = chat.sessionId || 'N/A';
+            document.getElementById('createTime').textContent = formatTimestamp(chat.date);
+            document.getElementById('messageCount').textContent = messageCount;
+
+            // 显示聊天信息
+            document.getElementById('chatInfo').style.display = 'block';
+
+            // 渲染消息
+            renderMessages(chat.messages || []);
+
+            // 显示导出操作
+            document.getElementById('exportActions').style.display = 'flex';
+        }
+
+        // 渲染消息列表
+        function renderMessages(messages) {
+            const container = document.getElementById('messagesContainer');
+            
+            if (messages.length === 0) {
+                container.innerHTML = `
+                    <div class="error">
+                        <div class="error-icon">💬</div>
+                        <h3>暂无消息</h3>
+                        <p>此聊天会话中没有找到任何消息</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const messagesHtml = `
+                <div class="messages-header">
+                    <div class="messages-title">💬 对话消息</div>
+                    <div class="messages-count">${messages.length} 条消息</div>
+                </div>
+                ${messages.map((message, index) => `
+                    <div class="message ${message.role}">
+                        <div class="message-header">
+                            <div class="message-icon">
+                                ${message.role === 'user' ? '👤' : '🤖'}
+                            </div>
+                            <span>${message.role === 'user' ? '用户' : 'AI 助手'}</span>
+                            <span class="message-number">#${index + 1}</span>
+                        </div>
+                        <div class="message-content">${formatMessageContent(message.content)}</div>
+                    </div>
+                `).join('')}
+            `;
+
+            container.innerHTML = messagesHtml;
+        }
+
+        // 格式化消息内容
+        function formatMessageContent(content) {
+            // 简单的代码块格式化
+            content = content.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+            content = content.replace(/`([^`]+)`/g, '<code>$1</code>');
+            
+            // 转义HTML但保留换行
+            const div = document.createElement('div');
+            div.textContent = content;
+            return div.innerHTML.replace(/\n/g, '<br>');
+        }
+
+        // 显示错误
+        function showError(message) {
+            document.getElementById('messagesContainer').innerHTML = `
+                <div class="error">
+                    <div class="error-icon">⚠️</div>
+                    <h3>加载失败</h3>
+                    <p>${message}</p>
+                    <a href="/history-new.html" class="btn btn-primary" style="margin-top: 20px;">
+                        返回列表
+                    </a>
+                </div>
+            `;
+        }
+
+        // 显示导出选项
+        function showExportOptions() {
+            const exportActions = document.getElementById('exportActions');
+            exportActions.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // 导出聊天记录
+        function exportChat(format) {
+            if (!currentChat) {
+                alert('无聊天数据可导出');
+                return;
+            }
+
+            let content, filename, mimeType;
+            const projectName = currentChat.project?.name || 'Unknown';
+            const timestamp = new Date().toISOString().split('T')[0];
+
+            switch (format) {
+                case 'html':
+                    content = generateHTML(currentChat);
+                    filename = `cursor-chat-${projectName}-${timestamp}.html`;
+                    mimeType = 'text/html';
+                    break;
+                
+                case 'markdown':
+                    content = generateMarkdown(currentChat);
+                    filename = `cursor-chat-${projectName}-${timestamp}.md`;
+                    mimeType = 'text/markdown';
+                    break;
+                
+                case 'json':
+                    content = JSON.stringify(currentChat, null, 2);
+                    filename = `cursor-chat-${projectName}-${timestamp}.json`;
+                    mimeType = 'application/json';
+                    break;
+            }
+
+            downloadFile(content, filename, mimeType);
+        }
+
+        // 生成HTML格式
+        function generateHTML(chat) {
+            const projectName = chat.project?.name || 'Unknown Project';
+            const messages = chat.messages || [];
+
+            return `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${projectName} - Cursor 聊天记录</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 40px; line-height: 1.6; color: #333; background: #f8f9fa; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        .header { background: linear-gradient(135deg, #6E2CF4, #FF6B35); color: white; padding: 30px; border-radius: 10px; margin-bottom: 30px; }
+        .header h1 { margin: 0 0 10px 0; font-size: 1.8rem; }
+        .header .subtitle { opacity: 0.9; font-size: 1rem; }
+        .info { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 30px; }
+        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+        .info-item { display: flex; flex-direction: column; gap: 5px; }
+        .info-label { font-size: 0.85rem; color: #666; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+        .info-value { font-size: 1rem; color: #333; font-weight: 500; }
+        .message { margin-bottom: 25px; padding: 20px; border-radius: 12px; }
+        .message.user { background: linear-gradient(135deg, #00bbff, #66d6ff); color: white; margin-left: 40px; }
+        .message.assistant { background: #f1f3f4; color: #333; margin-right: 40px; border: 1px solid #e1e3e4; }
+        .message-header { font-weight: 600; margin-bottom: 10px; font-size: 0.9rem; }
+        .message-content { line-height: 1.7; white-space: pre-wrap; }
+        pre { background: rgba(0,0,0,0.1); padding: 15px; border-radius: 6px; overflow-x: auto; }
+        code { background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 4px; font-family: 'Fira Code', Monaco, monospace; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 ${escapeHtml(projectName)}</h1>
+            <div class="subtitle">导出时间: ${new Date().toLocaleString()} • ${messages.length} 条消息</div>
+        </div>
+        
+        <div class="info">
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">项目路径</div>
+                    <div class="info-value">${escapeHtml(chat.project?.rootPath || 'N/A')}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">会话ID</div>
+                    <div class="info-value">${escapeHtml(chat.sessionId || 'N/A')}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">工作区</div>
+                    <div class="info-value">${escapeHtml(chat.workspaceId || 'N/A')}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">创建时间</div>
+                    <div class="info-value">${formatTimestamp(chat.date)}</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="messages">
+            ${messages.map((msg, index) => `
+                <div class="message ${msg.role}">
+                    <div class="message-header">
+                        ${msg.role === 'user' ? '👤 用户' : '🤖 AI助手'} (#${index + 1})
+                    </div>
+                    <div class="message-content">${escapeHtml(msg.content)}</div>
+                </div>
+            `).join('')}
+        </div>
+    </div>
+</body>
+</html>`;
+        }
+
+        // 生成Markdown格式
+        function generateMarkdown(chat) {
+            const projectName = chat.project?.name || 'Unknown Project';
+            const messages = chat.messages || [];
+
+            let content = `# ${projectName} - Cursor 聊天记录\n\n`;
+            content += `**导出时间**: ${new Date().toLocaleString()}\n`;
+            content += `**项目路径**: ${chat.project?.rootPath || 'N/A'}\n`;
+            content += `**会话ID**: ${chat.sessionId || 'N/A'}\n`;
+            content += `**工作区**: ${chat.workspaceId || 'N/A'}\n`;
+            content += `**消息数量**: ${messages.length}\n\n`;
+            content += `---\n\n`;
+
+            messages.forEach((msg, index) => {
+                const role = msg.role === 'user' ? '👤 用户' : '🤖 AI助手';
+                content += `## ${role} (#${index + 1})\n\n`;
+                content += `${msg.content}\n\n---\n\n`;
+            });
+
+            return content;
+        }
+
+        // 复制到剪贴板
+        async function copyToClipboard() {
+            if (!currentChat) {
+                alert('无聊天数据可复制');
+                return;
+            }
+
+            const text = generateMarkdown(currentChat);
+            
+            try {
+                await navigator.clipboard.writeText(text);
+                alert('已复制到剪贴板！');
+            } catch (error) {
+                console.error('复制失败:', error);
+                alert('复制失败，请手动选择文本复制');
+            }
+        }
+
+        // 下载文件
+        function downloadFile(content, filename, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // 工具函数
+        function formatTimestamp(timestamp) {
+            if (!timestamp) return 'N/A';
+            const date = new Date(timestamp);
+            return date.toLocaleString('zh-CN');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
