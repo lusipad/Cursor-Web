@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>简单API测试</title>
+    <style>
+        body { font-family: Arial; margin: 20px; }
+        .result { background: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .error { background: #ffe6e6; border: 1px solid #ff9999; }
+        .success { background: #e6ffe6; border: 1px solid #99ff99; }
+    </style>
+</head>
+<body>
+    <h1>简单API测试</h1>
+    <button onclick="testAPI()">测试API</button>
+    <div id="result"></div>
+
+    <script>
+        async function testAPI() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '正在测试...';
+            
+            try {
+                console.log('开始测试API...');
+                const response = await fetch('/api/test/chats');
+                console.log('响应状态:', response.status);
+                
+                const data = await response.json();
+                console.log('收到数据:', data);
+                
+                if (data.success && data.data) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `
+                        <h3>✅ API测试成功</h3>
+                        <p>数据数量: ${data.data.length}</p>
+                        <p>第一个项目: ${data.data[0]?.project?.name || '无'}</p>
+                        <details>
+                            <summary>查看原始数据(前100字符)</summary>
+                            <pre>${JSON.stringify(data, null, 2).substring(0, 100)}...</pre>
+                        </details>
+                    `;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `❌ API返回失败: ${data.error || '未知错误'}`;
+                }
+            } catch (error) {
+                console.error('测试失败:', error);
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `❌ 测试失败: ${error.message}`;
+            }
+        }
+        
+        // 页面加载后自动测试
+        window.onload = testAPI;
+    </script>
+</body>
+</html>

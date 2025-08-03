@@ -133,9 +133,82 @@
         }
 
         .chat-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+
+        .project-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            overflow: hidden;
+        }
+
+        .project-header {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .project-header:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .project-title h3 {
+            color: white;
+            font-size: 1.4em;
+            margin: 0 0 8px 0;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .project-info {
+            display: flex;
             gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .project-path {
+            color: rgba(255, 255, 255, 0.7);
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 4px 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .chat-count {
+            color: #4CAF50;
+            font-weight: bold;
+            background: rgba(76, 175, 80, 0.2);
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.9em;
+        }
+
+        .project-toggle {
+            color: white;
+            font-size: 1.5em;
+            font-weight: bold;
+            transition: transform 0.3s ease;
+            cursor: pointer;
+            user-select: none;
+            min-width: 30px;
+            text-align: center;
+        }
+
+        .project-chats {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+            padding: 20px;
         }
 
         .chat-card {
@@ -296,8 +369,19 @@
         }
 
         @media (max-width: 768px) {
-            .chat-grid {
+            .project-chats {
                 grid-template-columns: 1fr;
+                padding: 15px;
+            }
+            
+            .project-header {
+                padding: 15px;
+            }
+            
+            .project-info {
+                flex-direction: column;
+                gap: 8px;
+                align-items: flex-start;
             }
             
             .controls-row {
@@ -344,13 +428,14 @@
             <div class="controls-row">
                 <button class="btn" onclick="loadStats()">🔄 刷新统计</button>
                 <button class="btn btn-secondary" onclick="regenerateData()">🚀 重新生成数据</button>
+                <button class="btn" onclick="toggleAllProjects()" id="toggleAllBtn">📂 全部收缩</button>
                 <div class="pagination">
                     <label style="color: white;">页面大小:</label>
-                    <select id="pageSize" onchange="changePage(1)">
-                        <option value="5">5个/页</option>
-                        <option value="10" selected>10个/页</option>
-                        <option value="20">20个/页</option>
-                        <option value="50">50个/页</option>
+                    <select id="pageSize" onchange="changeGroupsPerPage()">
+                        <option value="2">2个项目/页</option>
+                        <option value="3" selected>3个项目/页</option>
+                        <option value="5">5个项目/页</option>
+                        <option value="10">10个项目/页</option>
                     </select>
                 </div>
                 <div class="pagination" id="paginationControls">
@@ -382,14 +467,7 @@
     </div>
 
     <script>
-        let currentPage = 1;
-        let totalPages = 1;
-
-        // 页面加载时初始化
-        window.onload = function() {
-            loadStats();
-            loadChats(1);
-        };
+        // 页面加载时初始化已移动到DOMContentLoaded事件中
 
         // 加载统计信息
         async function loadStats() {
@@ -411,37 +489,139 @@
             }
         }
 
-        // 加载聊天数据
-        async function loadChats(page = 1) {
+        // 存储所有数据和分组信息
+        let allChatsData = [];
+        let allProjectGroups = [];
+        let currentPage = 1;
+        let totalPages = 1;
+        let groupsPerPage = 3; // 每页显示的项目组数量
+
+        // 加载所有聊天数据
+        async function loadAllChats() {
+            console.log('🚀 loadAllChats 函数开始执行');
             const loading = document.getElementById('loading');
-            const chatGrid = document.getElementById('chatGrid');
-            const pageSize = document.getElementById('pageSize').value;
+            console.log('🎯 loading元素:', loading);
             
-            loading.style.display = 'block';
-            chatGrid.innerHTML = '';
+            if (loading) {
+                loading.style.display = 'block';
+                console.log('👁️ 显示loading状态');
+            } else {
+                console.error('❌ 找不到loading元素!');
+            }
             hideError();
 
             try {
-                const response = await fetch(`/api/test/chats?page=${page}&limit=${pageSize}`);
-                const result = await response.json();
+                console.log('🔍 开始请求聊天数据...');
+                const response = await fetch('/api/test/chats', {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    }
+                });
+                console.log('📡 API响应状态:', response.status);
+                console.log('📡 响应头:', response.headers);
                 
-                if (result.success) {
-                    currentPage = result.pagination.page;
-                    totalPages = result.pagination.pages;
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                console.log('📊 收到数据成功状态:', result.success);
+                console.log('📊 数据数量:', result.data ? result.data.length : 'undefined');
+                
+                if (result.success && result.data && Array.isArray(result.data)) {
+                    allChatsData = result.data;
+                    console.log('✅ 数据验证成功，开始分组...');
                     
-                    displayChats(result.data);
+                    // 按项目分组
+                    const groupedChats = {};
+                    allChatsData.forEach((chat, index) => {
+                        try {
+                            if (!chat.project || !chat.project.name) {
+                                console.warn(`⚠️ 聊天记录 ${index} 缺少项目信息:`, chat);
+                                return;
+                            }
+                            
+                            const projectKey = `${chat.project.name}|${chat.project.rootPath}`;
+                            if (!groupedChats[projectKey]) {
+                                groupedChats[projectKey] = {
+                                    project: chat.project,
+                                    chats: []
+                                };
+                            }
+                            groupedChats[projectKey].chats.push(chat);
+                        } catch (err) {
+                            console.error(`❌ 处理聊天记录 ${index} 时出错:`, err, chat);
+                        }
+                    });
+                    
+                    console.log('📊 分组结果:', Object.keys(groupedChats).length, '个项目组');
+
+                    // 转换为数组并按项目名称排序
+                    allProjectGroups = Object.values(groupedChats);
+                    allProjectGroups.sort((a, b) => a.project.name.localeCompare(b.project.name));
+                    
+                    // 计算分页信息
+                    totalPages = Math.ceil(allProjectGroups.length / groupsPerPage);
+                    
+                    // 显示第一页
+                    displayCurrentPage();
                     updatePagination();
                 } else {
-                    showError('加载聊天数据失败: ' + result.error);
+                    console.error('❌ API返回数据格式错误:', result);
+                    if (result.error) {
+                        showError('加载聊天数据失败: ' + result.error);
+                    } else {
+                        showError('加载聊天数据失败: 数据格式不正确');
+                    }
                 }
             } catch (error) {
+                console.error('❌ 请求异常:', error);
                 showError('加载聊天数据失败: ' + error.message);
+                // 清空数据以防止无限循环
+                allChatsData = [];
+                allProjectGroups = [];
             } finally {
-                loading.style.display = 'none';
+                console.log('✅ 数据加载完成，隐藏loading');
+                if (loading) {
+                    loading.style.display = 'none';
+                    console.log('👁️ loading已隐藏');
+                } else {
+                    console.error('❌ 无法隐藏loading - 元素不存在');
+                }
             }
         }
 
-        // 显示聊天卡片
+        // 显示当前页的项目组
+        function displayCurrentPage() {
+            const startIndex = (currentPage - 1) * groupsPerPage;
+            const endIndex = startIndex + groupsPerPage;
+            const pageGroups = allProjectGroups.slice(startIndex, endIndex);
+            
+            // 展平当前页的所有聊天
+            const pageChats = [];
+            pageGroups.forEach(group => {
+                pageChats.push(...group.chats);
+            });
+            
+            displayChats(pageChats);
+        }
+
+        // 修改loadChats函数
+        async function loadChats(page = 1) {
+            if (allChatsData.length === 0) {
+                console.log('🔄 首次加载数据...');
+                await loadAllChats();
+            } else {
+                console.log('📄 切换到第', page, '页');
+                currentPage = page;
+                displayCurrentPage();
+                updatePagination();
+            }
+        }
+
+        // 按项目分组显示聊天记录
         function displayChats(chats) {
             const chatGrid = document.getElementById('chatGrid');
             
@@ -450,34 +630,136 @@
                 return;
             }
 
+            // 按项目分组
+            const groupedChats = {};
             chats.forEach(chat => {
-                const card = document.createElement('div');
-                card.className = 'chat-card';
-                card.onclick = () => showChatDetails(chat.sessionId);
-                
-                const firstMessage = chat.messages[0];
-                const preview = firstMessage ? firstMessage.content.substring(0, 120) + '...' : '无消息内容';
+                const projectKey = `${chat.project.name}|${chat.project.rootPath}`;
+                if (!groupedChats[projectKey]) {
+                    groupedChats[projectKey] = {
+                        project: chat.project,
+                        chats: []
+                    };
+                }
+                groupedChats[projectKey].chats.push(chat);
+            });
+
+            // 渲染分组
+            const projectGroups = Object.values(groupedChats);
+            
+            // 按项目名称排序
+            projectGroups.sort((a, b) => a.project.name.localeCompare(b.project.name));
+            
+            chatGrid.innerHTML = '';
+            
+            projectGroups.forEach(group => {
+                // 创建项目分组容器
+                const projectSection = document.createElement('div');
+                projectSection.className = 'project-section';
                 
                 // 项目路径显示（截取过长的路径）
-                const projectPath = chat.project.rootPath;
-                const displayPath = projectPath.length > 50 ? '...' + projectPath.slice(-47) : projectPath;
+                const projectPath = group.project.rootPath;
+                const displayPath = projectPath.length > 60 ? '...' + projectPath.slice(-57) : projectPath;
                 
-                card.innerHTML = `
-                    <div class="chat-header">
-                        <div class="chat-id">${chat.sessionId}</div>
-                        <div class="chat-meta">
-                            <div class="project-info">
-                                <div class="project-name">📁 ${chat.project.name}</div>
-                                <div class="project-path" title="${projectPath}">${displayPath}</div>
-                            </div>
-                            <div class="message-count">${chat.messages.length} 条消息</div>
+                // 项目头部
+                const projectHeader = document.createElement('div');
+                projectHeader.className = 'project-header';
+                projectHeader.onclick = (e) => {
+                    // 查找toggle按钮并触发点击
+                    const toggleBtn = e.currentTarget.querySelector('.project-toggle');
+                    if (toggleBtn) {
+                        toggleProject(toggleBtn);
+                    }
+                };
+                projectHeader.innerHTML = `
+                    <div class="project-title">
+                        <h3>📁 ${group.project.name}</h3>
+                        <div class="project-info">
+                            <span class="project-path" title="${projectPath}">📂 ${displayPath}</span>
+                            <span class="chat-count">${group.chats.length} 个对话</span>
                         </div>
                     </div>
-                    <div class="chat-preview">${preview}</div>
+                    <div class="project-toggle">▼</div>
                 `;
                 
-                chatGrid.appendChild(card);
+                // 聊天列表容器
+                const chatsContainer = document.createElement('div');
+                chatsContainer.className = 'project-chats';
+                
+                // 渲染该项目下的聊天记录
+                group.chats.forEach(chat => {
+                    const card = document.createElement('div');
+                    card.className = 'chat-card';
+                    card.onclick = () => showChatDetails(chat.sessionId);
+                    
+                    const firstMessage = chat.messages[0];
+                    const preview = firstMessage ? firstMessage.content.substring(0, 100) + '...' : '无消息内容';
+                    
+                    card.innerHTML = `
+                        <div class="chat-header">
+                            <div class="chat-id">${chat.sessionId}</div>
+                            <div class="chat-meta">
+                                <div class="message-count">${chat.messages.length} 条消息</div>
+                                <div class="chat-date">${new Date(chat.date).toLocaleDateString()}</div>
+                            </div>
+                        </div>
+                        <div class="chat-preview">${preview}</div>
+                    `;
+                    
+                    chatsContainer.appendChild(card);
+                });
+                
+                projectSection.appendChild(projectHeader);
+                projectSection.appendChild(chatsContainer);
+                chatGrid.appendChild(projectSection);
             });
+        }
+
+        // 切换项目展开/收缩
+        function toggleProject(toggleBtn) {
+            const projectSection = toggleBtn.closest('.project-section');
+            const chatsContainer = projectSection.querySelector('.project-chats');
+            const isCollapsed = chatsContainer.style.display === 'none';
+            
+            if (isCollapsed) {
+                chatsContainer.style.display = 'grid';
+                toggleBtn.textContent = '▼';
+                toggleBtn.style.transform = 'rotate(0deg)';
+            } else {
+                chatsContainer.style.display = 'none';
+                toggleBtn.textContent = '▶';
+                toggleBtn.style.transform = 'rotate(-90deg)';
+            }
+        }
+
+        // 全部展开/收缩项目
+        function toggleAllProjects() {
+            const toggleBtn = document.getElementById('toggleAllBtn');
+            const allProjects = document.querySelectorAll('.project-section');
+            const isCollapsing = toggleBtn.textContent.includes('收缩');
+            
+            allProjects.forEach(project => {
+                const chatsContainer = project.querySelector('.project-chats');
+                const projectToggle = project.querySelector('.project-toggle');
+                
+                if (isCollapsing) {
+                    // 收缩所有项目
+                    chatsContainer.style.display = 'none';
+                    projectToggle.textContent = '▶';
+                    projectToggle.style.transform = 'rotate(-90deg)';
+                } else {
+                    // 展开所有项目
+                    chatsContainer.style.display = 'grid';
+                    projectToggle.textContent = '▼';
+                    projectToggle.style.transform = 'rotate(0deg)';
+                }
+            });
+            
+            // 更新按钮文本
+            if (isCollapsing) {
+                toggleBtn.textContent = '📂 全部展开';
+            } else {
+                toggleBtn.textContent = '📂 全部收缩';
+            }
         }
 
         // 显示聊天详情
@@ -561,10 +843,31 @@
         }
 
         // 切换页面
-        function changePage(page) {
+        async function changePage(page) {
             if (page >= 1 && page <= totalPages) {
-                loadChats(page);
+                await loadChats(page);
             }
+        }
+
+        // 改变每页显示的项目组数量
+        function changeGroupsPerPage() {
+            const newGroupsPerPage = parseInt(document.getElementById('pageSize').value);
+            groupsPerPage = newGroupsPerPage;
+            
+            // 重新计算分页
+            totalPages = Math.ceil(allProjectGroups.length / groupsPerPage);
+            
+            // 调整当前页面，确保不超出范围
+            if (currentPage > totalPages) {
+                currentPage = totalPages;
+            }
+            if (currentPage < 1) {
+                currentPage = 1;
+            }
+            
+            // 更新显示
+            displayCurrentPage();
+            updatePagination();
         }
 
         // 重新生成数据
@@ -580,7 +883,13 @@
                 if (result.success) {
                     showSuccess('✅ ' + result.message);
                     await loadStats();
-                    await loadChats(1);
+                    
+                    // 清空缓存的数据，重新加载
+                    allChatsData = [];
+                    allProjectGroups = [];
+                    currentPage = 1;
+                    
+                    await loadAllChats();
                 } else {
                     showError('重新生成数据失败: ' + result.error);
                 }
@@ -621,6 +930,21 @@
                 errorDiv.style.borderColor = 'rgba(255, 0, 0, 0.3)';
             }, 3000);
         }
+
+        // 页面加载完成后自动开始加载数据
+        document.addEventListener('DOMContentLoaded', async function() {
+            console.log('📱 页面加载完成，开始初始化...');
+            console.log('🔍 当前URL:', window.location.href);
+            console.log('🌐 开始加载统计信息...');
+            loadStats();
+            console.log('💬 开始加载聊天数据...');
+            try {
+                await loadChats();
+                console.log('✅ 初始化完成');
+            } catch (error) {
+                console.error('❌ 初始化失败:', error);
+            }
+        });
     </script>
 </body>
 </html>

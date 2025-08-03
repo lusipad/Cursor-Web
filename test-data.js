@@ -359,33 +359,107 @@ class CursorDataTester {
         return { basePaths, projectNames };
     }
 
-    // 从聊天内容推断项目信息
+    // 将聊天会话匹配到真实项目
+    matchSessionToRealProject(session, projectsArray) {
+        if (!projectsArray || projectsArray.length === 0) {
+            return null;
+        }
+
+        const allText = session.messages.map(msg => msg.content).join(' ').toLowerCase();
+        
+        // 为每个项目计算匹配分数
+        let bestMatch = null;
+        let bestScore = 0;
+        
+        for (const project of projectsArray) {
+            let score = 0;
+            
+            // 1. 检查是否直接提到项目名称
+            const projectName = project.name.toLowerCase();
+            if (allText.includes(projectName)) {
+                score += 10;
+            }
+            
+            // 2. 检查是否提到项目路径中的关键部分
+            const pathParts = project.rootPath.toLowerCase().split(/[\\\/]/);
+            pathParts.forEach(part => {
+                if (part.length > 2 && allText.includes(part)) {
+                    score += 3;
+                }
+            });
+            
+            // 3. 检查文件扩展名和技术栈匹配
+            const techMatches = this.getTechStackMatches(allText, project);
+            score += techMatches;
+            
+            if (score > bestScore && score >= 5) { // 设置最低匹配阈值
+                bestScore = score;
+                bestMatch = project;
+            }
+        }
+        
+        return bestMatch;
+    }
+
+    // 检查技术栈匹配
+    getTechStackMatches(text, project) {
+        let score = 0;
+        
+        // 根据项目名称推断可能的技术栈
+        const projectName = project.name.toLowerCase();
+        const projectPath = project.rootPath.toLowerCase();
+        
+        const techKeywords = {
+            'c++': ['cpp', 'c++', 'cmake', 'makefile', '.h', '.cpp', '.hpp'],
+            'csharp': ['c#', 'csharp', '.cs', '.csproj', 'dotnet', 'visual studio'],
+            'javascript': ['js', 'javascript', 'node', 'npm', '.js', '.ts', 'typescript'],
+            'python': ['python', '.py', 'pip', 'django', 'flask'],
+            'web': ['html', 'css', 'web', 'browser', 'http'],
+            'go': ['golang', 'go语言', '.go'],
+            'rust': ['rust', '.rs', 'cargo'],
+            'java': ['java', '.java', 'maven', 'gradle']
+        };
+        
+        // 检查项目路径中的技术栈指示
+        for (const [tech, keywords] of Object.entries(techKeywords)) {
+            if (keywords.some(keyword => projectName.includes(keyword) || projectPath.includes(keyword))) {
+                // 如果聊天内容中也提到相关技术
+                if (keywords.some(keyword => text.includes(keyword))) {
+                    score += 2;
+                }
+            }
+        }
+        
+        return score;
+    }
+
+    // 从聊天内容推断项目信息（用于无法匹配到真实项目的聊天）
     inferProjectFromMessages(messages, sessionIndex) {
         const allText = messages.map(msg => msg.content).join(' ').toLowerCase();
-        const { basePaths, projectNames } = this.generateRealisticProjectPaths();
         
         // 常见的项目类型关键词
         const projectPatterns = [
-            { keywords: ['react', 'jsx', 'tsx', 'next.js', 'nextjs'], name: 'React 项目', type: 'frontend' },
-            { keywords: ['vue', 'vuejs', 'nuxt'], name: 'Vue 项目', type: 'frontend' },
-            { keywords: ['angular', 'typescript'], name: 'Angular 项目', type: 'frontend' },
-            { keywords: ['python', 'django', 'flask', 'fastapi'], name: 'Python 项目', type: 'backend' },
-            { keywords: ['java', 'spring', 'springboot'], name: 'Java 项目', type: 'backend' },
-            { keywords: ['node.js', 'nodejs', 'express', 'koa'], name: 'Node.js 项目', type: 'backend' },
-            { keywords: ['golang', 'go语言', 'gin'], name: 'Go 项目', type: 'backend' },
-            { keywords: ['rust', 'cargo'], name: 'Rust 项目', type: 'backend' },
-            { keywords: ['html', 'css', 'javascript', 'js'], name: 'Web 项目', type: 'frontend' },
-            { keywords: ['数据库', 'mysql', 'postgresql', 'mongodb'], name: '数据库项目', type: 'database' },
-            { keywords: ['机器学习', 'ml', 'tensorflow', 'pytorch'], name: 'AI/ML 项目', type: 'ai' },
-            { keywords: ['微信小程序', 'miniprogram', '小程序'], name: '小程序项目', type: 'mobile' },
-            { keywords: ['移动应用', 'android', 'ios', 'flutter'], name: '移动应用', type: 'mobile' },
-            { keywords: ['游戏', 'unity', 'unreal'], name: '游戏项目', type: 'game' },
-            { keywords: ['区块链', 'blockchain', 'solidity'], name: '区块链项目', type: 'blockchain' },
-            { keywords: ['web3', 'defi', 'nft'], name: 'Web3 项目', type: 'blockchain' }
+            { keywords: ['react', 'jsx', 'tsx', 'next.js', 'nextjs'], name: 'React开发咨询', type: 'frontend' },
+            { keywords: ['vue', 'vuejs', 'nuxt'], name: 'Vue开发咨询', type: 'frontend' },
+            { keywords: ['angular', 'typescript'], name: 'Angular开发咨询', type: 'frontend' },
+            { keywords: ['python', 'django', 'flask', 'fastapi'], name: 'Python开发咨询', type: 'backend' },
+            { keywords: ['java', 'spring', 'springboot'], name: 'Java开发咨询', type: 'backend' },
+            { keywords: ['node.js', 'nodejs', 'express', 'koa'], name: 'Node.js开发咨询', type: 'backend' },
+            { keywords: ['golang', 'go语言', 'gin'], name: 'Go开发咨询', type: 'backend' },
+            { keywords: ['rust', 'cargo'], name: 'Rust开发咨询', type: 'backend' },
+            { keywords: ['c++', 'cpp', 'cmake'], name: 'C++开发咨询', type: 'backend' },
+            { keywords: ['c#', 'csharp', 'dotnet'], name: 'C#开发咨询', type: 'backend' },
+            { keywords: ['数据库', 'mysql', 'postgresql', 'mongodb', 'sql'], name: '数据库咨询', type: 'database' },
+            { keywords: ['机器学习', 'ml', 'tensorflow', 'pytorch', 'ai'], name: 'AI/ML咨询', type: 'ai' },
+            { keywords: ['微信小程序', 'miniprogram', '小程序'], name: '小程序开发咨询', type: 'mobile' },
+            { keywords: ['移动应用', 'android', 'ios', 'flutter'], name: '移动开发咨询', type: 'mobile' },
+            { keywords: ['游戏', 'unity', 'unreal'], name: '游戏开发咨询', type: 'game' },
+            { keywords: ['区块链', 'blockchain', 'solidity'], name: '区块链咨询', type: 'blockchain' },
+            { keywords: ['web3', 'defi', 'nft'], name: 'Web3咨询', type: 'blockchain' }
         ];
         
         // 寻找最匹配的项目类型
-        let bestMatch = { name: 'AI聊天项目', type: 'general' };
+        let bestMatch = null;
         let maxScore = 0;
         
         for (const pattern of projectPatterns) {
@@ -397,52 +471,24 @@ class CursorDataTester {
             }
             if (score > maxScore) {
                 maxScore = score;
-                bestMatch = {
-                    name: pattern.name,
-                    type: pattern.type
-                };
+                bestMatch = pattern;
             }
         }
         
-        // 尝试从内容中提取具体的项目名称
-        const projectNamePatterns = [
-            /项目[：:]\s*([^\s，,。.]+)/g,
-            /在([^\s，,。.]{2,10})(项目|系统|应用)/g,
-            /开发([^\s，,。.]{2,10})(网站|平台|系统)/g,
-            /([^\s，,。.]{2,10})(管理系统|后台|前端)/g
-        ];
-        
-        let extractedName = null;
-        for (const pattern of projectNamePatterns) {
-            const matches = allText.matchAll(pattern);
-            for (const match of matches) {
-                if (match[1] && match[1].length > 1 && match[1].length < 15) {
-                    extractedName = match[1];
-                    break;
-                }
-            }
-            if (extractedName) break;
+        // 如果有明确的技术匹配，使用技术相关的分类
+        if (bestMatch && maxScore > 0) {
+            return {
+                name: bestMatch.name,
+                rootPath: 'Cursor全局聊天',
+                fileCount: Math.floor(Math.random() * 20) + 5
+            };
         }
         
-        // 生成真实的项目路径
-        const basePathIndex = sessionIndex % basePaths.length;
-        const basePath = basePaths[basePathIndex];
-        
-        let projectName;
-        if (extractedName) {
-            projectName = extractedName.replace(/\s+/g, '-');
-        } else {
-            // 根据session索引选择不同的项目名称，确保多样性
-            const nameIndex = sessionIndex % projectNames.length;
-            projectName = projectNames[nameIndex];
-        }
-        
-        const fullPath = `${basePath}\\${projectName}`;
-        
+        // 默认情况下归类为通用聊天
         return {
-            name: extractedName || bestMatch.name,
-            rootPath: fullPath,
-            fileCount: Math.floor(Math.random() * 50) + 10 // 模拟文件数量
+            name: 'Cursor通用对话',
+            rootPath: 'Cursor全局聊天',
+            fileCount: Math.floor(Math.random() * 10) + 1
         };
     }
 
@@ -463,14 +509,11 @@ class CursorDataTester {
         const projectsArray = Array.from(workspaceProjects.values());
         
         const apiData = sessions.map((session, index) => {
-            // 优先使用真实的项目信息，如果没有则使用推断的项目信息
-            let projectInfo;
-            if (projectsArray.length > 0) {
-                // 循环使用真实的项目信息
-                const projectIndex = index % projectsArray.length;
-                projectInfo = projectsArray[projectIndex];
-            } else {
-                // 如果没有真实项目信息，则使用推断的
+            // 尝试从聊天内容中匹配真实项目
+            let projectInfo = this.matchSessionToRealProject(session, projectsArray);
+            
+            // 如果没有匹配到真实项目，则使用推断的项目信息
+            if (!projectInfo) {
                 projectInfo = this.inferProjectFromMessages(session.messages, index);
             }
             

@@ -56,23 +56,16 @@ const server = http.createServer((req, res) => {
             return;
         }
         
-        // API路由 - 获取所有聊天会话（分页）
+        // API路由 - 获取所有聊天会话（不分页，前端处理）
         if (pathname === '/api/test/chats') {
-            const page = parseInt(parsedUrl.query.page) || 1;
-            const limit = parseInt(parsedUrl.query.limit) || 10;
-            const startIndex = (page - 1) * limit;
-            const endIndex = startIndex + limit;
-            
-            const paginatedData = testData.slice(startIndex, endIndex);
-            
             const result = {
                 success: true,
-                data: paginatedData,
+                data: testData,
                 pagination: {
-                    page: page,
-                    limit: limit,
+                    page: 1,
+                    limit: testData.length,
                     total: testData.length,
-                    pages: Math.ceil(testData.length / limit)
+                    pages: 1
                 }
             };
             
