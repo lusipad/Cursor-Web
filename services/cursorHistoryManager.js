@@ -23,7 +23,23 @@ class CursorHistoryManager {
             case 'win32': // Windows
                 return path.join(home, 'AppData', 'Roaming', 'Cursor');
             case 'linux': // Linux
-                return path.join(home, '.config', 'Cursor');
+                // 标准的Cursor安装路径
+                const possiblePaths = [
+                    path.join(home, '.config', 'Cursor'),
+                    path.join(home, '.cursor'),
+                    '/root/.cursor',
+                    '/root/.cursor-server' // 最后的备选
+                ];
+                
+                for (const cursorPath of possiblePaths) {
+                    if (fs.existsSync(cursorPath)) {
+                        console.log(`✅ 找到Cursor数据路径: ${cursorPath}`);
+                        return cursorPath;
+                    }
+                }
+                
+                console.log(`❌ 未找到Cursor数据路径，尝试过的路径: ${possiblePaths.join(', ')}`);
+                return path.join(home, '.config', 'Cursor'); // 返回默认路径
             default:
                 throw new Error(`不支持的平台: ${platform}`);
         }
@@ -39,15 +55,33 @@ class CursorHistoryManager {
 
         try {
             console.log(`🔍 开始提取聊天记录...`);
-            const chats = await this.extractAllChats();
+            const result = await this.extractAllChats();
+            const chats = result.chats;
             this.cachedChats = chats;
             this.lastCacheTime = now;
             console.log(`📚 加载聊天记录: ${chats.length} 个会话`);
-            return chats;
+            
+            // 添加数据源信息
+            const enhancedChats = chats.map(chat => ({
+                ...chat,
+                isRealData: result.isRealData,
+                dataSource: result.isRealData ? 'cursor' : 'demo'
+            }));
+            
+            return enhancedChats;
         } catch (error) {
             console.error('❌ 加载聊天记录失败:', error);
             console.log(`📝 返回演示数据...`);
-            return this.getDemoChats();
+            const demoChats = this.getDemoChats();
+            
+            // 添加数据源信息
+            const enhancedDemoChats = demoChats.map(chat => ({
+                ...chat,
+                isRealData: false,
+                dataSource: 'demo'
+            }));
+            
+            return enhancedDemoChats;
         }
     }
 
@@ -55,35 +89,40 @@ class CursorHistoryManager {
     async extractAllChats() {
         console.log("🔍 开始提取聊天会话...");
         
-        const workspaceDbs = this.findWorkspaceDatabases();
-        const globalDbs = this.findGlobalDatabases();
+        const workspaces = this.findWorkspaceDatabases();
         
-        console.log(`📊 找到工作区数据库: ${workspaceDbs.length} 个`);
-        console.log(`📊 找到全局数据库: ${globalDbs.length} 个`);
+        if (workspaces.length === 0) {
+            console.log("📝 未找到工作区数据，返回演示数据");
+            return {
+                chats: this.getDemoChats(),
+                isRealData: false
+            };
+        }
         
         const allChats = [];
         
-        // 处理工作区数据库
-        for (const workspace of workspaceDbs) {
-            console.log(`📂 处理工作区数据库: ${workspace.dbPath}`);
-            try {
-                const workspaceChats = await this.extractWorkspaceChats(workspace);
-                console.log(`✅ 工作区数据库 ${workspace.workspaceId} 提取了 ${workspaceChats.length} 个聊天会话`);
-                allChats.push(...workspaceChats);
-            } catch (error) {
-                console.error(`❌ 处理工作区数据库失败 ${workspace.dbPath}:`, error);
-            }
-        }
-        
-        // 处理全局数据库
-        for (const globalDb of globalDbs) {
-            console.log(`📂 处理全局数据库: ${globalDb}`);
-            try {
-                const globalChats = await this.extractGlobalChats(globalDb);
-                console.log(`✅ 全局数据库 ${globalDb} 提取了 ${globalChats.length} 个聊天会话`);
-                allChats.push(...globalChats);
-            } catch (error) {
-                console.error(`❌ 处理全局数据库失败 ${globalDb}:`, error);
+        // 处理每个工作区
+        for (const workspace of workspaces) {
+            console.log(`📂 处理工作区: ${workspace.workspaceId}`);
+            
+            // 处理每个session数据库
+            for (const sessionDb of workspace.sessionDbs) {
+                try {
+                    const chatSession = await this.extractChatSession(workspace.workspaceDb, sessionDb);
+                    if (chatSession && chatSession.messages.length > 0) {
+                        // 添加元数据
+                        const chatData = {
+                            ...chatSession,
+                            date: new Date(fs.statSync(sessionDb).mtime).toISOString(),
+                            sessionId: path.basename(sessionDb, path.extname(sessionDb)),
+                            workspaceId: workspace.workspaceId
+                        };
+                        allChats.push(chatData);
+                        console.log(`✅ 从 ${sessionDb} 提取了 ${chatSession.messages.length} 条消息`);
+                    }
+                } catch (error) {
+                    console.error(`❌ 处理session数据库失败 ${sessionDb}:`, error);
+                }
             }
         }
         
@@ -92,114 +131,298 @@ class CursorHistoryManager {
         // 如果没有找到真实的聊天记录，返回演示数据
         if (allChats.length === 0) {
             console.log("📝 未找到真实聊天记录，返回演示数据");
-            return this.getDemoChats();
+            return {
+                chats: this.getDemoChats(),
+                isRealData: false
+            };
         }
         
         // 按时间排序
-        allChats.sort((a, b) => (b.session?.lastUpdatedAt || 0) - (a.session?.lastUpdatedAt || 0));
+        allChats.sort((a, b) => new Date(b.date) - new Date(a.date));
         
         console.log("✅ 聊天会话提取完成");
-        return allChats;
+        return {
+            chats: allChats,
+            isRealData: true
+        };
     }
 
     // 查找工作区数据库
     findWorkspaceDatabases() {
+        const results = [];
+        
+        // 查找工作区存储目录
         const workspaceStorage = path.join(this.cursorStoragePath, 'User', 'workspaceStorage');
-        const workspaces = [];
+        console.log(`🔍 查找工作区存储: ${workspaceStorage}`);
         
-        console.log(`🔍 查找工作区数据库: ${workspaceStorage}`);
-        
-        if (!fs.existsSync(workspaceStorage)) {
-            console.log(`❌ 工作区存储目录不存在: ${workspaceStorage}`);
-            return workspaces;
-        }
-        
-        const workspaceDirs = fs.readdirSync(workspaceStorage);
-        console.log(`📁 找到 ${workspaceDirs.length} 个工作区目录`);
-        
-        for (const dir of workspaceDirs) {
-            const stateDb = path.join(workspaceStorage, dir, 'state.vscdb');
-            if (fs.existsSync(stateDb)) {
-                console.log(`✅ 找到工作区数据库: ${stateDb}`);
-                workspaces.push({
-                    workspaceId: dir,
-                    dbPath: stateDb
-                });
-            } else {
-                console.log(`❌ 工作区数据库不存在: ${stateDb}`);
-            }
-        }
-        
-        console.log(`📊 总共找到 ${workspaces.length} 个工作区数据库`);
-        return workspaces;
-    }
-
-    // 查找全局数据库
-    findGlobalDatabases() {
-        const globalStorage = path.join(this.cursorStoragePath, 'User', 'globalStorage');
-        const databases = [];
-        
-        if (!fs.existsSync(globalStorage)) {
-            return databases;
-        }
-        
-        // 检查全局state.vscdb文件
-        const globalStateDb = path.join(globalStorage, 'state.vscdb');
-        if (fs.existsSync(globalStateDb)) {
-            databases.push(globalStateDb);
-        }
-        
-        // 检查可能的目录
-        const possibleDirs = [
-            path.join(globalStorage, 'cursor.cursor'),
-            path.join(globalStorage, 'cursor'),
-            globalStorage
+        // 查找session数据库目录
+        const sessionDbDirs = [
+            path.join(this.cursorStoragePath, 'User', 'globalStorage', 'cursor.cursor'),
+            path.join(this.cursorStoragePath, 'User', 'globalStorage', 'cursor')
         ];
         
-        for (const dir of possibleDirs) {
-            if (fs.existsSync(dir)) {
-                const files = fs.readdirSync(dir);
+        // 查找所有session数据库
+        const allSessionDbs = [];
+        for (const sessionDir of sessionDbDirs) {
+            if (fs.existsSync(sessionDir)) {
+                console.log(`🔍 查找session数据库: ${sessionDir}`);
+                const files = fs.readdirSync(sessionDir);
                 for (const file of files) {
-                    if (file.endsWith('.sqlite') || file.endsWith('.vscdb') || file.endsWith('.db') || file.endsWith('.sqlite3')) {
-                        databases.push(path.join(dir, file));
+                    if (file.endsWith('.sqlite') || file.endsWith('.db') || file.endsWith('.sqlite3')) {
+                        allSessionDbs.push(path.join(sessionDir, file));
+                        console.log(`✅ 找到session数据库: ${file}`);
                     }
                 }
             }
         }
         
+        // 如果没有找到工作区但有session数据库，创建一个虚拟工作区
+        if (allSessionDbs.length > 0 && !fs.existsSync(workspaceStorage)) {
+            console.log(`📄 没有工作区但找到session数据库，创建虚拟工作区`);
+            results.push({
+                workspaceDb: null,
+                sessionDbs: allSessionDbs,
+                workspaceId: 'unknown'
+            });
+            return results;
+        }
+        
+        // 如果有工作区存储，处理每个工作区
+        if (fs.existsSync(workspaceStorage)) {
+            const workspaceDirs = fs.readdirSync(workspaceStorage);
+            console.log(`📁 找到 ${workspaceDirs.length} 个工作区目录`);
+            
+            for (const dir of workspaceDirs) {
+                const workspaceDb = path.join(workspaceStorage, dir, 'state.vscdb');
+                if (fs.existsSync(workspaceDb)) {
+                    console.log(`✅ 找到工作区数据库: ${workspaceDb}`);
+                    results.push({
+                        workspaceDb: workspaceDb,
+                        sessionDbs: allSessionDbs,
+                        workspaceId: dir
+                    });
+                }
+            }
+        }
+        
+        console.log(`📊 总共找到 ${results.length} 个工作区配置`);
+        return results;
+    }
+
+    // 查找全局数据库
+    findGlobalDatabases() {
+        const possiblePaths = [
+            path.join(this.cursorStoragePath, 'User', 'globalStorage'),
+            path.join(this.cursorStoragePath, 'data', 'User', 'globalStorage')
+        ];
+        
+        const databases = [];
+        
+        for (const globalStorage of possiblePaths) {
+            if (!fs.existsSync(globalStorage)) {
+                continue;
+            }
+            
+            console.log(`🔍 检查全局存储: ${globalStorage}`);
+            
+            // 检查全局state.vscdb文件
+            const globalStateDb = path.join(globalStorage, 'state.vscdb');
+            if (fs.existsSync(globalStateDb)) {
+                databases.push(globalStateDb);
+            }
+            
+            // 检查可能的目录
+            const possibleDirs = [
+                path.join(globalStorage, 'cursor.cursor'),
+                path.join(globalStorage, 'cursor'),
+                globalStorage
+            ];
+            
+            for (const dir of possibleDirs) {
+                if (fs.existsSync(dir)) {
+                    const files = fs.readdirSync(dir);
+                    for (const file of files) {
+                        if (file.endsWith('.sqlite') || file.endsWith('.vscdb') || file.endsWith('.db') || file.endsWith('.sqlite3')) {
+                            databases.push(path.join(dir, file));
+                        }
+                    }
+                }
+            }
+            
+            break; // 找到有效路径后就停止
+        }
+        
         return databases;
     }
 
-    // 从工作区数据库提取聊天记录
-    async extractWorkspaceChats(workspace) {
-        const chats = [];
-        
+    // 提取聊天会话
+    async extractChatSession(workspaceDb, sessionDb) {
+        try {
+            // 提取项目信息
+            const project = workspaceDb ? this.extractProjectInfo(workspaceDb) : { name: 'Unknown Project', rootPath: '/' };
+            
+            // 提取消息
+            const messages = this.extractMessages(sessionDb);
+            
+            return {
+                project: project,
+                messages: messages
+            };
+        } catch (error) {
+            console.error(`提取聊天会话失败:`, error);
+            return null;
+        }
+    }
+
+    // 从工作区数据库提取项目信息
+    extractProjectInfo(workspaceDb) {
         try {
             const Database = require('better-sqlite3');
-            const db = new Database(`file:${workspace.dbPath}?mode=ro`, { readonly: true });
+            const db = new Database(workspaceDb, { readonly: true });
             
-            // 获取项目信息
-            const project = this.extractProjectInfo(db);
+            const row = db.prepare("SELECT value FROM ItemTable WHERE key = ?").get("history.entries");
+            const entries = JSON.parse(row?.value || '[]');
             
-            // 获取聊天数据
-            const chatData = this.getChatData(db);
+            db.close();
             
-            for (const session of chatData) {
-                chats.push({
-                    project: project,
-                    session: session,
-                    messages: session.messages || [],
-                    workspace_id: workspace.workspaceId,
-                    db_path: workspace.dbPath
-                });
+            const filePaths = [];
+            for (const entry of entries) {
+                const resource = entry?.editor?.resource || '';
+                if (resource.startsWith('file:///')) {
+                    filePaths.push(resource.substring(7)); // 移除 file:///
+                }
+            }
+            
+            if (filePaths.length === 0) {
+                return { name: 'Unknown Project', rootPath: '/' };
+            }
+            
+            // 找到公共前缀作为项目根路径
+            const commonPrefix = this.getCommonPrefix(filePaths);
+            const projectName = this.extractProjectNameFromPath(commonPrefix);
+            
+            return {
+                name: projectName,
+                rootPath: commonPrefix
+            };
+        } catch (error) {
+            console.error('提取项目信息失败:', error);
+            return { name: 'Unknown Project', rootPath: '/' };
+        }
+    }
+
+    // 从session数据库提取消息
+    extractMessages(sessionDb) {
+        try {
+            const Database = require('better-sqlite3');
+            const db = new Database(sessionDb, { readonly: true });
+            
+            const rows = db.prepare("SELECT rowid, key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'").all();
+            const messages = [];
+            
+            for (const row of rows) {
+                try {
+                    const bubble = JSON.parse(row.value);
+                    const text = bubble.text?.trim();
+                    if (!text) continue;
+                    
+                    const role = bubble.type === 1 ? 'user' : 'assistant';
+                    messages.push({
+                        rowid: row.rowid,
+                        role: role,
+                        content: text
+                    });
+                } catch (e) {
+                    // 忽略解析错误
+                }
             }
             
             db.close();
+            
+            // 按rowid排序（插入顺序）
+            messages.sort((a, b) => a.rowid - b.rowid);
+            
+            // 移除rowid字段，只保留消息内容
+            return messages.map(msg => ({
+                role: msg.role,
+                content: msg.content
+            }));
         } catch (error) {
-            console.error(`提取工作区聊天记录失败 ${workspace.dbPath}:`, error);
+            console.error('提取消息失败:', error);
+            return [];
         }
-        
-        return chats;
+    }
+
+    // 从JSON文件提取历史记录
+    extractHistoryFromJSON(jsonPath) {
+        try {
+            const content = fs.readFileSync(jsonPath, 'utf8');
+            const data = JSON.parse(content);
+            
+            console.log(`📄 解析JSON历史记录: ${jsonPath}`);
+            
+            // 检查是否是文件历史记录
+            if (data.resource && data.entries) {
+                return {
+                    project: {
+                        name: 'File History',
+                        rootPath: this.extractPathFromResource(data.resource)
+                    },
+                    session: {
+                        composerId: `file_${Date.now()}`,
+                        title: `File History: ${this.getFileNameFromResource(data.resource)}`,
+                        createdAt: Math.min(...data.entries.map(e => e.timestamp)),
+                        lastUpdatedAt: Math.max(...data.entries.map(e => e.timestamp))
+                    },
+                    messages: [
+                        {
+                            role: 'system',
+                            content: `File history for: ${data.resource}\n\n${data.entries.map(entry => 
+                                `${new Date(entry.timestamp).toLocaleString()}: ${entry.source} (${entry.id})`
+                            ).join('\n')}`
+                        }
+                    ],
+                    workspace_id: 'file_history',
+                    db_path: jsonPath
+                };
+            }
+            
+            // 如果不是已知格式，返回原始数据
+            return {
+                project: { name: 'Unknown Data', rootPath: '/' },
+                session: {
+                    composerId: `json_${Date.now()}`,
+                    title: 'JSON Data',
+                    createdAt: Date.now(),
+                    lastUpdatedAt: Date.now()
+                },
+                messages: [
+                    { role: 'system', content: JSON.stringify(data, null, 2) }
+                ],
+                workspace_id: 'json_data',
+                db_path: jsonPath
+            };
+            
+        } catch (error) {
+            console.error(`解析JSON历史记录失败 ${jsonPath}:`, error);
+            return null;
+        }
+    }
+    
+    // 从资源字符串提取路径
+    extractPathFromResource(resource) {
+        if (resource.startsWith('vscode-remote://')) {
+            // 解析vscode-remote URL
+            const match = resource.match(/vscode-remote:\/\/[^\/]+(.+)/);
+            return match ? match[1] : resource;
+        }
+        return resource;
+    }
+    
+    // 从资源字符串提取文件名
+    getFileNameFromResource(resource) {
+        const path = this.extractPathFromResource(resource);
+        return path.split('/').pop() || 'Unknown File';
     }
 
     // 从全局数据库提取聊天记录
@@ -595,33 +818,23 @@ class CursorHistoryManager {
         return [
             {
                 project: { name: 'Demo Project', rootPath: '/path/to/demo' },
-                session: {
-                    composerId: 'demo1',
-                    title: 'Demo Chat 1',
-                    createdAt: Date.now() - 86400000,
-                    lastUpdatedAt: Date.now() - 86400000
-                },
                 messages: [
                     { role: 'user', content: 'Can you help me with this React component?' },
                     { role: 'assistant', content: 'Of course! What specific issues are you having with the component?' }
                 ],
-                workspace_id: 'demo',
-                db_path: 'Demo Database'
+                date: new Date(Date.now() - 86400000).toISOString(),
+                sessionId: 'demo1',
+                workspaceId: 'demo'
             },
             {
                 project: { name: 'Sample API', rootPath: '/path/to/api' },
-                session: {
-                    composerId: 'demo2',
-                    title: 'Demo Chat 2',
-                    createdAt: Date.now() - 172800000,
-                    lastUpdatedAt: Date.now() - 172800000
-                },
                 messages: [
                     { role: 'user', content: 'How do I properly structure my Flask API?' },
                     { role: 'assistant', content: 'For Flask APIs, I recommend organizing your code with a blueprint structure. Here\'s an example...' }
                 ],
-                workspace_id: 'demo',
-                db_path: 'Demo Database'
+                date: new Date(Date.now() - 172800000).toISOString(),
+                sessionId: 'demo2',
+                workspaceId: 'demo'
             }
         ];
     }
@@ -645,7 +858,15 @@ class CursorHistoryManager {
     // 获取单个聊天记录
     async getHistoryItem(sessionId) {
         const chats = await this.getChats();
-        return chats.find(chat => chat.session?.composerId === sessionId);
+        const chat = chats.find(chat => chat.sessionId === sessionId);
+        
+        // Ensure data source information is included
+        if (chat && !chat.isRealData) {
+            chat.isRealData = false;
+            chat.dataSource = 'demo';
+        }
+        
+        return chat;
     }
 
     // 获取统计信息
@@ -666,17 +887,17 @@ class CursorHistoryManager {
 
         // 按天统计
         chats.forEach(chat => {
-            const date = new Date(chat.session?.lastUpdatedAt || Date.now());
+            const date = new Date(chat.date || Date.now());
             const dayKey = date.toISOString().split('T')[0];
             stats.byDay[dayKey] = (stats.byDay[dayKey] || 0) + 1;
         });
 
         // 最近活动
         stats.recentActivity = chats.slice(0, 10).map(chat => ({
-            id: chat.session?.composerId,
+            id: chat.sessionId,
             type: 'chat',
-            timestamp: chat.session?.lastUpdatedAt,
-            summary: `${chat.project?.name}: ${chat.session?.title}`
+            timestamp: new Date(chat.date).getTime(),
+            summary: `${chat.project?.name}: ${chat.messages.length} 条消息`
         }));
 
         return stats;
@@ -690,11 +911,6 @@ class CursorHistoryManager {
         const filteredChats = chats.filter(chat => {
             // 搜索项目名称
             if (chat.project?.name?.toLowerCase().includes(lowercaseQuery)) {
-                return true;
-            }
-            
-            // 搜索会话标题
-            if (chat.session?.title?.toLowerCase().includes(lowercaseQuery)) {
                 return true;
             }
             
@@ -811,9 +1027,17 @@ class CursorHistoryManager {
 
     // HTML转义
     escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        if (!text) return '';
+        
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        
+        return text.replace(/[&<>"']/g, (m) => map[m]);
     }
 }
 
