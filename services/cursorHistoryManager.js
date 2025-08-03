@@ -152,6 +152,7 @@ class CursorHistoryManager {
         }
         
         const allChats = [];
+        const processedDbs = new Set(); // 用于追踪已处理的数据库，避免重复
         
         // 处理每个工作区
         for (const workspace of workspaces) {
@@ -159,6 +160,12 @@ class CursorHistoryManager {
             
             // 处理每个session数据库
             for (const sessionDb of workspace.sessionDbs) {
+                // 检查是否已经处理过这个数据库
+                if (processedDbs.has(sessionDb)) {
+                    console.log(`⏭️ 跳过已处理的数据库: ${path.basename(sessionDb)}`);
+                    continue;
+                }
+                
                 try {
                     const chatSession = await this.extractChatSession(workspace.workspaceDb, sessionDb);
                     if (chatSession && chatSession.messages.length > 0) {
@@ -172,6 +179,9 @@ class CursorHistoryManager {
                         allChats.push(chatData);
                         console.log(`✅ 从 ${sessionDb} 提取了 ${chatSession.messages.length} 条消息`);
                     }
+                    
+                    // 标记为已处理
+                    processedDbs.add(sessionDb);
                 } catch (error) {
                     console.error(`❌ 处理session数据库失败 ${sessionDb}:`, error);
                 }
@@ -207,22 +217,38 @@ class CursorHistoryManager {
         const workspaceStorage = path.join(this.cursorStoragePath, 'User', 'workspaceStorage');
         console.log(`🔍 查找工作区存储: ${workspaceStorage}`);
         
-        // 查找session数据库目录
+        // 首先查找全局数据库 - 这是主要的聊天数据存储位置
+        const globalDb = path.join(this.cursorStoragePath, 'User', 'globalStorage', 'state.vscdb');
+        console.log(`🔍 查找全局数据库: ${globalDb}`);
+        
+        // 查找session数据库目录（backup路径）
         const sessionDbDirs = [
             path.join(this.cursorStoragePath, 'User', 'globalStorage', 'cursor.cursor'),
             path.join(this.cursorStoragePath, 'User', 'globalStorage', 'cursor')
         ];
         
-        // 查找所有session数据库
+        // 查找所有session数据库（不包括全局数据库，避免重复）
         const allSessionDbs = [];
+        
+        // 添加全局数据库（如果存在）
+        if (fs.existsSync(globalDb)) {
+            allSessionDbs.push(globalDb);
+            console.log(`✅ 找到全局数据库: ${globalDb}`);
+        }
+        
+        // 查找legacy路径中的数据库
         for (const sessionDir of sessionDbDirs) {
             if (fs.existsSync(sessionDir)) {
                 console.log(`🔍 查找session数据库: ${sessionDir}`);
                 const files = fs.readdirSync(sessionDir);
                 for (const file of files) {
                     if (file.endsWith('.sqlite') || file.endsWith('.db') || file.endsWith('.sqlite3')) {
-                        allSessionDbs.push(path.join(sessionDir, file));
-                        console.log(`✅ 找到session数据库: ${file}`);
+                        const fullPath = path.join(sessionDir, file);
+                        // 避免重复添加全局数据库
+                        if (fullPath !== globalDb) {
+                            allSessionDbs.push(fullPath);
+                            console.log(`✅ 找到session数据库: ${file}`);
+                        }
                     }
                 }
             }
