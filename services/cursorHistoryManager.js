@@ -1,4 +1,4 @@
-// Cursor历史记录管理器 - 直接读取Cursor的SQLite数据库
+// Cursor历史记录管理器 - 直接读取Cursor的SQLite数据库和集成的历史记录
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -6,10 +6,12 @@ const os = require('os');
 class CursorHistoryManager {
     constructor() {
         this.cursorStoragePath = this.getCursorStoragePath();
-        this.cachedChats = null;
+        this.historyDataPath = path.join(__dirname, '..', 'data', 'history.json');
+        this.cachedHistory = null;
         this.lastCacheTime = 0;
         this.cacheTimeout = 30000; // 30秒缓存
         console.log(`📁 Cursor数据路径: ${this.cursorStoragePath}`);
+        console.log(`📁 历史记录文件: ${this.historyDataPath}`);
     }
 
     // 获取Cursor存储路径
@@ -45,32 +47,82 @@ class CursorHistoryManager {
         }
     }
 
-    // 获取所有聊天会话
+    // 读取集成的历史记录文件
+    async getIntegratedHistory() {
+        try {
+            if (!fs.existsSync(this.historyDataPath)) {
+                console.log('📝 历史记录文件不存在');
+                return [];
+            }
+
+            const rawData = fs.readFileSync(this.historyDataPath, 'utf8');
+            const historyRecords = JSON.parse(rawData);
+            
+            console.log(`📚 读取集成的历史记录: ${historyRecords.length} 条`);
+            
+            // 转换为聊天记录格式
+            const chatRecords = historyRecords.map(record => ({
+                sessionId: record.id,
+                project: record.metadata?.project_name ? { name: record.metadata.project_name } : { name: 'Unknown Project' },
+                messages: record.content ? [{
+                    role: 'user',
+                    content: record.summary || record.content.substring(0, 100)
+                }] : [],
+                date: new Date(record.timestamp).toISOString(),
+                timestamp: record.timestamp,
+                type: record.type,
+                metadata: {
+                    ...record.metadata,
+                    source: 'integrated_history',
+                    originalId: record.id
+                }
+            }));
+            
+            return chatRecords;
+        } catch (error) {
+            console.error('❌ 读取集成的历史记录失败:', error);
+            return [];
+        }
+    }
+
+    // 获取所有聊天会话（包含集成的历史记录）
     async getChats() {
         const now = Date.now();
-        if (this.cachedChats && (now - this.lastCacheTime) < this.cacheTimeout) {
-            console.log(`📚 使用缓存的聊天记录: ${this.cachedChats.length} 个会话`);
-            return this.cachedChats;
+        if (this.cachedHistory && (now - this.lastCacheTime) < this.cacheTimeout) {
+            console.log(`📚 使用缓存的历史记录: ${this.cachedHistory.length} 个会话`);
+            return this.cachedHistory;
         }
 
         try {
-            console.log(`🔍 开始提取聊天记录...`);
-            const result = await this.extractAllChats();
-            const chats = result.chats;
-            this.cachedChats = chats;
+            console.log(`🔍 开始提取历史记录...`);
+            
+            // 获取 Cursor 数据库的聊天记录
+            const cursorResult = await this.extractAllChats();
+            const cursorChats = cursorResult.chats;
+            
+            // 获取集成的历史记录
+            const integratedChats = await this.getIntegratedHistory();
+            
+            // 合并记录
+            const allChats = [...cursorChats, ...integratedChats];
+            
+            // 按时间戳排序
+            allChats.sort((a, b) => (b.timestamp || b.date) - (a.timestamp || a.date));
+            
+            this.cachedHistory = allChats;
             this.lastCacheTime = now;
-            console.log(`📚 加载聊天记录: ${chats.length} 个会话`);
+            console.log(`📚 加载历史记录: ${allChats.length} 个会话 (Cursor: ${cursorChats.length}, 集成: ${integratedChats.length})`);
             
             // 添加数据源信息
-            const enhancedChats = chats.map(chat => ({
+            const enhancedChats = allChats.map(chat => ({
                 ...chat,
-                isRealData: result.isRealData,
-                dataSource: result.isRealData ? 'cursor' : 'demo'
+                isRealData: cursorResult.isRealData || chat.metadata?.source === 'integrated_history',
+                dataSource: chat.metadata?.source === 'integrated_history' ? 'integrated' : (cursorResult.isRealData ? 'cursor' : 'demo')
             }));
             
             return enhancedChats;
         } catch (error) {
-            console.error('❌ 加载聊天记录失败:', error);
+            console.error('❌ 加载历史记录失败:', error);
             console.log(`📝 返回演示数据...`);
             const demoChats = this.getDemoChats();
             

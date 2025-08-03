@@ -17,9 +17,10 @@ const writeFile = promisify(fs.writeFile);
 const access = promisify(fs.access);
 
 class WorkspaceProcessor {
-    constructor() {
+    constructor(customCursorPath = null) {
         this.workspaceCount = 0;
         this.processedWorkspaces = [];
+        this.customCursorPath = customCursorPath;
         this.logger = this.createLogger();
     }
 
@@ -33,6 +34,10 @@ class WorkspaceProcessor {
     }
 
     getCursorStoragePath() {
+        if (this.customCursorPath) {
+            return this.customCursorPath;
+        }
+        
         const platform = os.platform();
         const home = os.homedir();
         
