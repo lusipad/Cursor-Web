@@ -6,12 +6,10 @@ const os = require('os');
 class CursorHistoryManager {
     constructor() {
         this.cursorStoragePath = this.getCursorStoragePath();
-        this.historyDataPath = path.join(__dirname, '..', 'data', 'history.json');
         this.cachedHistory = null;
         this.lastCacheTime = 0;
         this.cacheTimeout = 30000; // 30秒缓存
         console.log(`📁 Cursor数据路径: ${this.cursorStoragePath}`);
-        console.log(`📁 历史记录文件: ${this.historyDataPath}`);
     }
 
     // 获取Cursor存储路径
@@ -47,45 +45,9 @@ class CursorHistoryManager {
         }
     }
 
-    // 读取集成的历史记录文件
-    async getIntegratedHistory() {
-        try {
-            if (!fs.existsSync(this.historyDataPath)) {
-                console.log('📝 历史记录文件不存在');
-                return [];
-            }
 
-            const rawData = fs.readFileSync(this.historyDataPath, 'utf8');
-            const historyRecords = JSON.parse(rawData);
-            
-            console.log(`📚 读取集成的历史记录: ${historyRecords.length} 条`);
-            
-            // 转换为聊天记录格式
-            const chatRecords = historyRecords.map(record => ({
-                sessionId: record.id,
-                project: record.metadata?.project_name ? { name: record.metadata.project_name } : { name: 'Unknown Project' },
-                messages: record.content ? [{
-                    role: 'user',
-                    content: record.summary || record.content.substring(0, 100)
-                }] : [],
-                date: new Date(record.timestamp).toISOString(),
-                timestamp: record.timestamp,
-                type: record.type,
-                metadata: {
-                    ...record.metadata,
-                    source: 'integrated_history',
-                    originalId: record.id
-                }
-            }));
-            
-            return chatRecords;
-        } catch (error) {
-            console.error('❌ 读取集成的历史记录失败:', error);
-            return [];
-        }
-    }
 
-    // 获取所有聊天会话（包含集成的历史记录）
+    // 获取所有聊天会话（仅真实的Cursor数据）
     async getChats() {
         const now = Date.now();
         if (this.cachedHistory && (now - this.lastCacheTime) < this.cacheTimeout) {
@@ -100,40 +62,25 @@ class CursorHistoryManager {
             const cursorResult = await this.extractAllChats();
             const cursorChats = cursorResult.chats;
             
-            // 获取集成的历史记录
-            const integratedChats = await this.getIntegratedHistory();
-            
-            // 合并记录
-            const allChats = [...cursorChats, ...integratedChats];
-            
             // 按时间戳排序
-            allChats.sort((a, b) => (b.timestamp || b.date) - (a.timestamp || a.date));
+            cursorChats.sort((a, b) => new Date(b.date) - new Date(a.date));
             
-            this.cachedHistory = allChats;
+            this.cachedHistory = cursorChats;
             this.lastCacheTime = now;
-            console.log(`📚 加载历史记录: ${allChats.length} 个会话 (Cursor: ${cursorChats.length}, 集成: ${integratedChats.length})`);
+            console.log(`📚 加载历史记录: ${cursorChats.length} 个真实Cursor会话`);
             
             // 添加数据源信息
-            const enhancedChats = allChats.map(chat => ({
+            const enhancedChats = cursorChats.map(chat => ({
                 ...chat,
-                isRealData: cursorResult.isRealData || chat.metadata?.source === 'integrated_history',
-                dataSource: chat.metadata?.source === 'integrated_history' ? 'integrated' : (cursorResult.isRealData ? 'cursor' : 'demo')
+                isRealData: cursorResult.isRealData,
+                dataSource: cursorResult.isRealData ? 'cursor' : 'empty'
             }));
             
             return enhancedChats;
         } catch (error) {
             console.error('❌ 加载历史记录失败:', error);
-            console.log(`📝 返回演示数据...`);
-            const demoChats = this.getDemoChats();
-            
-            // 添加数据源信息
-            const enhancedDemoChats = demoChats.map(chat => ({
-                ...chat,
-                isRealData: false,
-                dataSource: 'demo'
-            }));
-            
-            return enhancedDemoChats;
+            console.log(`📝 返回空数组`);
+            return [];
         }
     }
 
@@ -144,9 +91,9 @@ class CursorHistoryManager {
         const workspaces = this.findWorkspaceDatabases();
         
         if (workspaces.length === 0) {
-            console.log("📝 未找到工作区数据，返回演示数据");
+            console.log("📝 未找到工作区数据");
             return {
-                chats: this.getDemoChats(),
+                chats: [],
                 isRealData: false
             };
         }
@@ -182,11 +129,11 @@ class CursorHistoryManager {
         
         console.log(`📊 总共提取了 ${allChats.length} 个聊天会话`);
         
-        // 如果没有找到真实的聊天记录，返回演示数据
+        // 如果没有找到真实的聊天记录，返回空数组
         if (allChats.length === 0) {
-            console.log("📝 未找到真实聊天记录，返回演示数据");
+            console.log("📝 未找到真实聊天记录");
             return {
-                chats: this.getDemoChats(),
+                chats: [],
                 isRealData: false
             };
         }
@@ -281,6 +228,73 @@ class CursorHistoryManager {
         }
         
         return groups;
+    }
+
+    // 从 ItemTable 提取消息（用于 state.vscdb）
+    extractFromItemTable(db) {
+        try {
+            const messages = [];
+            
+            // 尝试从 workbench.panel.aichat.view.aichat.chatdata 获取
+            const chatDataRow = db.prepare("SELECT value FROM ItemTable WHERE key = ?").get("workbench.panel.aichat.view.aichat.chatdata");
+            if (chatDataRow) {
+                const chatData = JSON.parse(chatDataRow.value || '{"tabs": []}');
+                for (const tab of chatData.tabs || []) {
+                    for (const bubble of tab.bubbles || []) {
+                        const text = (bubble.text || bubble.richText || '').trim();
+                        if (text) {
+                            const role = bubble.type === 1 ? 'user' : 'assistant';
+                            messages.push({
+                                role: role,
+                                content: text
+                            });
+                        }
+                    }
+                }
+            }
+            
+            return messages;
+        } catch (error) {
+            console.error('从 ItemTable 提取消息失败：', error);
+            return [];
+        }
+    }
+    
+    // 从 cursorDiskKV 提取消息（用于.sqlite 文件）
+    extractFromCursorDiskKV(db) {
+        try {
+            const rows = db.prepare("SELECT rowid, key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'").all();
+            const messages = [];
+            
+            for (const row of rows) {
+                try {
+                    const bubble = JSON.parse(row.value);
+                    const text = (bubble.text || bubble.richText || '').trim();
+                    if (!text) continue;
+                    
+                    const role = bubble.type === 1 ? 'user' : 'assistant';
+                    messages.push({
+                        rowid: row.rowid,
+                        role: role,
+                        content: text
+                    });
+                } catch (e) {
+                    // 忽略解析错误
+                }
+            }
+            
+            // 按 rowid 排序（插入顺序）
+            messages.sort((a, b) => a.rowid - b.rowid);
+            
+            // 移除 rowid 字段，只保留消息内容
+            return messages.map(msg => ({
+                role: msg.role,
+                content: msg.content
+            }));
+        } catch (error) {
+            console.error('从 cursorDiskKV 提取消息失败：', error);
+            return [];
+        }
     }
 
     // 查找工作区数据库
@@ -965,31 +979,7 @@ class CursorHistoryManager {
         return summary + '...';
     }
 
-    // 获取演示聊天数据
-    getDemoChats() {
-        return [
-            {
-                project: { name: 'Demo Project', rootPath: '/path/to/demo' },
-                messages: [
-                    { role: 'user', content: 'Can you help me with this React component?' },
-                    { role: 'assistant', content: 'Of course! What specific issues are you having with the component?' }
-                ],
-                date: new Date(Date.now() - 86400000).toISOString(),
-                sessionId: 'demo1',
-                workspaceId: 'demo'
-            },
-            {
-                project: { name: 'Sample API', rootPath: '/path/to/api' },
-                messages: [
-                    { role: 'user', content: 'How do I properly structure my Flask API?' },
-                    { role: 'assistant', content: 'For Flask APIs, I recommend organizing your code with a blueprint structure. Here\'s an example...' }
-                ],
-                date: new Date(Date.now() - 172800000).toISOString(),
-                sessionId: 'demo2',
-                workspaceId: 'demo'
-            }
-        ];
-    }
+
 
     // 获取聊天记录列表（兼容原有API）
     async getHistory(options = {}) {
@@ -1011,12 +1001,6 @@ class CursorHistoryManager {
     async getHistoryItem(sessionId) {
         const chats = await this.getChats();
         const chat = chats.find(chat => chat.sessionId === sessionId);
-        
-        // Ensure data source information is included
-        if (chat && !chat.isRealData) {
-            chat.isRealData = false;
-            chat.dataSource = 'demo';
-        }
         
         return chat;
     }
