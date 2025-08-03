@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🧪 Cursor聊天记录 - 测试页面</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .header h1 {
+            color: white;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 1.2em;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: transform 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-card h3 {
+            color: white;
+            font-size: 1.3em;
+            margin-bottom: 10px;
+        }
+
+        .stat-number {
+            color: #4CAF50;
+            font-size: 2.5em;
+            font-weight: bold;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .controls {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .controls-row {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            background: linear-gradient(45deg, #FF6B6B, #4ECDC4);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+        }
+
+        .pagination {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .pagination select {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            padding: 8px 12px;
+        }
+
+        .chat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            gap: 20px;
+        }
+
+        .chat-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: transform 0.3s ease;
+            cursor: pointer;
+        }
+
+        .chat-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .chat-header {
+            margin-bottom: 15px;
+        }
+
+        .chat-id {
+            color: #4CAF50;
+            font-weight: bold;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+
+        .chat-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .project-info {
+            flex: 1;
+            margin-right: 10px;
+        }
+
+        .project-name {
+            color: #FF9800;
+            font-weight: bold;
+            font-size: 0.95em;
+            margin-bottom: 2px;
+        }
+
+        .project-path {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.8em;
+            font-family: 'Courier New', monospace;
+            word-break: break-all;
+        }
+
+        .message-count {
+            color: rgba(255, 255, 255, 0.8);
+            background: rgba(0, 0, 0, 0.2);
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.9em;
+            white-space: nowrap;
+        }
+
+        .chat-preview {
+            color: rgba(255, 255, 255, 0.9);
+            line-height: 1.6;
+            max-height: 150px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .chat-preview::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 40px;
+            width: 100%;
+            background: linear-gradient(transparent, rgba(255, 255, 255, 0.1));
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            color: white;
+            font-size: 1.2em;
+        }
+
+        .error {
+            background: rgba(255, 0, 0, 0.1);
+            color: #ff6b6b;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border: 1px solid rgba(255, 0, 0, 0.3);
+        }
+
+        .message {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 10px;
+            max-width: 80%;
+        }
+
+        .message.user {
+            background: rgba(76, 175, 80, 0.2);
+            margin-left: auto;
+            text-align: right;
+        }
+
+        .message.assistant {
+            background: rgba(33, 150, 243, 0.2);
+            margin-right: auto;
+        }
+
+        .message-role {
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(5px);
+        }
+
+        .modal-content {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 2% auto;
+            padding: 30px;
+            border-radius: 20px;
+            width: 90%;
+            max-width: 800px;
+            max-height: 90%;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .close {
+            color: white;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .close:hover {
+            opacity: 0.7;
+        }
+
+        @media (max-width: 768px) {
+            .chat-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .controls-row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .pagination {
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 页面头部 -->
+        <div class="header">
+            <h1>🧪 Cursor聊天记录测试</h1>
+            <p>真实的Cursor AI聊天数据展示</p>
+        </div>
+
+        <!-- 统计信息 -->
+        <div class="stats-grid" id="statsGrid">
+            <div class="stat-card">
+                <h3>📚 会话总数</h3>
+                <div class="stat-number" id="totalChats">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>💬 消息总数</h3>
+                <div class="stat-number" id="totalMessages">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>📊 平均消息数</h3>
+                <div class="stat-number" id="avgMessages">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>⏰ 数据更新时间</h3>
+                <div class="stat-number" id="lastUpdate">-</div>
+            </div>
+        </div>
+
+        <!-- 控制面板 -->
+        <div class="controls">
+            <div class="controls-row">
+                <button class="btn" onclick="loadStats()">🔄 刷新统计</button>
+                <button class="btn btn-secondary" onclick="regenerateData()">🚀 重新生成数据</button>
+                <div class="pagination">
+                    <label style="color: white;">页面大小:</label>
+                    <select id="pageSize" onchange="changePage(1)">
+                        <option value="5">5个/页</option>
+                        <option value="10" selected>10个/页</option>
+                        <option value="20">20个/页</option>
+                        <option value="50">50个/页</option>
+                    </select>
+                </div>
+                <div class="pagination" id="paginationControls">
+                    <!-- 分页控件将在这里生成 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 加载状态 -->
+        <div class="loading" id="loading">🔄 正在加载聊天数据...</div>
+
+        <!-- 错误信息 -->
+        <div class="error" id="error" style="display: none;"></div>
+
+        <!-- 聊天卡片网格 -->
+        <div class="chat-grid" id="chatGrid">
+            <!-- 聊天卡片将在这里生成 -->
+        </div>
+    </div>
+
+    <!-- 聊天详情模态框 -->
+    <div id="chatModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <div id="chatDetails">
+                <!-- 聊天详情将在这里显示 -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentPage = 1;
+        let totalPages = 1;
+
+        // 页面加载时初始化
+        window.onload = function() {
+            loadStats();
+            loadChats(1);
+        };
+
+        // 加载统计信息
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/test/stats');
+                const result = await response.json();
+                
+                if (result.success) {
+                    const data = result.data;
+                    document.getElementById('totalChats').textContent = data.totalChats;
+                    document.getElementById('totalMessages').textContent = data.totalMessages;
+                    document.getElementById('avgMessages').textContent = data.avgMessagesPerChat;
+                    document.getElementById('lastUpdate').textContent = new Date(data.extractedAt).toLocaleTimeString();
+                } else {
+                    showError('加载统计信息失败: ' + result.error);
+                }
+            } catch (error) {
+                showError('加载统计信息失败: ' + error.message);
+            }
+        }
+
+        // 加载聊天数据
+        async function loadChats(page = 1) {
+            const loading = document.getElementById('loading');
+            const chatGrid = document.getElementById('chatGrid');
+            const pageSize = document.getElementById('pageSize').value;
+            
+            loading.style.display = 'block';
+            chatGrid.innerHTML = '';
+            hideError();
+
+            try {
+                const response = await fetch(`/api/test/chats?page=${page}&limit=${pageSize}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    currentPage = result.pagination.page;
+                    totalPages = result.pagination.pages;
+                    
+                    displayChats(result.data);
+                    updatePagination();
+                } else {
+                    showError('加载聊天数据失败: ' + result.error);
+                }
+            } catch (error) {
+                showError('加载聊天数据失败: ' + error.message);
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        // 显示聊天卡片
+        function displayChats(chats) {
+            const chatGrid = document.getElementById('chatGrid');
+            
+            if (chats.length === 0) {
+                chatGrid.innerHTML = '<div class="loading">📭 没有找到聊天数据</div>';
+                return;
+            }
+
+            chats.forEach(chat => {
+                const card = document.createElement('div');
+                card.className = 'chat-card';
+                card.onclick = () => showChatDetails(chat.sessionId);
+                
+                const firstMessage = chat.messages[0];
+                const preview = firstMessage ? firstMessage.content.substring(0, 120) + '...' : '无消息内容';
+                
+                // 项目路径显示（截取过长的路径）
+                const projectPath = chat.project.rootPath;
+                const displayPath = projectPath.length > 50 ? '...' + projectPath.slice(-47) : projectPath;
+                
+                card.innerHTML = `
+                    <div class="chat-header">
+                        <div class="chat-id">${chat.sessionId}</div>
+                        <div class="chat-meta">
+                            <div class="project-info">
+                                <div class="project-name">📁 ${chat.project.name}</div>
+                                <div class="project-path" title="${projectPath}">${displayPath}</div>
+                            </div>
+                            <div class="message-count">${chat.messages.length} 条消息</div>
+                        </div>
+                    </div>
+                    <div class="chat-preview">${preview}</div>
+                `;
+                
+                chatGrid.appendChild(card);
+            });
+        }
+
+        // 显示聊天详情
+        async function showChatDetails(sessionId) {
+            try {
+                const response = await fetch(`/api/test/chats/${sessionId}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    const chat = result.data;
+                    const modal = document.getElementById('chatModal');
+                    const details = document.getElementById('chatDetails');
+                    
+                    let messagesHtml = `
+                        <h2 style="color: white; margin-bottom: 10px;">💬 ${chat.sessionId}</h2>
+                        <div style="margin-bottom: 20px;">
+                            <div style="color: #FF9800; font-weight: bold; margin-bottom: 5px;">📁 项目: ${chat.project.name}</div>
+                            <div style="color: rgba(255,255,255,0.6); font-family: 'Courier New', monospace; font-size: 0.9em; margin-bottom: 10px;" title="${chat.project.rootPath}">
+                                📂 ${chat.project.rootPath}
+                            </div>
+                            <div style="color: rgba(255,255,255,0.8);">
+                                📊 共 ${chat.messages.length} 条消息 | 📅 ${new Date(chat.date).toLocaleString()}
+                                ${chat.project.fileCount ? ` | 📄 ${chat.project.fileCount} 个文件` : ''}
+                            </div>
+                        </div>
+                    `;
+                    
+                    chat.messages.forEach(message => {
+                        messagesHtml += `
+                            <div class="message ${message.role}">
+                                <div class="message-role">${message.role === 'user' ? '👤 用户' : '🤖 助手'}</div>
+                                <div>${message.content.replace(/\n/g, '<br>')}</div>
+                            </div>
+                        `;
+                    });
+                    
+                    details.innerHTML = messagesHtml;
+                    modal.style.display = 'block';
+                } else {
+                    showError('加载聊天详情失败: ' + result.error);
+                }
+            } catch (error) {
+                showError('加载聊天详情失败: ' + error.message);
+            }
+        }
+
+        // 关闭模态框
+        function closeModal() {
+            document.getElementById('chatModal').style.display = 'none';
+        }
+
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            const modal = document.getElementById('chatModal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        }
+
+        // 更新分页控件
+        function updatePagination() {
+            const paginationControls = document.getElementById('paginationControls');
+            let html = '';
+            
+            if (totalPages > 1) {
+                // 上一页按钮
+                if (currentPage > 1) {
+                    html += `<button class="btn" onclick="changePage(${currentPage - 1})">◀ 上一页</button>`;
+                }
+                
+                // 页码信息
+                html += `<span style="color: white; margin: 0 15px;">第 ${currentPage} 页 / 共 ${totalPages} 页</span>`;
+                
+                // 下一页按钮
+                if (currentPage < totalPages) {
+                    html += `<button class="btn" onclick="changePage(${currentPage + 1})">下一页 ▶</button>`;
+                }
+            }
+            
+            paginationControls.innerHTML = html;
+        }
+
+        // 切换页面
+        function changePage(page) {
+            if (page >= 1 && page <= totalPages) {
+                loadChats(page);
+            }
+        }
+
+        // 重新生成数据
+        async function regenerateData() {
+            const loading = document.getElementById('loading');
+            loading.style.display = 'block';
+            loading.textContent = '🔄 正在重新生成数据...';
+            
+            try {
+                const response = await fetch('/api/test/regenerate', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showSuccess('✅ ' + result.message);
+                    await loadStats();
+                    await loadChats(1);
+                } else {
+                    showError('重新生成数据失败: ' + result.error);
+                }
+            } catch (error) {
+                showError('重新生成数据失败: ' + error.message);
+            } finally {
+                loading.style.display = 'none';
+                loading.textContent = '🔄 正在加载聊天数据...';
+            }
+        }
+
+        // 显示错误信息
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+
+        // 隐藏错误信息
+        function hideError() {
+            document.getElementById('error').style.display = 'none';
+        }
+
+        // 显示成功信息
+        function showSuccess(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.style.background = 'rgba(76, 175, 80, 0.1)';
+            errorDiv.style.color = '#4CAF50';
+            errorDiv.style.borderColor = 'rgba(76, 175, 80, 0.3)';
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                hideError();
+                // 重置样式
+                errorDiv.style.background = 'rgba(255, 0, 0, 0.1)';
+                errorDiv.style.color = '#ff6b6b';
+                errorDiv.style.borderColor = 'rgba(255, 0, 0, 0.3)';
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
