@@ -50,8 +50,7 @@ Cursor-Web/
 │   │   └── history-styles.css     # 样式文件
 │   └── js/
 │       └── modules/
-│           ├── HistoryManager.js  # 历史管理器
-│           └── HistoryUIComponents.js # UI组件
+│           └── HistoryManager.js  # 历史管理器
 └── HISTORY_README.md              # 历史记录功能文档
 ```
 

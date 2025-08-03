@@ -33,6 +33,9 @@ class HistoryRoutes {
         
         // 清除缓存
         this.router.delete('/history/cache', this.clearCache.bind(this));
+        
+        // 提取文件夹路径
+        this.router.get('/history/file-paths', this.getFilePaths.bind(this));
     }
 
     /**
@@ -545,6 +548,133 @@ class HistoryRoutes {
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    }
+
+    /**
+     * 解码和格式化路径
+     */
+    decodeAndFormatPath(encodedPath) {
+        if (!encodedPath) return '';
+        
+        try {
+            // 处理URL编码的路径
+            let decodedPath = decodeURIComponent(encodedPath);
+            
+            // 移除开头的斜杠
+            if (decodedPath.startsWith('/')) {
+                decodedPath = decodedPath.substring(1);
+            }
+            
+            // 处理Windows盘符格式 (如 d: -> D:)
+            if (decodedPath.match(/^[a-z]:/i)) {
+                decodedPath = decodedPath.charAt(0).toUpperCase() + decodedPath.substring(1);
+            }
+            
+            // 标准化路径分隔符为正斜杠
+            decodedPath = decodedPath.replace(/\\/g, '/');
+            
+            return decodedPath;
+        } catch (error) {
+            console.warn('路径解码失败:', encodedPath, error.message);
+            return encodedPath;
+        }
+    }
+
+    /**
+     * 提取文件夹路径
+     */
+    async getFilePaths(req, res) {
+        try {
+            console.log('从workspace数据库提取项目路径');
+            
+            const { workspaceId } = req.query;
+            
+            // 获取所有工作区ID
+             const workspaceIds = this.historyService.getAllWorkspaces();
+             console.log(`找到 ${workspaceIds.length} 个工作区:`, workspaceIds);
+             
+             let projectPaths = new Set();
+             let projectInfo = [];
+             
+             // 过滤工作区（如果指定了workspaceId）
+             const targetWorkspaceIds = workspaceId ? 
+                 workspaceIds.filter(id => id === workspaceId) : 
+                 workspaceIds;
+             
+             for (const workspaceIdItem of targetWorkspaceIds) {
+                 try {
+                     // 从每个workspace的state.vscdb中读取项目信息
+                     const projectData = await this.historyService.getProjectInfoFromWorkspace(workspaceIdItem);
+                     
+                     if (projectData && projectData.rootPath && projectData.rootPath !== 'Unknown Path') {
+                         // 解码和格式化路径
+                         const formattedPath = this.decodeAndFormatPath(projectData.rootPath);
+                         
+                         if (formattedPath) {
+                             projectPaths.add(formattedPath);
+                             
+                             projectInfo.push({
+                                 name: projectData.name,
+                                 rootPath: formattedPath,
+                                 workspaceId: workspaceIdItem,
+                                 lastModified: new Date().toISOString() // 暂时使用当前时间
+                             });
+                             
+                             console.log(`工作区 ${workspaceIdItem}: ${projectData.name} -> ${formattedPath}`);
+                         }
+                     } else {
+                         console.log(`工作区 ${workspaceIdItem}: 未找到有效的项目路径`);
+                     }
+                 } catch (error) {
+                     console.warn(`处理工作区 ${workspaceIdItem} 失败:`, error.message);
+                 }
+             }
+            
+            // 转换为数组并排序
+            const projectPathsArray = Array.from(projectPaths).sort();
+            
+            // 生成文件夹路径层次结构
+            const folderPaths = new Set();
+            projectPathsArray.forEach(projectPath => {
+                // 添加项目根路径
+                folderPaths.add(projectPath);
+                
+                // 添加所有父目录路径
+                const parts = projectPath.split('/').filter(part => part.length > 0);
+                for (let i = 1; i <= parts.length; i++) {
+                    const parentPath = parts.slice(0, i).join('/');
+                    if (parentPath) {
+                        folderPaths.add(parentPath);
+                    }
+                }
+            });
+            
+            const result = {
+                success: true,
+                data: {
+                    projectPaths: projectPathsArray,
+                    folderPaths: Array.from(folderPaths).sort(),
+                    projectInfo: projectInfo,
+                    summary: {
+                        totalProjectPaths: projectPathsArray.length,
+                        totalFolderPaths: folderPaths.size,
+                        totalProjects: projectInfo.length,
+                        processedWorkspaces: targetWorkspaceIds.length
+                    }
+                }
+            };
+            
+            console.log(`提取完成: ${projectPathsArray.length}个项目路径, ${folderPaths.size}个文件夹路径`);
+            res.json(result);
+            
+        } catch (error) {
+            console.error('提取项目路径失败:', error);
+            res.status(500).json({
+                success: false,
+                error: error.message || '提取项目路径失败',
+                details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            });
+        }
     }
 
     /**

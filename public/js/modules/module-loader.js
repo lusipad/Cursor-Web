@@ -18,8 +18,7 @@ const ModuleLoader = {
         'DebugManager': ['ErrorHandler', 'WebSocketManager', 'ContentManager', 'UIManager'],
         'HistoryApiClient': [],
         'HistoryService': ['HistoryApiClient'],
-        'HistoryUIComponents': ['ErrorHandler'],
-        'HistoryManager': ['ErrorHandler', 'HistoryApiClient', 'HistoryService', 'HistoryUIComponents'],
+        'HistoryManager': ['ErrorHandler', 'HistoryApiClient', 'HistoryService'],
         'SimpleWebClient': ['ErrorHandler', 'WebSocketManager', 'ContentManager', 'StatusManager', 'CursorStatusManager', 'HomePageStatusManager', 'UIManager', 'EventManager', 'DebugManager', 'HistoryManager']
     },
 
@@ -156,7 +155,7 @@ const ModuleLoader = {
             'DebugManager',
             'HistoryApiClient',
             'HistoryService',
-            'HistoryUIComponents',
+
             'HistoryManager',
             'SimpleWebClient'
         ];

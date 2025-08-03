@@ -67,6 +67,11 @@ class HistoryService {
             const chatDetail = await this.apiClient.getChatDetail(sessionId);
             const processedDetail = this.processChatDetail(chatDetail);
             
+            // 检查处理后的详情是否为空
+            if (!processedDetail) {
+                throw new Error('聊天详情处理失败：数据为空');
+            }
+            
             this.cache.set(cacheKey, {
                 data: processedDetail,
                 timestamp: Date.now()
@@ -176,6 +181,12 @@ class HistoryService {
      * @returns {Object} 处理后的聊天详情
      */
     processChatDetail(chatDetail) {
+        // 检查chatDetail是否为空
+        if (!chatDetail) {
+            console.warn('processChatDetail: chatDetail为空');
+            return null;
+        }
+        
         return {
             ...chatDetail,
             title: this.generateChatTitle(chatDetail),
@@ -193,6 +204,11 @@ class HistoryService {
      * @returns {string} 聊天标题
      */
     generateChatTitle(chat) {
+        // 检查chat对象是否为空
+        if (!chat) {
+            return '未知标题';
+        }
+        
         if (chat.title) return chat.title;
         
         if (chat.messages && chat.messages.length > 0) {

@@ -91,7 +91,7 @@ class HistoryApiClient {
      */
     async getWorkspaces() {
         try {
-            const response = await fetch(`${this.baseUrl}/workspaces`);
+            const response = await fetch(`${this.baseUrl}/history/workspaces`);
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }

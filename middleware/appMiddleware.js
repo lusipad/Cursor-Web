@@ -10,6 +10,12 @@ class AppMiddleware {
     }
 
     setupMiddleware() {
+        // 请求日志中间件
+        this.app.use((req, res, next) => {
+            console.log(`📡 ${new Date().toISOString()} ${req.method} ${req.url}`);
+            next();
+        });
+
         // JSON 解析中间件
         this.app.use(express.json({ limit: config.middleware.jsonLimit }));
 

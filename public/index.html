@@ -47,50 +47,30 @@
 
             <!-- 历史记录 Tab 内容 -->
             <section id="history-tab" class="tab-content active">
-                <div class="history-panel">
-                    <div style="padding: 20px; border-bottom: 1px solid #404040;">
-                        <h2 style="margin: 0 0 15px 0; color: #ffffff;">Cursor 聊天历史记录</h2>
-                        
-                        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                            <input type="text" id="history-search" placeholder="搜索聊天内容..." 
-                                   style="padding: 8px 12px; border: 1px solid #404040; border-radius: 4px; font-size: 14px; min-width: 200px; background: #2d2d2d; color: #ffffff;">
-                            <input type="text" id="folder-search" placeholder="筛选文件夹..." 
-                                   style="padding: 8px 12px; border: 1px solid #404040; border-radius: 4px; font-size: 14px; min-width: 150px; background: #2d2d2d; color: #ffffff;">
-                            <button onclick="searchChats()" class="btn btn-primary">搜索</button>
-                            <button onclick="refreshChats()" class="btn btn-secondary">刷新</button>
-                            <button onclick="clearCache()" class="btn btn-info">清除缓存</button>
-                            <button id="toggle-all-projects" class="btn btn-info" onclick="toggleAllProjects()" title="切换显示所有项目">
-                                📁 全部项目
-                            </button>
+                <div class="workspace-history-panel">
+                    <div class="workspace-header">
+                        <h2>Cursor Chat History</h2>
+                        <div class="workspace-controls">
+                            <input type="text" id="workspace-search" placeholder="搜索..." class="workspace-search-input">
+                            <button onclick="refreshWorkspaces()" class="btn-refresh" title="刷新">🔄</button>
                         </div>
                     </div>
                     
-                    <div id="history-stats" style="padding: 10px 20px; background: #2d2d2d; border-bottom: 1px solid #404040; font-size: 14px; color: #cccccc;">
-                        准备就绪...
+                    <div class="workspace-grid" id="workspace-grid">
+                        <div class="loading-workspace">正在加载工作区...</div>
                     </div>
                     
-                    <div class="history-content" style="display: flex; flex: 1; min-height: 0;">
-                        <!-- 项目文件夹导航 -->
-                        <div class="project-folders-nav" style="width: 250px; border-right: 1px solid #404040; overflow-y: auto; padding: 0; background: #2d2d2d; flex-shrink: 0;">
-                            <div style="padding: 10px; border-bottom: 1px solid #404040; font-weight: 600; background: #404040; color: #ffffff;">
-                                项目文件夹
+                    <!-- 工作区详情弹窗 -->
+                    <div id="workspace-detail-modal" class="workspace-modal" style="display: none;">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h3 id="modal-workspace-name">工作区名称</h3>
+                                <button class="modal-close" onclick="closeWorkspaceModal()">&times;</button>
                             </div>
-                            <div id="project-folders" class="project-folders">
-                                <div class="loading" style="padding: 20px; text-align: center; color: #cccccc;">正在加载项目...</div>
-                            </div>
-                        </div>
-                        
-                        <!-- 聊天列表 -->
-                        <div class="chat-list-section" style="flex: 1; border-right: 1px solid #404040; overflow-y: auto; padding: 20px; background: #1a1a1a; min-width: 0;">
-                            <div id="chat-list-container" class="chat-list-container">
-                                <div class="loading" style="color: #cccccc;">正在加载聊天记录...</div>
-                            </div>
-                        </div>
-                        
-                        <!-- 聊天详情 -->
-                        <div class="chat-detail-section" style="flex: 2; overflow-y: auto; padding: 20px; background: #1a1a1a; min-width: 0;">
-                            <div id="chat-detail-container" class="chat-detail-container">
-                                <div class="loading" style="color: #cccccc;">选择一个聊天查看详情...</div>
+                            <div class="modal-body">
+                                <div class="time-groups" id="workspace-time-groups">
+                                    <!-- 按时间分组的聊天记录 -->
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -240,10 +220,13 @@
 
                 try {
                     const response = await this.apiClient.getAllChats(options);
+                    console.log('API响应:', response);
                     
                     let chats;
                     if (response && response.success && Array.isArray(response.data)) {
                         chats = response.data;
+                    } else if (Array.isArray(response)) {
+                        chats = response;
                     } else {
                         console.warn('意外的API响应格式:', response);
                         chats = [];
@@ -358,34 +341,117 @@
         let currentChats = [];
         let allProjects = {};
         let currentGitPath = null;
-        let showAllProjects = false;
+        let showAllProjects = true;
 
-        // 功能函数
-        async function loadHistoryChats() {
-            await loadProjectFolders();
-            await loadCurrentGitPath();
-            await loadChatsForCurrentProject();
+        // 工作区历史记录管理器
+        let historyManager = null;
+
+        // 初始化工作区历史记录
+        async function initWorkspaceHistory() {
+            try {
+                const historyContainer = document.querySelector('#history-tab');
+                if (historyContainer && typeof HistoryManager !== 'undefined') {
+                    historyManager = new HistoryManager(historyContainer);
+                    await historyManager.init();
+                    console.log('✅ 工作区历史记录管理器初始化成功');
+                } else {
+                    console.error('❌ 历史记录容器或HistoryManager类未找到');
+                }
+            } catch (error) {
+                console.error('❌ 工作区历史记录初始化失败:', error);
+            }
         }
 
+        // 兼容性函数（保留旧的函数名）
+        async function loadHistoryChats() {
+            await initWorkspaceHistory();
+        }
+
+        // 兼容性函数（保留但不执行实际逻辑）
         async function loadProjectFolders() {
-            const projectContainer = document.getElementById('project-folders');
-            projectContainer.innerHTML = '<div class="loading" style="padding: 20px; text-align: center;">正在加载项目...</div>';
+            // 此函数已被新的工作区管理器替代
+            console.log('loadProjectFolders 已被工作区管理器替代');
             
             try {
-                const chats = await historyService.getChatList();
+                // 同时获取项目信息和聊天记录
+                const [projectResponse, chatsResponse] = await Promise.all([
+                    fetch('/api/history/file-paths'),
+                    fetch('/api/history/chats')
+                ]);
                 
-                // 按项目分组
-                const projects = groupChatsByProject(chats);
-                allProjects = projects;
+                const projectData = await projectResponse.json();
+                const chatsData = await chatsResponse.json();
                 
-                // 应用文件夹筛选
-                const folderFilter = document.getElementById('folder-search').value;
-                const filteredProjects = filterProjects(projects, folderFilter);
+                console.log('🔍 项目数据:', projectData);
+                console.log('🔍 聊天数据:', chatsData);
+                console.log('🔍 聊天记录示例:', chatsData.data ? chatsData.data.slice(0, 3) : 'No data');
+                if (chatsData.data && chatsData.data.length > 0) {
+                    console.log('🔍 第一条聊天记录的project字段:', chatsData.data[0].project);
+                    console.log('🔍 第一条聊天记录的workspaceId字段:', chatsData.data[0].workspaceId);
+                }
                 
-                displayProjectFolders(filteredProjects);
+                if (projectData.data && projectData.data.projectInfo && projectData.data.projectInfo.length > 0) {
+                    // 转换为项目对象格式
+                    const projects = {};
+                    
+                    // 首先创建项目结构
+                    projectData.data.projectInfo.forEach(project => {
+                        const key = `${project.workspaceId}|${project.name}`;
+                        projects[key] = {
+                            name: project.name,
+                            path: project.rootPath,
+                            chats: [],
+                            workspaceId: project.workspaceId,
+                            lastModified: project.lastModified
+                        };
+                    });
+                    
+                    // 然后关联聊天记录
+                    if (Array.isArray(chatsData.data)) {
+                        chatsData.data.forEach(chat => {
+                            // 处理不同的数据结构
+                            let workspaceId, projectName;
+                            
+                            if (chat.project && chat.project.workspace_id && chat.project.name) {
+                                // 新的数据结构
+                                workspaceId = chat.project.workspace_id;
+                                projectName = chat.project.name;
+                            } else if (chat.workspaceId && chat.project && chat.project.name) {
+                                // 备用数据结构
+                                workspaceId = chat.workspaceId;
+                                projectName = chat.project.name;
+                            }
+                            
+                            if (workspaceId && projectName) {
+                                const key = `${workspaceId}|${projectName}`;
+                                if (projects[key]) {
+                                    projects[key].chats.push(chat);
+                                }
+                            }
+                        });
+                    }
+                    
+                    allProjects = projects;
+                    
+                    // 应用文件夹筛选
+                    const folderFilter = document.getElementById('folder-search').value;
+                    const filteredProjects = filterProjects(projects, folderFilter);
+                    
+                    displayProjectFolders(filteredProjects);
+                    
+                    // 计算总聊天数量
+                    const totalChats = Object.values(projects).reduce((sum, project) => sum + project.chats.length, 0);
+                    
+                    // 更新统计信息
+                    updateHistoryStats(`发现 ${projectData.data.projectInfo.length} 个项目，${totalChats} 条聊天记录`);
+                } else {
+                    projectContainer.innerHTML = '<div class="error" style="padding: 20px; text-align: center; color: #cccccc;">没有找到项目</div>';
+                    updateHistoryStats('没有找到项目');
+                }
             } catch (error) {
                 console.error('加载项目失败:', error);
                 projectContainer.innerHTML = '<div class="error" style="padding: 20px; text-align: center; color: red;">加载失败</div>';
+                updateHistoryStats(`加载失败: ${error.message}`);
             }
         }
 
@@ -406,17 +472,28 @@
         }
 
         async function loadChatsForCurrentProject() {
+            console.log('🚀 loadChatsForCurrentProject 函数被调用');
             updateHistoryStats('正在加载聊天记录...');
             
             try {
+                console.log('🔄 开始调用historyService.getChatList()');
                 let chats = await historyService.getChatList();
+                console.log('📊 API返回的聊天记录数量:', chats ? chats.length : 'null/undefined');
+                console.log('📋 API返回的数据类型:', typeof chats);
+                if (chats && chats.length > 0) {
+                    console.log('📝 第一条聊天记录:', chats[0]);
+                } else {
+                    console.warn('⚠️ API返回的聊天记录为空或无效');
+                }
                 
                 // 根据当前模式过滤聊天记录
                 if (!showAllProjects && currentGitPath) {
+                    const originalLength = chats.length;
                     chats = chats.filter(chat => 
                         chat.project && chat.project.path && 
                         chat.project.path.includes(currentGitPath)
                     );
+                    console.log(`🔍 过滤后聊天记录数量: ${chats.length} / ${originalLength}`);
                 }
                 
                 currentChats = chats;
@@ -426,7 +503,7 @@
                 const totalCount = Object.values(allProjects).reduce((sum, project) => sum + project.chats.length, 0);
                 updateHistoryStats(`显示 ${chats.length} / ${totalCount} 条聊天记录`);
             } catch (error) {
-                console.error('加载聊天记录失败:', error);
+                console.error('❌ 加载聊天记录失败:', error);
                 updateHistoryStats(`加载失败: ${error.message}`);
                 document.getElementById('chat-list-container').innerHTML = 
                     `<div class="error">加载失败: ${error.message}</div>`;
@@ -436,8 +513,37 @@
         function displayHistoryChats(chats) {
             const container = document.getElementById('chat-list-container');
             if (!chats || chats.length === 0) {
-                container.innerHTML = '<div class="error" style="color: #cccccc;">没有找到聊天记录</div>';
+                container.innerHTML = `
+                    <div style="background: #2d2d2d; border: 1px solid #404040; border-radius: 6px; padding: 20px; margin: 20px 0; color: #cccccc; text-align: center;">
+                        <div style="font-size: 18px; margin-bottom: 15px; color: #ffffff;">📭 没有找到聊天记录</div>
+                        <div style="font-size: 14px; line-height: 1.6; margin-bottom: 15px;">
+                            可能的原因：<br>
+                            • Cursor 编辑器尚未安装或首次使用<br>
+                            • 还没有与 AI 进行过对话<br>
+                            • 程序无权限访问 Cursor 数据文件<br>
+                            • Cursor 聊天记录数据库为空或损坏
+                        </div>
+                        <div style="font-size: 13px; color: #888888;">
+                            请在 Cursor 编辑器中与 AI 进行对话后刷新页面
+                        </div>
+                    </div>
+                `;
                 return;
+            }
+            
+            // 检查是否是演示数据
+            const isDemoData = chats.some(chat => chat.sessionId && chat.sessionId.startsWith('demo-'));
+            let demoWarning = '';
+            if (isDemoData) {
+                demoWarning = `
+                    <div style="background: #2d1b1b; border: 1px solid #8b4513; border-radius: 6px; padding: 15px; margin-bottom: 20px; color: #ffcc99;">
+                        <div style="font-weight: bold; margin-bottom: 8px;">⚠️ 当前显示演示数据</div>
+                        <div style="font-size: 14px; line-height: 1.5;">未找到真实的 Cursor 聊天记录。请确保：<br>
+                        • Cursor 编辑器已正确安装<br>
+                        • 在 Cursor 中有过 AI 对话历史<br>
+                        • 程序有权限访问 Cursor 数据文件</div>
+                    </div>
+                `;
             }
 
             // 性能优化：虚拟滚动
@@ -454,12 +560,18 @@
                          style="border: 1px solid #404040; margin: 8px 0; padding: 12px; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; background: #2d2d2d;"
                          onmouseover="this.style.background='#3d3d3d'" 
                          onmouseout="this.style.background='#2d2d2d'">
-                        <div style="font-size: 16px; font-weight: 600; margin-bottom: 5px; color: #ffffff;">${chat.title}</div>
+                        <div style="font-size: 16px; font-weight: 600; margin-bottom: 5px; color: #ffffff;">${chat.title || '未知标题'}</div>
                         <div style="color: #cccccc; font-size: 14px; margin-bottom: 5px;">${chat.preview}</div>
-                        <div style="font-size: 12px; color: #888888; display: flex; gap: 15px;">
-                            <span>项目: ${chat.project?.name || '未知'}</span>
-                            <span>消息: ${chat.messageCount}</span>
-                            <span>${chat.formattedTime}</span>
+                        <div style="font-size: 12px; color: #888888; display: flex; flex-direction: column; gap: 5px;">
+                            <div style="display: flex; gap: 15px;">
+                                <span>项目: ${chat.project?.name || '未知'}</span>
+                                <span>消息: ${chat.messageCount}</span>
+                                <span>${chat.formattedTime}</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 5px;" title="${chat.project?.path || chat.project?.rootPath || ''}">
+                                <span>📁</span>
+                                <span style="font-size: 11px; color: #666666;">${chat.project?.path || chat.project?.rootPath || 'Unknown Path'}</span>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -476,7 +588,7 @@
                 `;
             }
             
-            container.innerHTML = html;
+            container.innerHTML = demoWarning + html;
             
             const performanceEnd = performance.now();
             console.log(`🚀 渲染 ${chatsToRender.length} 个聊天卡片耗时: ${(performanceEnd - performanceStart).toFixed(2)}ms`);
@@ -506,12 +618,18 @@
                          style="border: 1px solid #404040; margin: 8px 0; padding: 12px; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; background: #2d2d2d;"
                          onmouseover="this.style.background='#3d3d3d'" 
                          onmouseout="this.style.background='#2d2d2d'">
-                        <div style="font-size: 16px; font-weight: 600; margin-bottom: 5px; color: #ffffff;">${chat.title}</div>
+                        <div style="font-size: 16px; font-weight: 600; margin-bottom: 5px; color: #ffffff;">${chat.title || '未知标题'}</div>
                         <div style="color: #cccccc; font-size: 14px; margin-bottom: 5px;">${chat.preview}</div>
-                        <div style="font-size: 12px; color: #888888; display: flex; gap: 15px;">
-                            <span>项目: ${chat.project?.name || '未知'}</span>
-                            <span>消息: ${chat.messageCount}</span>
-                            <span>${chat.formattedTime}</span>
+                        <div style="font-size: 12px; color: #888888; display: flex; flex-direction: column; gap: 5px;">
+                            <div style="display: flex; gap: 15px;">
+                                <span>项目: ${chat.project?.name || '未知'}</span>
+                                <span>消息: ${chat.messageCount}</span>
+                                <span>${chat.formattedTime}</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 5px;" title="${chat.project?.path || chat.project?.rootPath || ''}">
+                                <span>📁</span>
+                                <span style="font-size: 11px; color: #666666;">${chat.project?.path || chat.project?.rootPath || 'Unknown Path'}</span>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -549,8 +667,12 @@
             
             try {
                 const chat = await historyService.getChatDetail(sessionId);
-                displayHistoryChatDetail(chat);
-                updateHistoryStats(`显示聊天详情: ${chat.title}`);
+                if (chat) {
+                    displayHistoryChatDetail(chat);
+                    updateHistoryStats(`显示聊天详情: ${chat.title || '未知标题'}`);
+                } else {
+                    throw new Error('聊天详情为空');
+                }
             } catch (error) {
                 console.error('加载详情失败:', error);
                 updateHistoryStats(`加载详情失败: ${error.message}`);
@@ -562,8 +684,14 @@
         function displayHistoryChatDetail(chat) {
             const container = document.getElementById('chat-detail-container');
             
+            // 检查chat对象是否有效
+            if (!chat) {
+                container.innerHTML = '<div class="error">聊天详情数据无效</div>';
+                return;
+            }
+            
             let html = `
-                <h3 style="margin: 0 0 15px 0; color: #ffffff;">${chat.title}</h3>
+                <h3 style="margin: 0 0 15px 0; color: #ffffff;">${chat.title || '未知标题'}</h3>
                 <div style="margin: 15px 0; font-size: 14px; color: #cccccc; background: #2d2d2d; padding: 15px; border-radius: 4px; border: 1px solid #404040;">
                     <p style="margin: 5px 0;"><strong>会话ID:</strong> <code style="color: #ffffff;">${chat.sessionId}</code></p>
                     <p style="margin: 5px 0;"><strong>项目:</strong> ${chat.project?.name || '未知'}</p>
@@ -670,6 +798,52 @@
 
         function updateHistoryStats(message) {
             document.getElementById('history-stats').textContent = message;
+        }
+
+        function groupChatsByWorkspace(chats) {
+            const groups = {};
+            
+            console.log('🔍 groupChatsByWorkspace: 开始处理聊天记录', chats.length, '条');
+            
+            chats.forEach((chat, index) => {
+                // 直接使用后端返回的工作区匹配结果
+                const project = chat.project || {};
+                const projectName = project.name || 'Unknown Project';
+                const projectPath = project.path || project.rootPath || '';
+                const workspaceId = project.workspace_id || chat.workspaceId || 'global';
+                
+                // 调试信息
+                if (index < 3) {
+                    console.log(`📋 聊天记录 ${index + 1}:`, {
+                        project: chat.project,
+                        projectName,
+                        projectPath,
+                        workspaceId,
+                        chatWorkspaceId: chat.workspaceId
+                    });
+                }
+                
+                // 使用工作区ID作为唯一键，确保正确分组
+                const key = `${workspaceId}|${projectName}`;
+                
+                if (!groups[key]) {
+                    groups[key] = {
+                        name: projectName,
+                        path: projectPath,
+                        chats: [],
+                        workspaceId: workspaceId
+                    };
+                }
+                groups[key].chats.push(chat);
+            });
+            
+            console.log('📊 分组结果:', Object.keys(groups).map(key => ({
+                key,
+                name: groups[key].name,
+                chatCount: groups[key].chats.length
+            })));
+            
+            return groups;
         }
 
         function groupChatsByProject(chats) {
@@ -820,6 +994,8 @@
             html += renderFolderTree(folderTree, projects);
 
             container.innerHTML = html;
+            
+            console.log('📁 项目文件夹显示完成:', Object.keys(projects).length, '个项目');
         }
 
         function filterProjects(projects, filterText) {
@@ -831,7 +1007,7 @@
             const filterLower = filterText.toLowerCase();
 
             Object.entries(projects).forEach(([key, project]) => {
-                const projectName = project.name.toLowerCase();
+                const projectName = (project.name || '').toLowerCase();
                 const projectPath = (project.path || '').toLowerCase();
                 
                 // 检查项目名称或路径是否包含筛选文本
@@ -840,6 +1016,7 @@
                 }
             });
 
+            console.log(`🔍 筛选结果: ${Object.keys(filtered).length}/${Object.keys(projects).length} 个项目匹配 "${filterText}"`);
             return filtered;
         }
 
@@ -847,7 +1024,7 @@
             const tree = {};
             const performanceStart = performance.now();
             
-            Object.entries(projects).forEach(([projectName, project]) => {
+            Object.entries(projects).forEach(([projectKey, project]) => {
                 const path = project.path || '';
                 const pathParts = path.split('/').filter(part => part && part.length > 0);
                 
@@ -863,11 +1040,14 @@
                     currentLevel = currentLevel[part].children;
                 });
                 
-                // 添加项目到最终位置
-                currentLevel[projectName] = {
+                // 添加项目到最终位置，使用项目名称作为显示名
+                const displayName = project.name || 'Unknown Project';
+                currentLevel[displayName] = {
                     type: 'project',
                     project: project,
-                    projectName: projectName
+                    projectName: displayName,
+                    projectKey: projectKey,
+                    path: path
                 };
             });
             
@@ -875,7 +1055,7 @@
             calculateFolderChatCounts(tree);
             
             const performanceEnd = performance.now();
-            console.log(`🚀 构建文件夹树耗时: ${(performanceEnd - performanceStart).toFixed(2)}ms`);
+            console.log(`🚀 构建文件夹树耗时: ${(performanceEnd - performanceStart).toFixed(2)}ms, 处理了 ${Object.keys(projects).length} 个项目`);
             
             return tree;
         }
@@ -928,9 +1108,14 @@
                         <div class="project-folder" style="margin-left: ${level * 15}px; padding: 8px 12px; border-bottom: 1px solid #404040; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: space-between; ${isActive ? 'background: #1a2a3a; border-left: 3px solid #3b82f6;' : ''}" 
                              onclick="selectProject('${node.projectName.replace(/'/g, "\\'")}')" 
                              data-project="${node.projectName}">
-                            <div style="display: flex; align-items: center; flex: 1;">
-                                <span style="margin-right: 8px; color: #00bbff;">💬</span>
-                                <span style="font-weight: 500; color: #ffffff; font-size: 14px;">${node.projectName}</span>
+                            <div style="display: flex; flex-direction: column; flex: 1;">
+                                <div style="display: flex; align-items: center;">
+                                    <span style="margin-right: 8px; color: #00bbff;">💬</span>
+                                    <span style="font-weight: 500; color: #ffffff; font-size: 14px;">${node.projectName}</span>
+                                </div>
+                                <div style="margin-left: 24px; font-size: 12px; color: #888888; margin-top: 2px;" title="${node.project.path || ''}">
+                                    📁 ${node.project.path || 'Unknown Path'}
+                                </div>
                             </div>
                             <span style="background: #3b82f6; color: white; padding: 2px 6px; border-radius: 10px; font-size: 12px; min-width: 20px; text-align: center;">${node.project.chats.length}</span>
                         </div>
@@ -987,7 +1172,7 @@
             filterFolders(); // 重新应用文件夹筛选
         }
 
-        // 初始化历史记录（当切换到历史记录标签时）
+        // 初始化历史记录（当切换到历史记录标签时或页面加载时）
         document.addEventListener('DOMContentLoaded', () => {
             // 监听标签切换事件
             document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -1001,18 +1186,24 @@
                     }
                 });
             });
+            
+            // 检查页面加载时是否已经在历史记录标签
+            const activeTab = document.querySelector('.tab-btn.active');
+            if (activeTab && activeTab.dataset.tab === 'history-tab') {
+                console.log('历史记录标签已激活，正在加载历史记录...');
+                setTimeout(() => {
+                    loadHistoryChats();
+                }, 100);
+            }
 
-            // 绑定搜索事件
-            document.getElementById('history-search').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    searchChats();
-                }
-            });
-
-            // 绑定文件夹筛选事件
-            document.getElementById('folder-search').addEventListener('input', (e) => {
-                filterFolders();
-            });
+            // 历史记录相关事件绑定已移至HistoryManager中
+            // 检查是否需要初始化工作区历史记录
+            if (activeTab && activeTab.dataset.tab === 'history-tab') {
+                console.log('历史记录标签已激活，正在初始化工作区历史记录...');
+                setTimeout(() => {
+                    initWorkspaceHistory();
+                }, 100);
+            }
         });
 
         function filterFolders() {
@@ -1033,68 +1224,15 @@
         // 页面加载完成后立即加载历史记录
         setTimeout(() => {
             if (document.querySelector('.tab-btn[data-tab="history-tab"]').classList.contains('active')) {
+                console.log('🚀 历史记录标签已激活，开始加载历史记录');
                 loadHistoryChats();
             }
         }, 500);
     </script>
-    <script src="js/modules/git-manager.js"></script>
     <script>
     // 页面加载完成后初始化
      window.addEventListener('load', function() {
-         console.log('🚀 页面加载完成，初始化历史记录管理器');
-         
-         // 立即显示一个测试消息
-         const chatList = document.getElementById('chat-list');
-         if (chatList) {
-             chatList.innerHTML = '<div style="color: yellow; padding: 10px;">🔄 JavaScript正在执行，准备加载聊天记录...</div>';
-         }
-         
-         setTimeout(function() {
-             // 使用模块系统加载历史记录管理器
-             if (window.ModuleLoader) {
-                 ModuleLoader.loadModule('HistoryManager').then(async () => {
-                     if (window.HistoryManager) {
-                          try {
-                              const historyContainer = document.querySelector('#history-tab');
-                              window.historyManager = new window.HistoryManager(historyContainer);
-                              await window.historyManager.init();
-                             console.log('✅ 历史记录管理器初始化成功');
-                             
-                             // 等待2秒后检查结果
-                             setTimeout(() => {
-                                 const chatListAfter = document.getElementById('chat-list');
-                                 if (chatListAfter) {
-                                     console.log('📋 2秒后聊天列表内容长度:', chatListAfter.innerHTML.length);
-                                     if (chatListAfter.innerHTML.length < 200) {
-                                         chatListAfter.innerHTML = '<div style="color: red; padding: 10px;">❌ 聊天记录加载失败，请检查控制台日志</div>';
-                                     }
-                                 }
-                             }, 2000);
-                         } catch (error) {
-                             console.error('❌ 历史记录管理器初始化失败:', error);
-                             if (chatList) {
-                                 chatList.innerHTML = `<div style="color: red; padding: 10px;">❌ 初始化失败: ${error.message}</div>`;
-                             }
-                         }
-                     } else {
-                         console.error('❌ HistoryManager模块加载失败');
-                         if (chatList) {
-                             chatList.innerHTML = '<div style="color: red; padding: 10px;">❌ HistoryManager模块加载失败</div>';
-                         }
-                     }
-                 }).catch(error => {
-                     console.error('❌ 模块加载失败:', error);
-                     if (chatList) {
-                         chatList.innerHTML = `<div style="color: red; padding: 10px;">❌ 模块加载失败: ${error.message}</div>`;
-                     }
-                 });
-             } else {
-                 console.error('❌ ModuleLoader未找到');
-                 if (chatList) {
-                     chatList.innerHTML = '<div style="color: red; padding: 10px;">❌ ModuleLoader未找到</div>';
-                 }
-             }
-         }, 500);
+         console.log('🚀 页面加载完成');
      });
     
     // Tab 切换逻辑
@@ -1110,19 +1248,12 @@
                 updateQuickStatus();
             }
             
-            // 如果切换到历史记录tab，初始化历史记录管理器
+            // 如果切换到历史记录tab，加载历史记录
             if (this.dataset.tab === 'history-tab') {
-                if (window.ModuleLoader && !window.historyManager) {
-                    ModuleLoader.loadModule('HistoryManager').then(async () => {
-                        if (window.HistoryManager && !window.historyManager) {
-                             const historyContainer = document.querySelector('#history-tab');
-                             window.historyManager = new window.HistoryManager(historyContainer);
-                             await window.historyManager.init();
-                        }
-                    }).catch(error => {
-                        console.error('❌ 历史记录管理器加载失败:', error);
-                    });
-                }
+                console.log('🔄 切换到历史记录标签，开始加载历史记录');
+                setTimeout(() => {
+                    loadHistoryChats();
+                }, 100);
             }
         });
     });
@@ -1228,7 +1359,7 @@
     // 强制初始化和加载函数
     window.forceInitAndLoad = function() {
         console.log('🔧 强制初始化和加载...');
-        const chatList = document.getElementById('chat-list');
+        const chatList = document.getElementById('chat-list-container');
         
         try {
             // 重置状态
@@ -1288,58 +1419,14 @@
         }
     };
     
-    // 调试状态函数
-    window.debugHistoryManager = function() {
-        console.log('=== 调试信息 ===');
-        console.log('HistoryManager类型:', typeof window.HistoryManager);
-        console.log('ModuleLoader:', typeof window.ModuleLoader);
-        console.log('historyManager实例:', window.historyManager);
-        console.log('chat-list元素:', document.getElementById('chat-list'));
-        
-        if (window.historyManager) {
-            console.log('聊天数据:', window.historyManager.chats);
-            console.log('聊天数量:', window.historyManager.chats ? window.historyManager.chats.length : 'undefined');
-            console.log('加载状态:', window.historyManager.isLoading);
-        } else {
-            console.log('❌ historyManager实例不存在');
-        }
-        
-        const chatList = document.getElementById('chat-list');
-        if (chatList) {
-            console.log('chat-list内容长度:', chatList.innerHTML.length);
-            console.log('chat-list内容预览:', chatList.innerHTML.substring(0, 100));
-        }
-        
-        // 测试API
-        fetch('/api/history/chats')
-            .then(response => {
-                console.log('API响应状态:', response.status);
-                return response.json();
-            })
-            .then(data => {
-                console.log('API返回数据类型:', typeof data);
-                console.log('API返回数据长度:', Array.isArray(data) ? data.length : 'not array');
-                if (Array.isArray(data) && data.length > 0) {
-                    console.log('第一条记录:', data[0]);
-                }
-            })
-            .catch(error => {
-                console.error('API测试失败:', error);
-            });
-    };
+
     
     // 强制初始化函数（保持向后兼容）
     async function forceInit() {
-        console.log('🔧 强制初始化历史记录管理器');
+        console.log('🔧 强制初始化工作区历史记录管理器');
         try {
-            if (typeof HistoryManager !== 'undefined') {
-                const historyContainer = document.querySelector('#history-tab');
-                window.historyManager = new HistoryManager(historyContainer);
-                await window.historyManager.init();
-                console.log('✅ 强制初始化成功');
-            } else {
-                console.error('❌ HistoryManager类未找到');
-            }
+            await initWorkspaceHistory();
+            console.log('✅ 强制初始化成功');
         } catch (error) {
             console.error('❌ 强制初始化失败:', error);
         }
@@ -1359,5 +1446,6 @@
     
 
     </script>
+    <script src="js/modules/HistoryManager.js"></script>
 </body>
 </html>

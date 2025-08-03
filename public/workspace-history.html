@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工作区聊天记录</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1e1e1e;
+            color: #ffffff;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #2d2d2d;
+            border-radius: 10px;
+        }
+        
+        .header h1 {
+            color: #007acc;
+            margin-bottom: 10px;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 30px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .workspace-selector {
+            flex: 1;
+            min-width: 300px;
+        }
+        
+        .workspace-selector label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .workspace-selector select {
+            width: 100%;
+            padding: 10px;
+            background: #2d2d2d;
+            color: #ffffff;
+            border: 1px solid #555;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .stats {
+            background: #2d2d2d;
+            padding: 15px;
+            border-radius: 5px;
+            min-width: 200px;
+        }
+        
+        .stats h3 {
+            color: #007acc;
+            margin-bottom: 10px;
+        }
+        
+        .search-box {
+            flex: 1;
+            min-width: 250px;
+        }
+        
+        .search-box input {
+            width: 100%;
+            padding: 10px;
+            background: #2d2d2d;
+            color: #ffffff;
+            border: 1px solid #555;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .chat-list {
+            display: grid;
+            gap: 20px;
+        }
+        
+        .chat-card {
+            background: #2d2d2d;
+            border-radius: 10px;
+            padding: 20px;
+            border-left: 4px solid #007acc;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .chat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(0, 122, 204, 0.3);
+        }
+        
+        .chat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .chat-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #ffffff;
+        }
+        
+        .chat-time {
+            color: #888;
+            font-size: 14px;
+        }
+        
+        .chat-info {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .info-item {
+            background: #3d3d3d;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            color: #ccc;
+        }
+        
+        .chat-preview {
+            color: #ccc;
+            font-size: 14px;
+            line-height: 1.5;
+            max-height: 100px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .chat-preview::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 20px;
+            background: linear-gradient(transparent, #2d2d2d);
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+        
+        .error {
+            background: #ff4444;
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        
+        .empty {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+            background: #2d2d2d;
+            border-radius: 10px;
+        }
+        
+        .btn {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        
+        .btn:hover {
+            background: #005a9e;
+        }
+        
+        .btn-secondary {
+            background: #555;
+        }
+        
+        .btn-secondary:hover {
+            background: #666;
+        }
+        
+        @media (max-width: 768px) {
+            .controls {
+                flex-direction: column;
+            }
+            
+            .workspace-selector,
+            .search-box {
+                min-width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🗂️ 工作区聊天记录</h1>
+            <p>按工作区查看和管理您的 Cursor 聊天历史</p>
+        </div>
+        
+        <div class="controls">
+            <div class="workspace-selector">
+                <label for="workspace-select">选择工作区:</label>
+                <select id="workspace-select">
+                    <option value="">正在加载工作区...</option>
+                </select>
+            </div>
+            
+            <div class="search-box">
+                <input type="text" id="search-input" placeholder="搜索聊天内容..." />
+            </div>
+            
+            <div class="stats">
+                <h3>统计信息</h3>
+                <div id="stats-content">
+                    <div>工作区: <span id="workspace-count">-</span></div>
+                    <div>聊天记录: <span id="chat-count">-</span></div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="chat-list" class="chat-list">
+            <div class="loading">正在加载数据...</div>
+        </div>
+    </div>
+    
+    <script>
+        class WorkspaceHistoryManager {
+            constructor() {
+                this.workspaces = new Map();
+                this.allChats = [];
+                this.filteredChats = [];
+                this.currentWorkspace = null;
+                this.searchQuery = '';
+                
+                this.init();
+            }
+            
+            async init() {
+                await this.loadData();
+                this.setupEventListeners();
+                this.updateStats();
+            }
+            
+            async loadData() {
+                try {
+                    // 并行加载工作区信息和聊天记录
+                    const [workspacesResponse, chatsResponse] = await Promise.all([
+                        fetch('/api/history/file-paths'),
+                        fetch('/api/history/chats')
+                    ]);
+                    
+                    const workspacesData = await workspacesResponse.json();
+                    const chatsData = await chatsResponse.json();
+                    
+                    // 处理工作区数据
+                    if (workspacesData.success && workspacesData.data && workspacesData.data.projectInfo) {
+                        workspacesData.data.projectInfo.forEach(project => {
+                            this.workspaces.set(project.workspaceId, {
+                                id: project.workspaceId,
+                                name: project.name,
+                                path: project.rootPath,
+                                lastModified: project.lastModified
+                            });
+                        });
+                    } else if (workspacesData.projectPaths) {
+                        // 兼容旧格式
+                        workspacesData.projectPaths.forEach(project => {
+                            this.workspaces.set(project.workspaceId, {
+                                id: project.workspaceId,
+                                name: project.name,
+                                path: project.path,
+                                lastModified: project.lastModified
+                            });
+                        });
+                    }
+                    
+                    // 处理聊天数据
+                    if (chatsData.success && Array.isArray(chatsData.data)) {
+                        this.allChats = chatsData.data;
+                    } else if (Array.isArray(chatsData)) {
+                        this.allChats = chatsData;
+                    }
+                    
+                    this.populateWorkspaceSelector();
+                    this.filterChats();
+                    
+                } catch (error) {
+                    console.error('加载数据失败:', error);
+                    this.showError('加载数据失败: ' + error.message);
+                }
+            }
+            
+            populateWorkspaceSelector() {
+                const select = document.getElementById('workspace-select');
+                select.innerHTML = '<option value="">所有工作区</option>';
+                
+                // 按名称排序工作区
+                const sortedWorkspaces = Array.from(this.workspaces.values())
+                    .sort((a, b) => a.name.localeCompare(b.name));
+                
+                sortedWorkspaces.forEach(workspace => {
+                    const option = document.createElement('option');
+                    option.value = workspace.id;
+                    option.textContent = `${workspace.name} (${workspace.path})`;
+                    select.appendChild(option);
+                });
+            }
+            
+            setupEventListeners() {
+                // 工作区选择器
+                document.getElementById('workspace-select').addEventListener('change', (e) => {
+                    this.currentWorkspace = e.target.value || null;
+                    this.filterChats();
+                });
+                
+                // 搜索框
+                const searchInput = document.getElementById('search-input');
+                searchInput.addEventListener('input', (e) => {
+                    this.searchQuery = e.target.value.toLowerCase();
+                    this.filterChats();
+                });
+                
+                searchInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        this.filterChats();
+                    }
+                });
+            }
+            
+            filterChats() {
+                let filtered = this.allChats;
+                
+                // 按工作区过滤
+                if (this.currentWorkspace) {
+                    filtered = filtered.filter(chat => 
+                        chat.project && chat.project.workspace_id === this.currentWorkspace
+                    );
+                }
+                
+                // 按搜索关键词过滤
+                if (this.searchQuery) {
+                    filtered = filtered.filter(chat => {
+                        const searchText = [
+                            chat.project?.name || '',
+                            ...(chat.messages || []).map(msg => msg.content || '')
+                        ].join(' ').toLowerCase();
+                        
+                        return searchText.includes(this.searchQuery);
+                    });
+                }
+                
+                // 按时间排序（最新的在前）
+                filtered.sort((a, b) => {
+                    const timeA = a.timestamp || a.lastModified || 0;
+                    const timeB = b.timestamp || b.lastModified || 0;
+                    return timeB - timeA;
+                });
+                
+                this.filteredChats = filtered;
+                this.displayChats();
+                this.updateStats();
+            }
+            
+            displayChats() {
+                const container = document.getElementById('chat-list');
+                
+                if (this.filteredChats.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty">
+                            <h3>📭 没有找到聊天记录</h3>
+                            <p>尝试选择不同的工作区或调整搜索条件</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                const html = this.filteredChats.map(chat => this.createChatCard(chat)).join('');
+                container.innerHTML = html;
+            }
+            
+            createChatCard(chat) {
+                const workspace = this.workspaces.get(chat.project?.workspace_id);
+                const workspaceName = workspace?.name || chat.project?.name || '未知工作区';
+                const workspacePath = workspace?.path || chat.project?.path || '未知路径';
+                
+                const messageCount = chat.messages?.length || 0;
+                const timestamp = chat.timestamp || chat.lastModified;
+                const timeStr = timestamp ? this.formatTime(new Date(timestamp)) : '未知时间';
+                
+                // 获取聊天预览（第一条用户消息）
+                const firstUserMessage = chat.messages?.find(msg => msg.role === 'user');
+                const preview = firstUserMessage?.content || '无内容预览';
+                const shortPreview = preview.length > 200 ? preview.substring(0, 200) + '...' : preview;
+                
+                return `
+                    <div class="chat-card">
+                        <div class="chat-header">
+                            <div class="chat-title">💬 ${workspaceName}</div>
+                            <div class="chat-time">${timeStr}</div>
+                        </div>
+                        
+                        <div class="chat-info">
+                            <div class="info-item">📁 ${workspacePath}</div>
+                            <div class="info-item">💬 ${messageCount} 条消息</div>
+                            <div class="info-item">🆔 ${chat.sessionId || '无ID'}</div>
+                        </div>
+                        
+                        <div class="chat-preview">
+                            ${this.escapeHtml(shortPreview)}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            formatTime(date) {
+                const now = new Date();
+                const diff = now - date;
+                
+                if (diff < 60000) return '刚刚';
+                if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`;
+                if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`;
+                if (diff < 604800000) return `${Math.floor(diff / 86400000)}天前`;
+                
+                return date.toLocaleDateString('zh-CN', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            }
+            
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+            
+            updateStats() {
+                document.getElementById('workspace-count').textContent = this.workspaces.size;
+                document.getElementById('chat-count').textContent = this.filteredChats.length;
+            }
+            
+            showError(message) {
+                const container = document.getElementById('chat-list');
+                container.innerHTML = `
+                    <div class="error">
+                        <h3>❌ 错误</h3>
+                        <p>${this.escapeHtml(message)}</p>
+                        <button class="btn btn-secondary" onclick="location.reload()">重新加载</button>
+                    </div>
+                `;
+            }
+        }
+        
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            new WorkspaceHistoryManager();
+        });
+    </script>
+</body>
+</html>

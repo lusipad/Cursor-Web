@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>所有会话列表 - Cursor 聊天历史</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            margin: 0; 
+            padding: 0; 
+            background: #f5f5f5;
+            line-height: 1.6;
+        }
+        .header {
+            background: #007acc;
+            color: white;
+            padding: 15px 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            display: inline-block;
+        }
+        .header-actions {
+            float: right;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .btn-primary {
+            background: #28a745;
+            color: white;
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .btn:hover {
+            opacity: 0.9;
+        }
+        .controls {
+            padding: 20px;
+            background: white;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .search-box {
+            flex: 1;
+            min-width: 300px;
+            position: relative;
+        }
+        .search-input {
+            width: 100%;
+            padding: 10px 40px 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        .search-btn {
+            position: absolute;
+            right: 5px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 5px;
+            color: #666;
+        }
+        .filter-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .view-toggle {
+            display: flex;
+            gap: 5px;
+            margin-right: 10px;
+        }
+        .view-btn {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            background: #f8f9fa;
+            color: #333;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        .view-btn:hover {
+            background: #e9ecef;
+        }
+        .view-btn.active {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        .filter-select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .stats {
+            padding: 10px 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #eee;
+            font-size: 14px;
+            color: #666;
+        }
+        .sessions-container {
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .session-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+        .workspace-view {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .workspace-item {
+            border: 1px solid #e1e4e8;
+            border-radius: 8px;
+            padding: 20px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .workspace-item:hover {
+            border-color: #0366d6;
+            box-shadow: 0 2px 8px rgba(3, 102, 214, 0.1);
+            transform: translateY(-1px);
+        }
+        .workspace-info {
+            flex: 1;
+        }
+        .workspace-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .workspace-title {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 600;
+            color: #24292e;
+        }
+        .workspace-time {
+            font-size: 12px;
+            color: #959da5;
+        }
+        .workspace-stats {
+            display: flex;
+            gap: 15px;
+            font-size: 14px;
+            color: #586069;
+        }
+        .workspace-count {
+            font-weight: 500;
+        }
+        .workspace-messages {
+            color: #959da5;
+        }
+        .workspace-arrow {
+            font-size: 20px;
+            color: #959da5;
+            margin-left: 15px;
+        }
+        .session-card {
+            background: white;
+            border: 1px solid #e1e4e8;
+            border-radius: 8px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .session-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            border-color: #007acc;
+        }
+        .session-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #24292e;
+            line-height: 1.4;
+        }
+        .session-preview {
+            color: #586069;
+            font-size: 14px;
+            margin-bottom: 12px;
+            line-height: 1.5;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .session-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            font-size: 12px;
+            color: #959da5;
+            margin-bottom: 10px;
+        }
+        .session-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .tag {
+            background: #f1f3f4;
+            color: #5f6368;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .tag.project {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        .tag.messages {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            font-size: 16px;
+        }
+        .error {
+            text-align: center;
+            padding: 40px;
+            color: #dc3545;
+            font-size: 16px;
+        }
+        .empty {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+        .empty h3 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+        .modal-content {
+            background: white;
+            margin: 5% auto;
+            padding: 0;
+            width: 90%;
+            max-width: 800px;
+            max-height: 80vh;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8f9fa;
+        }
+        .modal-header h3 {
+            margin: 0;
+            color: #333;
+        }
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #666;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-body {
+            padding: 20px;
+            overflow-y: auto;
+            flex: 1;
+        }
+        .message {
+            margin: 15px 0;
+            border-radius: 8px;
+            border: 1px solid #e1e4e8;
+            overflow: hidden;
+        }
+        .message.user { border-left: 4px solid #28a745; }
+        .message.assistant { border-left: 4px solid #6f42c1; }
+        .message-header {
+            padding: 12px 16px;
+            background: #f6f8fa;
+            border-bottom: 1px solid #e1e4e8;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .message-content {
+            padding: 16px;
+            font-size: 14px;
+            line-height: 1.6;
+            background: #fff;
+        }
+        .message.user .message-content { background: #f6ffed; }
+        .message.assistant .message-content { background: #f3f0ff; }
+        .message-content pre {
+            background: #f6f8fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 6px;
+            padding: 16px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+        .message-content code {
+            background: #f6f8fa;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 85%;
+        }
+        .message-content pre code {
+            background: transparent;
+            padding: 0;
+        }
+        @media (max-width: 768px) {
+            .session-grid {
+                grid-template-columns: 1fr;
+            }
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .search-box {
+                min-width: auto;
+            }
+            .header-actions {
+                float: none;
+                margin-top: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>所有会话列表</h1>
+        <div class="header-actions">
+            <a href="/" class="btn btn-secondary">返回主页</a>
+            <button onclick="refreshSessions()" class="btn btn-primary">刷新</button>
+        </div>
+        <div style="clear: both;"></div>
+    </div>
+
+    <div class="controls">
+        <div class="search-box">
+            <input type="text" id="search-input" class="search-input" placeholder="搜索会话标题、内容或项目名称..." onkeypress="handleSearchKeyPress(event)">
+            <button class="search-btn" onclick="searchSessions()">🔍</button>
+        </div>
+        <div class="filter-controls">
+            <div class="view-toggle">
+                <button id="list-view-btn" class="view-btn active" onclick="switchView('list')">📋 平铺视图</button>
+                <button id="workspace-view-btn" class="view-btn" onclick="switchView('workspace')">📁 工作区视图</button>
+            </div>
+            <select id="sort-select" class="filter-select" onchange="applySorting()">
+                <option value="time-desc">最新优先</option>
+                <option value="time-asc">最旧优先</option>
+                <option value="messages-desc">消息数量多</option>
+                <option value="messages-asc">消息数量少</option>
+                <option value="title-asc">标题A-Z</option>
+                <option value="title-desc">标题Z-A</option>
+            </select>
+            <select id="project-filter" class="filter-select" onchange="applyFilters()">
+                <option value="">所有项目</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="stats" id="stats">正在加载会话列表...</div>
+
+    <div class="sessions-container">
+        <div class="session-grid" id="sessions-grid">
+            <div class="loading">正在加载会话数据...</div>
+        </div>
+    </div>
+
+    <!-- 会话详情模态框 -->
+    <div id="session-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">会话详情</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- 会话详情内容 -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API客户端
+        class HistoryApiClient {
+            constructor() {
+                this.baseUrl = '/api/history';
+            }
+
+            async getAllChats(options = {}) {
+                const params = new URLSearchParams();
+                if (options.limit) params.append('limit', options.limit);
+                if (options.offset) params.append('offset', options.offset);
+                
+                const url = `${this.baseUrl}/chats${params.toString() ? '?' + params.toString() : ''}`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                return await response.json();
+            }
+
+            async getChatDetail(sessionId) {
+                const response = await fetch(`${this.baseUrl}/chat/${encodeURIComponent(sessionId)}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                return await response.json();
+            }
+
+            async searchChats(query) {
+                const response = await fetch(`${this.baseUrl}/search?q=${encodeURIComponent(query)}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                return await response.json();
+            }
+
+            async clearCache() {
+                const response = await fetch(`${this.baseUrl}/cache`, { method: 'DELETE' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                return await response.json();
+            }
+        }
+
+        // 全局变量
+        let apiClient = new HistoryApiClient();
+        let allSessions = [];
+        let filteredSessions = [];
+        let currentSort = 'time-desc';
+        let currentProjectFilter = '';
+        let currentView = 'list'; // 'list' 或 'workspace'
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', loadSessions);
+
+        async function loadSessions() {
+            updateStats('正在加载会话数据...');
+            
+            try {
+                const response = await apiClient.getAllChats();
+                
+                let sessions;
+                if (response && response.success && Array.isArray(response.data)) {
+                    sessions = response.data;
+                } else if (Array.isArray(response)) {
+                    sessions = response;
+                } else {
+                    console.warn('意外的API响应格式:', response);
+                    sessions = [];
+                }
+
+                allSessions = processSessions(sessions);
+                updateProjectFilter();
+                applyFilters();
+                
+                updateStats(`加载完成，共 ${allSessions.length} 个会话`);
+            } catch (error) {
+                console.error('加载会话失败:', error);
+                updateStats(`加载失败: ${error.message}`);
+                document.getElementById('sessions-grid').innerHTML = `
+                    <div class="error">
+                        <h3>加载失败</h3>
+                        <p>${error.message}</p>
+                        <button onclick="loadSessions()" class="btn btn-primary">重试</button>
+                    </div>
+                `;
+            }
+        }
+
+        function processSessions(sessions) {
+            return sessions.map(session => ({
+                ...session,
+                title: generateSessionTitle(session),
+                preview: generateSessionPreview(session),
+                formattedTime: formatTime(session.timestamp || session.lastModified),
+                messageCount: session.messages ? session.messages.length : 0,
+                projectName: session.project?.name || '未知项目'
+            }));
+        }
+
+        function generateSessionTitle(session) {
+            if (session.title) return session.title;
+            
+            if (session.messages && session.messages.length > 0) {
+                const firstUserMessage = session.messages.find(msg => msg.role === 'user');
+                if (firstUserMessage) {
+                    return firstUserMessage.content.substring(0, 50) + 
+                           (firstUserMessage.content.length > 50 ? '...' : '');
+                }
+            }
+            
+            return `会话 ${session.sessionId?.substring(0, 8) || 'Unknown'}`;
+        }
+
+        function generateSessionPreview(session) {
+            if (session.messages && session.messages.length > 0) {
+                const firstUserMessage = session.messages.find(msg => msg.role === 'user');
+                if (firstUserMessage) {
+                    return firstUserMessage.content.substring(0, 150) + 
+                           (firstUserMessage.content.length > 150 ? '...' : '');
+                }
+            }
+            return '暂无预览内容';
+        }
+
+        function formatTime(timestamp) {
+            if (!timestamp) return '未知时间';
+            
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+            
+            if (diffDays === 0) {
+                return '今天 ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            } else if (diffDays === 1) {
+                return '昨天 ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            } else if (diffDays < 7) {
+                return `${diffDays}天前`;
+            } else {
+                return date.toLocaleDateString('zh-CN');
+            }
+        }
+
+        function updateProjectFilter() {
+            const projectFilter = document.getElementById('project-filter');
+            const projects = [...new Set(allSessions.map(s => s.projectName))].sort();
+            
+            projectFilter.innerHTML = '<option value="">所有项目</option>';
+            projects.forEach(project => {
+                const option = document.createElement('option');
+                option.value = project;
+                option.textContent = project;
+                projectFilter.appendChild(option);
+            });
+        }
+
+        function applyFilters() {
+            const projectFilter = document.getElementById('project-filter').value;
+            
+            filteredSessions = allSessions.filter(session => {
+                if (projectFilter && session.projectName !== projectFilter) {
+                    return false;
+                }
+                return true;
+            });
+            
+            applySorting();
+        }
+
+        function applySorting() {
+            const sortSelect = document.getElementById('sort-select');
+            currentSort = sortSelect.value;
+            
+            filteredSessions.sort((a, b) => {
+                switch (currentSort) {
+                    case 'time-desc':
+                        return new Date(b.timestamp || b.lastModified) - new Date(a.timestamp || a.lastModified);
+                    case 'time-asc':
+                        return new Date(a.timestamp || a.lastModified) - new Date(b.timestamp || b.lastModified);
+                    case 'messages-desc':
+                        return b.messageCount - a.messageCount;
+                    case 'messages-asc':
+                        return a.messageCount - b.messageCount;
+                    case 'title-asc':
+                        return a.title.localeCompare(b.title);
+                    case 'title-desc':
+                        return b.title.localeCompare(a.title);
+                    default:
+                        return 0;
+                }
+            });
+            
+            displaySessions(filteredSessions);
+        }
+
+        function displaySessions(sessions) {
+            if (currentView === 'workspace') {
+                displaySessionsByWorkspace(sessions);
+            } else {
+                displaySessionsList(sessions);
+            }
+            updateStats(`显示 ${sessions.length} 个会话`);
+        }
+
+        function displaySessionsList(sessions) {
+            const container = document.getElementById('sessions-grid');
+            
+            if (!sessions || sessions.length === 0) {
+                container.innerHTML = `
+                    <div class="empty">
+                        <h3>没有找到会话</h3>
+                        <p>尝试调整筛选条件或刷新页面</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '';
+            sessions.forEach(session => {
+                html += generateSessionCardHtml(session);
+            });
+            
+            container.innerHTML = html;
+        }
+
+        async function openSessionDetail(sessionId) {
+            const modal = document.getElementById('session-modal');
+            const modalTitle = document.getElementById('modal-title');
+            const modalBody = document.getElementById('modal-body');
+            
+            modalTitle.textContent = '正在加载...';
+            modalBody.innerHTML = '<div class="loading">正在加载会话详情...</div>';
+            modal.style.display = 'block';
+            
+            try {
+                const response = await apiClient.getChatDetail(sessionId);
+                const session = response.data;
+                
+                modalTitle.textContent = session.title || `会话 ${sessionId ? sessionId.substring(0, 8) : 'unknown'}`;
+                
+                let html = `
+                    <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px;">
+                        <p><strong>会话ID:</strong> ${sessionId}</p>
+                        <p><strong>项目:</strong> ${session.project?.name || '未知'}</p>
+                        <p><strong>消息数量:</strong> ${session.messages?.length || 0}</p>
+                        <p><strong>时间:</strong> ${formatTime(session.timestamp || session.lastModified)}</p>
+                    </div>
+                `;
+                
+                if (session.messages && session.messages.length > 0) {
+                    const mergedMessages = mergeConsecutiveMessages(session.messages);
+                    mergedMessages.forEach(msg => {
+                        const processedContent = parseMarkdown(msg.content);
+                        html += `
+                            <div class="message ${msg.role}">
+                                <div class="message-header">
+                                    <div>${msg.role === 'user' ? '👤 用户' : '🤖 AI助手'}</div>
+                                    <div style="font-size: 12px; color: #666;">${msg.timeRange}</div>
+                                </div>
+                                <div class="message-content">${processedContent}</div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    html += '<p>暂无消息</p>';
+                }
+                
+                modalBody.innerHTML = html;
+            } catch (error) {
+                console.error('加载会话详情失败:', error);
+                modalBody.innerHTML = `<div class="error">加载失败: ${error.message}</div>`;
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('session-modal').style.display = 'none';
+        }
+
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            const modal = document.getElementById('session-modal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        }
+
+        async function searchSessions() {
+            const query = document.getElementById('search-input').value.trim();
+            
+            if (!query) {
+                applyFilters();
+                return;
+            }
+            
+            updateStats(`正在搜索: ${query}...`);
+            
+            try {
+                const response = await apiClient.searchChats(query);
+                const searchResults = processSessions(response.data || []);
+                displaySessions(searchResults);
+                updateStats(`搜索完成: ${searchResults.length} 个结果`);
+            } catch (error) {
+                console.error('搜索失败:', error);
+                updateStats(`搜索失败: ${error.message}`);
+            }
+        }
+
+        function handleSearchKeyPress(event) {
+            if (event.key === 'Enter') {
+                searchSessions();
+            }
+        }
+
+        async function refreshSessions() {
+            await apiClient.clearCache();
+            await loadSessions();
+        }
+
+        // 视图切换函数
+        function switchView(viewType) {
+            currentView = viewType;
+            
+            // 更新按钮状态
+            document.getElementById('list-view-btn').classList.toggle('active', viewType === 'list');
+            document.getElementById('workspace-view-btn').classList.toggle('active', viewType === 'workspace');
+            
+            // 重新显示会话
+            displaySessions(filteredSessions);
+        }
+
+        // 按工作区分组显示会话
+        function displaySessionsByWorkspace(sessions) {
+            const container = document.getElementById('sessions-grid');
+            
+            if (sessions.length === 0) {
+                container.innerHTML = '<div class="empty"><h3>没有找到会话</h3></div>';
+                return;
+            }
+            
+            // 按项目分组
+            const groupedSessions = {};
+            sessions.forEach(session => {
+                const projectName = session.projectName || '未知项目';
+                if (!groupedSessions[projectName]) {
+                    groupedSessions[projectName] = [];
+                }
+                groupedSessions[projectName].push(session);
+            });
+            
+            // 生成工作区视图HTML - 只显示工作区列表，不显示具体会话
+            let html = '<div class="workspace-view">';
+            
+            Object.keys(groupedSessions).sort().forEach(projectName => {
+                const projectSessions = groupedSessions[projectName];
+                const lastModified = Math.max(...projectSessions.map(s => s.lastModified || 0));
+                const formattedTime = formatTime(lastModified);
+                
+                html += `
+                    <div class="workspace-item" onclick="filterByWorkspace('${escapeHtml(projectName)}')">
+                        <div class="workspace-info">
+                            <div class="workspace-header">
+                                <h3 class="workspace-title">📁 ${escapeHtml(projectName)}</h3>
+                                <span class="workspace-time">${formattedTime}</span>
+                            </div>
+                            <div class="workspace-stats">
+                                <span class="workspace-count">${projectSessions.length} 个会话</span>
+                                <span class="workspace-messages">${projectSessions.reduce((sum, s) => sum + (s.messageCount || 0), 0)} 条消息</span>
+                            </div>
+                        </div>
+                        <div class="workspace-arrow">→</div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        // 按工作区过滤会话
+        function filterByWorkspace(workspaceName) {
+            // 切换回列表视图并过滤指定工作区的会话
+            currentView = 'list';
+            document.getElementById('list-view-btn').classList.add('active');
+            document.getElementById('workspace-view-btn').classList.remove('active');
+            
+            // 过滤会话
+            const filteredSessions = allSessions.filter(session => 
+                (session.projectName || 'Global Chat') === workspaceName
+            );
+            
+            renderListView(filteredSessions);
+            updateStats(`显示工作区 "${workspaceName}" 的 ${filteredSessions.length} 个会话`);
+        }
+
+        // 生成会话卡片HTML
+        function generateSessionCardHtml(session) {
+            return `
+                <div class="session-card" onclick="openSessionDetail('${session.sessionId}')">
+                    <div class="session-header">
+                        <h3 class="session-title">${escapeHtml(session.title)}</h3>
+                        <span class="session-time">${escapeHtml(session.formattedTime)}</span>
+                    </div>
+                    <div class="session-preview">${escapeHtml(session.preview)}</div>
+                    <div class="session-meta">
+                        <span class="session-project">📁 ${escapeHtml(session.projectName)}</span>
+                        <span class="session-messages">💬 ${session.messageCount} 条消息</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateStats(message) {
+            document.getElementById('stats').textContent = message;
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // 合并连续的同角色消息
+        function mergeConsecutiveMessages(messages) {
+            if (!messages || messages.length === 0) return [];
+            
+            const merged = [];
+            let currentGroup = {
+                role: messages[0].role,
+                content: messages[0].content,
+                startTime: formatTime(messages[0].timestamp),
+                endTime: formatTime(messages[0].timestamp),
+                timeRange: formatTime(messages[0].timestamp)
+            };
+            
+            for (let i = 1; i < messages.length; i++) {
+                const msg = messages[i];
+                
+                if (msg.role === currentGroup.role) {
+                    currentGroup.content += '\n\n' + msg.content;
+                    currentGroup.endTime = formatTime(msg.timestamp);
+                    currentGroup.timeRange = currentGroup.startTime === currentGroup.endTime 
+                        ? currentGroup.startTime 
+                        : `${currentGroup.startTime} - ${currentGroup.endTime}`;
+                } else {
+                    merged.push(currentGroup);
+                    currentGroup = {
+                        role: msg.role,
+                        content: msg.content,
+                        startTime: formatTime(msg.timestamp),
+                        endTime: formatTime(msg.timestamp),
+                        timeRange: formatTime(msg.timestamp)
+                    };
+                }
+            }
+            
+            merged.push(currentGroup);
+            return merged;
+        }
+
+        // 简单的Markdown解析
+        function parseMarkdown(text) {
+            if (!text) return '';
+            
+            return text
+                .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+                .replace(/\n/g, '<br>');
+        }
+    </script>
+</body>
+</html>
