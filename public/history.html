@@ -531,7 +531,9 @@
 
                 if (result.success) {
                     currentHistory = result.data;
-                    renderHistory(result.data.items);
+                    // 确保 data.items 存在，如果不存在则使用 data 本身
+                    const items = result.data.items || result.data || [];
+                    renderHistory(items);
                     renderPagination(result.data);
                 } else {
                     showError('加载历史记录失败: ' + result.error);
@@ -545,39 +547,52 @@
         function renderHistory(items) {
             const container = document.getElementById('historyList');
             
-            if (items.length === 0) {
+            if (!items || items.length === 0) {
                 container.innerHTML = '<div class="no-data">暂无历史记录</div>';
                 return;
             }
 
-            container.innerHTML = items.map(item => `
-                <div class="history-item type-${item.type}">
+            container.innerHTML = items.map(item => {
+                // 兼容不同的数据结构
+                const id = item.id || item.sessionId || `item_${Date.now()}_${Math.random()}`;
+                const type = item.type || 'chat';
+                const timestamp = item.timestamp || item.date || Date.now();
+                const summary = item.summary || `${item.project?.name || 'Unknown'}: ${item.messages?.length || 0} 条消息`;
+                const content = item.content || (item.messages ? item.messages.map(m => `${m.role}: ${m.content}`).join('\n') : '无内容');
+                
+                return `
+                <div class="history-item type-${type}">
                     <div class="history-item-header">
                         <div class="history-item-meta">
-                            <span class="type-badge type-${item.type}">${getTypeLabel(item.type)}</span>
-                            <span class="timestamp">${formatTimestamp(item.timestamp)}</span>
+                            <span class="type-badge type-${type}">${getTypeLabel(type)}</span>
+                            <span class="timestamp">${formatTimestamp(timestamp)}</span>
                         </div>
                         <div class="history-item-actions">
-                            <button class="btn btn-sm btn-primary" onclick="viewDetails('${item.id}')">查看</button>
-                            <button class="btn btn-sm btn-danger" onclick="deleteHistory('${item.id}')">删除</button>
+                            <button class="btn btn-sm btn-primary" onclick="viewDetails('${id}')">查看</button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteHistory('${id}')">删除</button>
                         </div>
                     </div>
-                    <div class="history-item-summary">${item.summary}</div>
-                    <div class="history-item-content">${formatContent(item.content)}</div>
-                    <div class="history-item-details" id="details-${item.id}">
+                    <div class="history-item-summary">${summary}</div>
+                    <div class="history-item-content">${formatContent(content)}</div>
+                    <div class="history-item-details" id="details-${id}">
                         <strong>详细信息:</strong><br>
-                        ID: ${item.id}<br>
-                        时间戳: ${new Date(item.timestamp).toISOString()}<br>
-                        元数据: ${JSON.stringify(item.metadata, null, 2)}
+                        ID: ${id}<br>
+                        时间戳: ${new Date(timestamp).toISOString()}<br>
+                        项目: ${item.project?.name || 'N/A'}<br>
+                        工作区: ${item.workspaceId || 'N/A'}<br>
+                        会话ID: ${item.sessionId || 'N/A'}<br>
+                        元数据: ${JSON.stringify(item.metadata || {}, null, 2)}
                     </div>
                 </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         // 渲染分页
         function renderPagination(data) {
             const container = document.getElementById('pagination');
-            const totalPages = Math.ceil(data.total / pageSize);
+            const total = data.total || data.length || 0;
+            const totalPages = Math.ceil(total / pageSize);
             
             if (totalPages <= 1) {
                 container.innerHTML = '';
