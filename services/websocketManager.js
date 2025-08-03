@@ -2,10 +2,11 @@
 const { WebSocketServer } = require('ws');
 
 class WebSocketManager {
-    constructor(server, chatManager) {
+    constructor(server, chatManager, historyManager) {
         this.wss = new WebSocketServer({ server });
         this.connectedClients = new Set();
         this.chatManager = chatManager;
+        this.historyManager = historyManager;
         this.setupWebSocketServer();
         this.setupHeartbeat();
     }
@@ -116,6 +117,13 @@ class WebSocketManager {
     handleHtmlContent(ws, message) {
         const result = this.chatManager.updateContent(message.data.html, message.data.timestamp);
         if (result.success) {
+            // 添加到历史记录
+            this.historyManager.addHistoryItem(message.data.html, 'chat', {
+                timestamp: message.data.timestamp,
+                source: 'cursor',
+                clientIP: ws._socket?.remoteAddress
+            });
+            
             // 转发给所有连接的客户端
             this.broadcastToClients(message, ws);
         }

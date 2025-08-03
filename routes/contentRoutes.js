@@ -3,9 +3,10 @@ const express = require('express');
 const router = express.Router();
 
 class ContentRoutes {
-    constructor(chatManager, websocketManager) {
+    constructor(chatManager, websocketManager, historyManager) {
         this.chatManager = chatManager;
         this.websocketManager = websocketManager;
+        this.historyManager = historyManager;
         this.setupRoutes();
     }
 
@@ -48,6 +49,13 @@ class ContentRoutes {
                 if (result.success) {
                     console.log(`📥 HTTP 接收内容：${data.html.length} 字符`);
                     console.log(`📊 来源：${data.url || 'unknown'}`);
+
+                    // 添加到历史记录
+                    this.historyManager.addHistoryItem(data.html, 'chat', {
+                        timestamp: data.timestamp,
+                        source: 'http',
+                        url: data.url || 'unknown'
+                    });
 
                     // 广播给所有 WebSocket 客户端
                     this.websocketManager.broadcastToClients({
