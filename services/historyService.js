@@ -22,6 +22,15 @@ class HistoryService {
     async getAllChats(options = {}) {
         const cacheKey = `all_chats_${JSON.stringify(options)}`;
         console.log('重新加载聊天记录，采用优化的映射架构...');
+        
+        // 检查缓存
+        const cached = this.getFromCache(cacheKey);
+        if (cached) {
+            console.log('📦 从缓存返回聊天列表，数量:', cached.length);
+            return cached;
+        }
+        
+        // 只在没有缓存时清除缓存
         this.clearCache(); // 清除所有缓存
 
         try {
@@ -101,6 +110,7 @@ class HistoryService {
                 
                 const chat = {
                     id: composerId,
+                    sessionId: composerId,
                     title: meta.title,
                     workspaceId: workspaceId,
                     project: project,
@@ -154,12 +164,13 @@ class HistoryService {
     async getChatDetail(sessionId) {
         console.log('🔍 获取聊天详情，会话ID:', sessionId);
         const cacheKey = `chat_detail_${sessionId}`;
-        const cached = this.getFromCache(cacheKey);
         
-        if (cached) {
-            console.log('📦 从缓存返回聊天详情，消息数量:', cached.messages ? cached.messages.length : 0);
-            return cached;
-        }
+        // 暂时不使用缓存，确保数据一致性
+        // const cached = this.getFromCache(cacheKey);
+        // if (cached) {
+        //     console.log('📦 从缓存返回聊天详情，消息数量:', cached.messages ? cached.messages.length : 0);
+        //     return cached;
+        // }
 
         try {
             // 检查是否是演示会话ID（demo-开头）
@@ -174,33 +185,29 @@ class HistoryService {
                 }
             }
 
-            const sessionDbs = this.findAllSessionDbs();
-            console.log('🗄️ 找到数据库文件数量:', sessionDbs.length);
+            // 优化：直接从getAllChats的结果中查找聊天详情
+            console.log('🔄 从getAllChats结果中查找聊天详情');
+            const allChats = await this.getAllChats();
+            console.log(`📋 getAllChats返回了 ${allChats.length} 条聊天记录`);
             
-            // 如果没有找到真实的数据库，返回null
-            if (sessionDbs.length === 0) {
-                console.warn('未找到真实数据库，无法获取聊天详情');
-                return null;
+            // 首先尝试直接匹配sessionId
+            let chatDetail = allChats.find(chat => chat.sessionId === sessionId);
+            
+            // 如果没找到，尝试匹配原始sessionId（去掉路径哈希后缀）
+            if (!chatDetail && sessionId.includes('_')) {
+                const originalSessionId = sessionId.split('_')[0];
+                chatDetail = allChats.find(chat => chat.sessionId === originalSessionId || chat.id === originalSessionId);
             }
             
-            for (const dbInfo of sessionDbs) {
-                const chatDetail = await this.extractChatDetailFromDb(dbInfo, sessionId);
-                if (chatDetail) {
-                    console.log('📄 原始聊天详情:', {
-                        sessionId: chatDetail.sessionId,
-                        messageCount: chatDetail.messages ? chatDetail.messages.length : 0,
-                        hasMessages: !!chatDetail.messages,
-                        messagesType: typeof chatDetail.messages
-                    });
-                    const processedDetail = this.processChatDetail(chatDetail);
-                    console.log('✅ 处理后聊天详情:', {
-                        sessionId: processedDetail.sessionId,
-                        messageCount: processedDetail.messages ? processedDetail.messages.length : 0,
-                        title: processedDetail.title
-                    });
-                    this.setCache(cacheKey, processedDetail);
-                    return processedDetail;
-                }
+            if (chatDetail) {
+                console.log('✅ 找到聊天详情:', {
+                    sessionId: chatDetail.sessionId,
+                    messageCount: chatDetail.messages ? chatDetail.messages.length : 0,
+                    title: chatDetail.title
+                });
+                const processedDetail = this.processChatDetail(chatDetail);
+                this.setCache(cacheKey, processedDetail);
+                return processedDetail;
             }
             
             // 如果仍然找不到，返回null
@@ -1926,7 +1933,7 @@ class HistoryService {
         // 简化的聊天详情提取逻辑
         const chats = await this.extractChatsFromDb(dbInfo, new Map());
         
-        // 首先尝试直接匹配sessionId
+        // 首先尝试直接匹配原始sessionId
         let chat = chats.find(chat => chat.sessionId === sessionId);
         
         // 如果没找到，尝试匹配原始sessionId（去掉路径哈希后缀）
@@ -1935,10 +1942,21 @@ class HistoryService {
             chat = chats.find(chat => chat.sessionId === originalSessionId);
         }
         
-        // 如果还是没找到，尝试匹配处理后的sessionId（包含路径哈希）
+        // 如果还是没找到，处理所有聊天记录并尝试匹配处理后的sessionId
         if (!chat) {
             const processedChats = this.processChats(chats);
             chat = processedChats.find(chat => chat.sessionId === sessionId);
+            
+            // 如果找到了处理后的聊天记录，返回原始聊天记录但保留处理后的sessionId
+            if (chat) {
+                const originalChat = chats.find(c => c.sessionId === chat.sessionId.split('_')[0]);
+                if (originalChat) {
+                    return {
+                        ...originalChat,
+                        sessionId: chat.sessionId // 保留处理后的sessionId
+                    };
+                }
+            }
         }
         
         return chat;

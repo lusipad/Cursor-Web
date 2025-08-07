@@ -64,7 +64,18 @@ class HistoryService {
         }
 
         try {
-            const chatDetail = await this.apiClient.getChatDetail(sessionId);
+            const response = await this.apiClient.getChatDetail(sessionId);
+            
+            // 处理API响应格式
+            let chatDetail;
+            if (response && response.success && response.data) {
+                chatDetail = response.data;
+            } else if (response && !response.success) {
+                throw new Error(response.error || '获取聊天详情失败');
+            } else {
+                chatDetail = response;
+            }
+            
             const processedDetail = this.processChatDetail(chatDetail);
             
             // 检查处理后的详情是否为空
