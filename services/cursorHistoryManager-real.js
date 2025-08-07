@@ -156,58 +156,54 @@ class CursorHistoryManager {
     groupIntoSessions(bubbles) {
         const sessionGroups = new Map();
         
-        for (const bubble of bubbles) {
+        for (const row of bubbles) {
             try {
-                const bubbleData = JSON.parse(bubble.value);
-                if (!bubbleData || !bubbleData.conversationId) continue;
+                const bubbleData = JSON.parse(row.value);
                 
-                const conversationId = bubbleData.conversationId;
+                // 兼容不同数据结构：优先使用 value 内的 conversationId；否则从 key 解析
+                let conversationId = bubbleData?.conversationId;
+                if (!conversationId && typeof row.key === 'string' && row.key.startsWith('bubbleId:')) {
+                    const parts = row.key.split(':');
+                    if (parts.length >= 3) {
+                        conversationId = parts[1];
+                    }
+                }
+                if (!conversationId) continue;
                 
                 if (!sessionGroups.has(conversationId)) {
                     sessionGroups.set(conversationId, []);
                 }
                 
-                sessionGroups.get(conversationId).push(bubbleData);
+                // 统一消息结构，补充分角色与文本内容
+                const type = bubbleData.type;
+                const role = (type === 1 || type === 'user') ? 'user' : (type === 2 || type === 'assistant') ? 'assistant' : 'assistant';
+                const text = (bubbleData.text || bubbleData.richText || '').trim();
+                const timestamp = bubbleData.cTime || bubbleData.timestamp || null;
+                
+                if (text) {
+                    sessionGroups.get(conversationId).push({ role, content: text, timestamp });
+                }
             } catch (error) {
                 console.warn('⚠️ 解析气泡数据失败:', error.message);
             }
         }
         
         const sessions = [];
-        for (const [conversationId, bubbles] of sessionGroups) {
-            if (bubbles.length === 0) continue;
+        for (const [conversationId, messages] of sessionGroups) {
+            if (messages.length === 0) continue;
             
-            // 按时间排序
-            bubbles.sort((a, b) => {
-                const timeA = new Date(a.cTime || a.timestamp || 0).getTime();
-                const timeB = new Date(b.cTime || b.timestamp || 0).getTime();
-                return timeA - timeB;
+            // 按时间排序（如果有时间）
+            messages.sort((a, b) => {
+                const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+                const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+                return ta - tb;
             });
             
-            const messages = [];
-            for (const bubble of bubbles) {
-                if (bubble.type === 'user') {
-                    messages.push({
-                        role: 'user',
-                        content: bubble.text || '',
-                        timestamp: bubble.cTime || bubble.timestamp
-                    });
-                } else if (bubble.type === 'assistant') {
-                    messages.push({
-                        role: 'assistant', 
-                        content: bubble.text || '',
-                        timestamp: bubble.cTime || bubble.timestamp
-                    });
-                }
-            }
-            
-            if (messages.length > 0) {
-                sessions.push({
-                    sessionId: conversationId,
-                    messages: messages,
-                    timestamp: bubbles[0].cTime || bubbles[0].timestamp || new Date().toISOString()
-                });
-            }
+            sessions.push({
+                sessionId: conversationId,
+                messages,
+                timestamp: messages[0]?.timestamp || new Date().toISOString()
+            });
         }
         
         console.log(`📚 提取到 ${sessions.length} 个会话`);

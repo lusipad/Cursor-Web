@@ -2,10 +2,10 @@
 const express = require('express');
 const { createServer } = require('http');
 
-// 导入模块 - 使用真实数据版本
-console.log('🔄 使用真实数据版本的历史管理器');
+// 导入模块 - 使用 Node 直连SQLite的真实数据版本
+console.log('🔄 使用 NodeJS 直连SQLite的数据提取逻辑');
 const ChatManager = require('./services/chatManager-fallback');
-const CursorHistoryManager = require('./services/cursorHistoryManager-final');
+const CursorHistoryManager = require('./services/cursorHistoryManager-real');
 
 const WebSocketManager = require('./services/websocketManager');
 const ContentRoutes = require('./routes/contentRoutes');

@@ -1,0 +1,287 @@
+{
+  "764e3888-2cb7-46d1-8999-7a9a805bf124": {
+    "name": "trajectory-viewer.js",
+    "rootPath": "/src/core/web/static/js/trajectory-viewer.js",
+    "fileCount": 13
+  },
+  "b9e15f89-68e8-44bf-b218-00f0a6be2dbc": {
+    "name": "src",
+    "rootPath": "d:\\Repos\\plcopen\\src",
+    "fileCount": 3
+  },
+  "8473eec5-d793-4c91-a25f-a666b158f1cb": {
+    "name": "CMakeLists.txt",
+    "rootPath": "/CMakeLists.txt",
+    "fileCount": 3
+  },
+  "733fb171-1fba-4aaa-8302-2d0ffe8ed421": {
+    "name": "CMakeLists.txt",
+    "rootPath": "/CMakeLists.txt",
+    "fileCount": 3
+  },
+  "e9fed57c-ed97-4959-a9c2-03c94cd12d9d": {
+    "name": "package.json",
+    "rootPath": "package.json",
+    "fileCount": 1
+  },
+  "54bab510-9dd3-4d38-8e78-e907d06b3a23": {
+    "name": "browser-script.js",
+    "rootPath": "src/client/browser-script.js",
+    "fileCount": 5
+  },
+  "b98e1509-371a-4e56-9a49-c45712dc9675": {
+    "name": "package.json",
+    "rootPath": "package.json",
+    "fileCount": 1
+  },
+  "2403c2ac-f2de-4d69-8835-4b1f7a8c8a16": {
+    "name": "自动化使用指南.md",
+    "rootPath": "/d:/Repos/claude-web/自动化使用指南.md",
+    "fileCount": 2
+  },
+  "2f8cb5c5-f957-4c90-87df-f35fb77783cb": {
+    "name": "nobreak >nul & node app.js",
+    "rootPath": "taskkill /F /IM node.exe 2>nul & timeout /t 2 /nobreak >nul & node app.js",
+    "fileCount": 2
+  },
+  "f1889e91-8493-4ec7-a260-90e5f2bbb7b1": {
+    "name": "inject.js",
+    "rootPath": "/d:/Repos/claude-web/inject.js",
+    "fileCount": 1
+  },
+  "1681dc87-7a23-4668-955b-12e92c56e770": {
+    "name": "simple-client.js",
+    "rootPath": "public/simple-client.js",
+    "fileCount": 3
+  },
+  "68ec4482-f266-40cc-800e-82d51a7d7afe": {
+    "name": "simple-client.js",
+    "rootPath": "public/simple-client.js",
+    "fileCount": 5
+  },
+  "b1d4100e-320f-490b-8b9a-18b5302e84f4": {
+    "name": "style.css",
+    "rootPath": "public/style.css",
+    "fileCount": 6
+  },
+  "2fdf642b-1cf2-4364-a96f-4feae4800540": {
+    "name": "cursor-sync.js",
+    "rootPath": "public/cursor-sync.js",
+    "fileCount": 4
+  },
+  "57cb43ba-5f65-42fa-8fff-3eaf595afc78": {
+    "name": "simple-client.js",
+    "rootPath": "public/simple-client.js",
+    "fileCount": 2
+  },
+  "5be911a0-f41a-4617-b037-38ade056613d": {
+    "name": "simple-client.js",
+    "rootPath": "public/simple-client.js",
+    "fileCount": 2
+  },
+  "c0bc3570-26f6-48a4-b1f8-84fe3be55a05": {
+    "name": "simple-client.js",
+    "rootPath": "public/simple-client.js",
+    "fileCount": 3
+  },
+  "a998921b-868b-4adc-998e-129cb77a9da6": {
+    "name": "simple-client.js",
+    "rootPath": "public/simple-client.js",
+    "fileCount": 2
+  },
+  "36643bde-6837-48f2-b311-bb492ffe7fcf": {
+    "name": "style.css",
+    "rootPath": "public/style.css",
+    "fileCount": 2
+  },
+  "4a1631aa-ea8d-45ce-90b6-2b7d101a7071": {
+    "name": "style.css",
+    "rootPath": "public/style.css",
+    "fileCount": 3
+  },
+  "5136c892-1e53-4705-bf44-0a623ca6f60d": {
+    "name": "style.css",
+    "rootPath": "public/style.css",
+    "fileCount": 1
+  },
+  "0a413670-b0ef-472c-b0c2-6cc4fc9b2b46": {
+    "name": "ci.yml",
+    "rootPath": ".github/workflows/ci.yml",
+    "fileCount": 6
+  },
+  "0717ac9a-b6df-4c6d-b2b6-bc934c27f459": {
+    "name": "cursor-browser.js",
+    "rootPath": "/d:/Repos/claude-web/public/cursor-browser.js",
+    "fileCount": 2
+  },
+  "b055beae-1b62-478a-8e72-4e1bf3ca189e": {
+    "name": "cursor-browser.js",
+    "rootPath": "/d:/Repos/claude-web/public/cursor-browser.js",
+    "fileCount": 2
+  },
+  "c1759230-48af-46fa-81ea-b151e133d502": {
+    "name": "cursor-browser.js",
+    "rootPath": "public/cursor-browser.js",
+    "fileCount": 3
+  },
+  "2aafd558-5fb2-4f0e-9bba-d6e976a4a5da": {
+    "name": "ci.yml",
+    "rootPath": ".github/workflows/ci.yml",
+    "fileCount": 2
+  },
+  "9f4bf7bb-fb72-4396-a8f7-71467e370766": {
+    "name": "cursor-browser.js",
+    "rootPath": "public/cursor-browser.js",
+    "fileCount": 5
+  },
+  "21bfbaa5-c3df-4929-a919-bd3e7c30f9d2": {
+    "name": "simple-client.js",
+    "rootPath": "public/simple-client.js",
+    "fileCount": 6
+  },
+  "d2fd377b-e239-4036-8894-a1b602cca12b": {
+    "name": "simple-client.js",
+    "rootPath": "public/simple-client.js",
+    "fileCount": 4
+  },
+  "fa9c2a3f-1fa0-4799-a794-30796974e40f": {
+    "name": "simple-client.js",
+    "rootPath": "public/simple-client.js",
+    "fileCount": 4
+  },
+  "e48dbec2-53db-4e36-b90b-8d987cb2c67e": {
+    "name": "cursor-browser.js",
+    "rootPath": "/d:/Repos/claude-web/public/cursor-browser.js",
+    "fileCount": 2
+  },
+  "fe8ff47a-446f-4015-ae08-30ed58dd53ca": {
+    "name": "cursor-browser.js",
+    "rootPath": "/d:/Repos/claude-web/public/cursor-browser.js",
+    "fileCount": 2
+  },
+  "1039133c-a3b4-40e1-b9b8-41cab7612010": {
+    "name": "cursor-browser.js",
+    "rootPath": "/d:/Repos/claude-web/public/cursor-browser.js",
+    "fileCount": 6
+  },
+  "64562856-de97-4376-a97f-70fea60b6ac4": {
+    "name": "cursor-browser.js",
+    "rootPath": "public/cursor-browser.js",
+    "fileCount": 6
+  },
+  "d1144a18-e22f-4029-8ecf-c5811a0849d1": {
+    "name": "cursor-browser.js",
+    "rootPath": "public/cursor-browser.js",
+    "fileCount": 6
+  },
+  "f9adb225-ac67-4c47-b8bd-1c46ed7d9fe0": {
+    "name": "git-manager.js",
+    "rootPath": "public/git-manager.js",
+    "fileCount": 2
+  },
+  "f43c465d-db52-473a-bbb4-3517d0715332": {
+    "name": "run-all-tests.js",
+    "rootPath": "tests/run-all-tests.js",
+    "fileCount": 2
+  },
+  "38fd913d-5528-4f7b-913b-c65ae07ca718": {
+    "name": "run-all-tests.js",
+    "rootPath": "tests/run-all-tests.js",
+    "fileCount": 2
+  },
+  "ec69f0b2-d38e-48ad-b91d-dea43765ccc6": {
+    "name": "run-all-tests.js",
+    "rootPath": "tests/run-all-tests.js",
+    "fileCount": 2
+  },
+  "dbfde627-31cd-4e15-a0e2-ee900e9d7fbe": {
+    "name": "run-all-tests.js",
+    "rootPath": "tests/run-all-tests.js",
+    "fileCount": 4
+  },
+  "9c78a26f-fbe6-4d2a-ab3c-dab451aa3275": {
+    "name": "SESSIONS.md",
+    "rootPath": "/D:/Repos/cursor-web/SESSIONS.md",
+    "fileCount": 1
+  },
+  "af9a071f-78fb-40cc-a5f1-d696c124363c": {
+    "name": "network.js",
+    "rootPath": "utils/network.js",
+    "fileCount": 12
+  },
+  "0bc44ecc-0261-4a98-a2cf-37fe2d81d29e": {
+    "name": "script.html",
+    "rootPath": "public/script.html",
+    "fileCount": 7
+  },
+  "011f1607-21d6-46ac-9466-73e18f6b2f5f": {
+    "name": "cursor-browser.js",
+    "rootPath": "public/cursor-browser.js",
+    "fileCount": 23
+  },
+  "92d81b3e-42f4-447e-865c-2bfc0af9e365": {
+    "name": "DebugManager.js",
+    "rootPath": "public/js/modules/DebugManager.js",
+    "fileCount": 12
+  },
+  "f4ebae5b-4399-404e-820d-31a19731fec5": {
+    "name": "module-loader.js",
+    "rootPath": "public/js/modules/module-loader.js",
+    "fileCount": 10
+  },
+  "74748022-63e6-41d2-96b6-7af6df913e85": {
+    "name": "module-loader.js",
+    "rootPath": "public/js/modules/module-loader.js",
+    "fileCount": 9
+  },
+  "271479cd-4847-43be-bcd4-897031d8283c": {
+    "name": "module-loader.js",
+    "rootPath": "public/js/modules/module-loader.js",
+    "fileCount": 11
+  },
+  "08933db5-a745-4fb7-bf07-0d4785cfca99": {
+    "name": "22 9:37:18銆?\n\n    鑺傜偣 1 涓婄殑椤圭洰鈥淒:",
+    "rootPath": "(base) PS D:\\temp\\lllll> cmake -G \"Visual Studio 17 2022\" -A x64 -T LLVM-MSVC_v143_\n(base) PS D:\\temp\\lllll> cmake -G \"Visual Studio 17 2022\" -A x64 -T LLVM-MSVC_v143_KernelMode   \nCMake Warning:\n  No source or binary directory provided.  Both will be assumed to be the\n  same as the current working directory, but note that this warning will\n  become a fatal error in future CMake releases.\n\n\nCMake Error at CMakeLists.txt:2 (project):\n  Failed to run MSBuild command:\n\n    C:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/am\n    C:/Program Files/Microsoft Visual Studio/2022/Enterprise/MSBuild/Current/Bin/amd64/MSBuild.exe\n\n  to get the value of VCTargetsPath:\n\n    閫傜敤浜?.NET Framework MSBuild 鐗堟湰 17.14.10+8b8e13593\n    鐢熸垚鍚姩鏃堕棿涓?2025/7/22 9:37:18銆?\n\n    鑺傜偣 1 涓婄殑椤圭洰鈥淒:",
+    "fileCount": 2
+  },
+  "47b1d5a1-df59-4de9-99b9-71c27bc18ccd": {
+    "name": "lllll",
+    "rootPath": "d:\\temp\\lllll",
+    "fileCount": 2
+  },
+  "e0863318-dc17-412b-b221-2841e229b430": {
+    "name": "diagnostic.html",
+    "rootPath": "public/diagnostic.html",
+    "fileCount": 3
+  },
+  "3e2c0f31-96fe-4491-a967-9f09b9f512bb": {
+    "name": "style.css",
+    "rootPath": "public/style.css",
+    "fileCount": 3
+  },
+  "4d747336-b735-4489-8967-f4c097dd8014": {
+    "name": "style.css",
+    "rootPath": "public/style.css",
+    "fileCount": 3
+  },
+  "bbb84eac-4455-40dd-9e9a-4695ac79909c": {
+    "name": "package.json",
+    "rootPath": "package.json",
+    "fileCount": 1
+  },
+  "f07c4f4a-52e2-4724-806c-042747fe01d2": {
+    "name": "UIManager.js",
+    "rootPath": "public/js/modules/UIManager.js",
+    "fileCount": 1
+  },
+  "1418006e-1695-4639-8455-c12bf246bb99": {
+    "name": "UIManager.js",
+    "rootPath": "public/js/modules/UIManager.js",
+    "fileCount": 2
+  },
+  "d854800b-5f16-4856-9225-db67c711aa42": {
+    "name": "Repos",
+    "rootPath": "PS D:\\Repos\\Cursor-Web-2> node app.js\n📁 Cursor 数据路径：C:\\Users\\lus\\AppData\\Roaming\\Cursor\n📁 Cursor数据路径: C:\\Users\\lus\\AppData\\Roaming\\Cursor\n🚀 Claude Web 服务器已启动！\n📍 本地访问：http://localhost:3001\n🌐 局域网访问：http://198.18.0.1:3001\n🔌 WebSocket: ws://localhost:3001\n📡 HTTP API: http://localhost:3001/api/\n📊 服务器状态：等待连接...\n\n💡 支持的连接方式：\n  - WebSocket (推荐用于浏览器)\n  - HTTP API (适用于 Cursor 等受限环境)\n  - 测试连接：GET /api/test\n  - 发送内容：POST /api/content\n  - 获取状态：GET /api/status\n\nTypeError: this.chatManager.getContent is not a function\n    at ContentRoutes.handleGetContent (D:\\Repos\\Cursor-Web-2\\routes\\contentRoutes.js:107:42)\n    at Layer.handle [as handle_request] (D:\\Repos\\Cursor-Web-2\\node_modules\\express\\lib\\router\\lay\n    at Layer.handle [as handle_request] (D:\\Repos\\Cursor-Web-2\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at next (D:\\Repos\\Cursor-Web-2\\node_modules\\express\\lib\\router\\route.js:149:13)\n    at Route.dispatch (D:\\Repos\\Cursor-Web-2\\node_modules\\express\\lib\\router\\route.js:119:3)\n    at Layer.handle [as handle_request] (D:\\Repos\\Cursor-Web-2\\node_modules\\express\\lib\\router\\lay\n    at Layer.handle [as handle_request] (D:\\Repos\\Cursor-Web-2\\node_modules\\express\\lib\\router\\layer.js:95:5)\n    at D:\\Repos\\Cursor-Web-2\\node_modules\\express\\lib\\router\\index.js:284:15\n    at Function.process_params (D:\\Repos\\Cursor-Web-2\\node_modules\\express\\lib\\router\\index.js:346\n    at Function.process_params (D:\\Repos\\Cursor-Web-2\\node_modules\\express\\lib\\router\\index.js:346:12)\n    at next (D:\\Repos\\Cursor-Web-2\\node_modules\\express\\lib\\router\\index.js:280:10)\n    at Function.handle (D:\\Repos\\Cursor-Web-2\\node_modules\\express\\lib\\router\\index.js:175:3)     \n    at router (D:\\Repos",
+    "fileCount": 10
+  }
+}
