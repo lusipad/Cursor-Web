@@ -17,6 +17,10 @@ class HistoryRoutes {
         
         // 调试信息
         router.get('/history/debug', this.getDebugInfo.bind(this));
+        // 清空后端提取缓存
+        router.get('/history/cache/clear', this.clearCache.bind(this));
+        // 获取唯一项目列表（用于对齐 cursor-view-main 的项目视图）
+        router.get('/history/projects', this.getProjects.bind(this));
         
         // 搜索历史记录
         router.get('/history/search', this.searchHistory.bind(this));
@@ -253,6 +257,27 @@ class HistoryRoutes {
                 success: false,
                 error: '导出历史记录失败'
             });
+        }
+    }
+
+    // 获取项目汇总
+    async getProjects(req, res) {
+        try {
+            const projects = await this.historyManager.getProjectsSummary();
+            res.json({ success: true, data: projects });
+        } catch (error) {
+            console.error('获取项目列表失败:', error);
+            res.status(500).json({ success: false, error: '获取项目列表失败' });
+        }
+    }
+
+    // 清空缓存
+    async clearCache(req, res){
+        try{
+            if (this.historyManager?.clearCache) this.historyManager.clearCache();
+            res.json({success:true, message:'cache cleared'});
+        }catch(err){
+            res.status(500).json({success:false, error:'clear cache failed'});
         }
     }
 
