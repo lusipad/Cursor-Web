@@ -311,6 +311,26 @@
                 return await this.apiClient.clearCache();
             }
 
+            formatTime(timestamp) {
+                if (!timestamp) return '未知时间';
+                
+                const date = new Date(timestamp);
+                const now = new Date();
+                const diff = now - date;
+                
+                if (diff < 60000) { // 1分钟内
+                    return '刚刚';
+                } else if (diff < 3600000) { // 1小时内
+                    return `${Math.floor(diff / 60000)}分钟前`;
+                } else if (diff < 86400000) { // 24小时内
+                    return `${Math.floor(diff / 3600000)}小时前`;
+                } else if (diff < 604800000) { // 7天内
+                    return `${Math.floor(diff / 86400000)}天前`;
+                } else {
+                    return date.toLocaleDateString('zh-CN');
+                }
+            }
+
             processChats(chats) {
                 if (!Array.isArray(chats)) {
                     console.warn('processChats: 期望数组但收到:', typeof chats, chats);
@@ -439,13 +459,53 @@
         function displayChatDetail(chat) {
             const container = document.getElementById('detail-container');
             
+            // 获取最后一次消息时间 - 使用与后端相同的逻辑
+            let lastMessageTime = '未知时间';
+            let lastTimestamp = null;
+            
+            if (chat.messages && chat.messages.length > 0) {
+                const lastMessage = chat.messages[chat.messages.length - 1];
+                lastTimestamp = lastMessage.timestamp || chat.lastUpdatedAt || chat.timestamp;
+            } else if (chat.lastUpdatedAt) {
+                lastTimestamp = chat.lastUpdatedAt;
+            } else if (chat.timestamp) {
+                lastTimestamp = chat.timestamp;
+            }
+            
+            if (lastTimestamp) {
+                lastMessageTime = service.formatTime(lastTimestamp);
+            }
+            
+            // 获取项目路径信息 - 改进显示逻辑
+            let projectPath = '未知路径';
+            let displayPaths = [];
+            
+            if (chat.filePaths && chat.filePaths.length > 0) {
+                // 显示所有相关文件路径
+                displayPaths = chat.filePaths.slice(0, 3); // 最多显示3个路径
+                if (chat.filePaths.length > 3) {
+                    displayPaths.push(`... 还有 ${chat.filePaths.length - 3} 个文件`);
+                }
+                
+                // 取第一个文件路径的目录部分作为项目路径
+                const firstPath = chat.filePaths[0];
+                const pathParts = firstPath.split(/[\\/]/);
+                if (pathParts.length > 1) {
+                    projectPath = pathParts.slice(0, -1).join('/');
+                }
+            } else if (chat.project?.path || chat.project?.rootPath) {
+                projectPath = chat.project.path || chat.project.rootPath;
+            }
+            
             let html = `
                 <h3>${chat.title}</h3>
                 <div style="margin: 10px 0; font-size: 14px; color: #666;">
                     <p><strong>会话ID:</strong> ${chat.sessionId}</p>
-                    <p><strong>项目:</strong> ${chat.project?.name || '未知'}</p>
+                    <p><strong>项目:</strong> ${chat.project?.name || 'Global Chats'}</p>
+                    <p><strong>项目路径:</strong> ${projectPath}</p>
                     <p><strong>消息数量:</strong> ${chat.messages?.length || 0}</p>
-                    <p><strong>时间:</strong> ${chat.formattedTime}</p>
+                    <p><strong>最后更新时间:</strong> ${lastMessageTime}</p>
+                    ${displayPaths.length > 0 ? `<p><strong>相关文件:</strong></p><ul style="margin: 5px 0; padding-left: 20px;">${displayPaths.map(path => `<li style="font-size: 12px; color: #888;">${path}</li>`).join('')}</ul>` : ''}
                 </div>
                 <div style="margin: 10px 0;">
                     <button onclick="exportToHTML('${chat.sessionId}')" style="margin-right: 10px; padding: 8px 16px; border: 1px solid #007acc; background: #007acc; color: white; border-radius: 4px; cursor: pointer;">导出HTML</button>
