@@ -48,7 +48,7 @@
             <!-- 历史记录 Tab 内容 -->
             <section id="history-tab" class="tab-content">
                 <div class="history-panel" style="padding:0;">
-                    <iframe src="/history-new.html" style="width:100%;height:calc(100vh - 220px);border:0;border-radius:8px;background:#111;"></iframe>
+                    <iframe id="historyFrame" src="/history-new.html" style="width:100%;height:100vh;border:0;border-radius:8px;background:#111;"></iframe>
                 </div>
             </section>
 
@@ -292,6 +292,40 @@
         };
         return labels[type] || type;
     }
+
+    // 让历史记录 iframe 自适应内容高度，保证页面可持续向下滚动
+    (function setupHistoryIframeAutoHeight(){
+        const iframe = document.getElementById('historyFrame');
+        if (!iframe) return;
+        const resize = () => {
+            try {
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+                if (!doc) return;
+                const h = Math.max(
+                    doc.body.scrollHeight,
+                    doc.documentElement.scrollHeight,
+                    doc.body.offsetHeight,
+                    doc.documentElement.offsetHeight
+                );
+                if (h && Math.abs(iframe.clientHeight - h) > 8) {
+                    iframe.style.height = h + 'px';
+                }
+            } catch {}
+        };
+        iframe.addEventListener('load', () => {
+            resize();
+            try {
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+                if (!doc) return;
+                const mo = new MutationObserver(() => resize());
+                mo.observe(doc.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
+                iframe.contentWindow.addEventListener('resize', resize);
+                // 兜底定时器，处理异步渲染
+                setInterval(resize, 800);
+            } catch {}
+        });
+        window.addEventListener('resize', resize);
+    })();
     </script>
 </body>
 </html>
