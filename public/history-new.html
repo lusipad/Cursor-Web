@@ -213,9 +213,9 @@
             color: white;
         }
 
-        /* Project Cards Grid */
-        .projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-        .project-group { background-color: var(--surface-color); border-radius: 12px; overflow: hidden; box-shadow: 0 2px 10px var(--shadow-color); }
+        /* Project Cards Masonry Layout: 自适应列数，避免高卡片导致整行空白 */
+        .projects-grid { column-width: 360px; column-gap: 12px; }
+        .project-group { display: inline-block; width: 100%; margin: 0 0 12px; background-color: var(--surface-color); border-radius: 12px; overflow: hidden; box-shadow: 0 2px 10px var(--shadow-color); break-inside: avoid; -webkit-column-break-inside: avoid; }
 
         .project-header { background: linear-gradient(45deg, var(--primary-color), var(--primary-light)); padding: 12px 14px; cursor: pointer; transition: all 0.3s ease; display: flex; justify-content: space-between; align-items: center; }
 
@@ -266,9 +266,9 @@
         .chat-header {
             padding: 15px 20px;
             border-bottom: 1px solid var(--border-color);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+            display: grid;
+            grid-template-columns: 1fr auto;
+            row-gap: 6px;
         }
 
         .chat-title {
@@ -281,6 +281,11 @@
             font-size: 0.8rem;
             color: var(--text-secondary);
         }
+
+        .chat-meta { grid-column: 1 / -1; font-size: 0.8rem; color: var(--text-secondary); }
+
+        /* Sessions flat grid */
+        .sessions-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
 
         .chat-preview {
             padding: 15px 20px;
@@ -455,6 +460,8 @@
             .chat-card {
                 margin: 10px;
             }
+            /* Masonry: 缩小列宽以提升列数自适应 */
+            .projects-grid { column-width: 300px; }
         }
 
         @media (max-width: 480px) {
@@ -468,6 +475,8 @@
             .header h1 {
                 font-size: 1.5rem;
             }
+            /* Masonry: 移动端单列更易读 */
+            .projects-grid { column-width: 100%; }
         }
 
         /* No data state */
@@ -674,77 +683,15 @@
                 return;
             }
 
-            if (currentViewMode === 'grouped') {
-                renderGroupedView(items);
-            } else {
-                renderListView(items);
-            }
+            // 始终以“扁平会话”视图展示（按项目平铺所有会话）
+            renderSessionsFlat(items);
         }
 
-        // 渲染分组视图
-        function renderGroupedView(items) {
+        // 扁平会话视图（所有项目的会话统一平铺）
+        function renderSessionsFlat(items) {
             const container = document.getElementById('historyContent');
-            const projects = {};
-
-            // 按项目分组
-            items.forEach(item => {
-                const projectPath = item.project?.rootPath || '';
-                const projectNameRaw = item.project?.name || '';
-                // 分组键优先使用路径，保证不同目录不会被同名合并
-                const projectKey = projectPath || projectNameRaw || 'Unknown Project';
-                // 展示名称优先取路径的最后一级目录
-                const displayName = projectPath ? (projectPath.replace(/\\/g,'/').split('/').filter(Boolean).pop() || projectNameRaw || 'Unknown Project') : (projectNameRaw || 'Unknown Project');
-                const displayPath = projectPath ? toCursorViewPath(projectPath) : '(unknown)';
-
-                if (!projects[projectKey]) {
-                    projects[projectKey] = {
-                        name: displayName,
-                        path: displayPath,
-                        chats: [],
-                        messageCount: 0
-                    };
-                }
-                
-                projects[projectKey].chats.push(item);
-                projects[projectKey].messageCount += item.messages?.length || 0;
-            });
-
-            // 生成HTML
-            const keys = Object.keys(projects);
-            console.log('[history-new] items:', items.length, 'projects:', keys.length, keys);
-            // 将未匹配项目置底部
-            keys.sort((a,b)=>{
-                const aIsUnknown = a === '' || a.toLowerCase().includes('unknown');
-                const bIsUnknown = b === '' || b.toLowerCase().includes('unknown');
-                if (aIsUnknown && !bIsUnknown) return 1;
-                if (!aIsUnknown && bIsUnknown) return -1;
-                return a.localeCompare(b);
-            });
-            const htmlCards = keys.map(projectKey => {
-                const project = projects[projectKey];
-                const safeKey = makeSafeKey(projectKey);
-                return `
-                    <div class="project-group" data-project="${escapeHtml(projectKey)}" data-key="${safeKey}">
-                        <div class="project-header" onclick="toggleProjectByKey('${safeKey}')">
-                            <div class="project-info">
-                                <h3>📁 ${project.name}</h3>
-                                <div class="project-meta">${project.path}</div>
-                            </div>
-                            <div class="project-stats">
-                                <div>${project.chats.length} 个对话</div>
-                                <div>${project.messageCount} 条消息</div>
-                            </div>
-                            <div class="expand-icon">▼</div>
-                        </div>
-                        <div class="chat-list">
-                            ${project.chats.map(chat => renderChatCard(chat)).join('')}
-                        </div>
-                    </div>
-                `;
-            }).join('');
-
-            container.innerHTML = `<div class="projects-grid">${htmlCards}</div>`;
-            // 默认不展开：交互点击再展开
+            const html = items.map(chat => renderChatCard(chat)).join('');
+            container.innerHTML = `<div class="sessions-grid">${html}</div>`;
         }
 
         // 渲染列表视图
@@ -761,12 +708,15 @@
             const messageCount = chat.messages?.length || 0;
             const timestamp = chat.timestamp || chat.date || Date.now();
             const previewMessages = (chat.messages || []).slice(0, 3);
+            const projectPath = chat.project?.rootPath || '';
+            const pathDisplay = projectPath ? toCursorViewPath(projectPath) : '';
 
             return `
                 <div class="chat-card" onclick="showChatDetail('${id}')">
                     <div class="chat-header">
-                        <div class="chat-title">💬 ${messageCount} 条消息对话</div>
+                        <div class="chat-title">📁 ${projectName}</div>
                         <div class="chat-date">${formatTimestamp(timestamp)}</div>
+                        <div class="chat-meta">${pathDisplay}</div>
                     </div>
                     <div class="chat-preview">
                         ${previewMessages.map(msg => `
