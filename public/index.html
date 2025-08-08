@@ -47,42 +47,8 @@
 
             <!-- 历史记录 Tab 内容 -->
             <section id="history-tab" class="tab-content">
-                <div class="history-panel">
-                    <div class="history-header">
-                        <h2>历史记录</h2>
-                        <div class="history-controls">
-                            <button class="btn btn-primary" onclick="window.open('/history-new.html', '_blank')" title="现代化的聊天记录查看页面">
-                                🚀 打开聊天记录页面
-                            </button>
-                            <button class="btn btn-secondary" onclick="window.open('/history.html', '_blank')" title="传统的历史记录页面">
-                                📋 传统历史记录
-                            </button>
-                            <button class="btn btn-secondary" onclick="refreshQuickHistory()">🔄 刷新</button>
-                        </div>
-                    </div>
-                    
-                    <div class="history-stats" id="quickHistoryStats">
-                        <div class="stat-card">
-                            <h3>总记录数</h3>
-                            <div class="value" id="quickTotalRecords">-</div>
-                        </div>
-                        <div class="stat-card">
-                            <h3>聊天记录</h3>
-                            <div class="value" id="quickChatRecords">-</div>
-                        </div>
-                        <div class="stat-card">
-                            <h3>系统记录</h3>
-                            <div class="value" id="quickSystemRecords">-</div>
-                        </div>
-                        <div class="stat-card">
-                            <h3>错误记录</h3>
-                            <div class="value" id="quickErrorRecords">-</div>
-                        </div>
-                    </div>
-
-                    <div class="history-list" id="quickHistoryList">
-                        <div class="loading">加载中...</div>
-                    </div>
+                <div class="history-panel" style="padding:0;">
+                    <iframe src="/history-new.html" style="width:100%;height:calc(100vh - 220px);border:0;border-radius:8px;background:#111;"></iframe>
                 </div>
             </section>
 
@@ -190,10 +156,7 @@
                 updateQuickStatus();
             }
             
-            // 如果切换到历史记录tab，加载历史记录
-            if (this.dataset.tab === 'history-tab') {
-                loadQuickHistory();
-            }
+            // 历史记录tab 直接内嵌，无需额外加载
         });
     });
 
@@ -302,10 +265,7 @@
             updateQuickStatus();
         }
         
-        // 如果当前在历史记录tab，加载历史记录
-        if (document.querySelector('.tab-btn[data-tab="history-tab"]').classList.contains('active')) {
-            loadQuickHistory();
-        }
+        // 历史记录tab 直接内嵌，无需预加载
 
         // 定期更新状态（每5秒）
         setInterval(function() {
@@ -315,63 +275,7 @@
         }, 5000);
     });
     
-    // 加载快速历史记录
-    function loadQuickHistory() {
-        // 加载统计信息
-        fetch('/api/history/stats')
-            .then(response => response.json())
-            .then(result => {
-                if (result.success) {
-                    const stats = result.data;
-                    document.getElementById('quickTotalRecords').textContent = stats.total;
-                    document.getElementById('quickChatRecords').textContent = stats.byType.chat || 0;
-                    document.getElementById('quickSystemRecords').textContent = stats.byType.system || 0;
-                    document.getElementById('quickErrorRecords').textContent = stats.byType.error || 0;
-                }
-            })
-            .catch(error => {
-                console.error('加载历史记录统计失败:', error);
-            });
-        
-        // 加载最近的历史记录
-        fetch('/api/history?limit=10&sortOrder=desc')
-            .then(response => response.json())
-            .then(result => {
-                if (result.success) {
-                    const container = document.getElementById('quickHistoryList');
-                    const items = result.data.items;
-                    
-                    if (items.length === 0) {
-                        container.innerHTML = '<div class="no-data">暂无历史记录</div>';
-                        return;
-                    }
-                    
-                    container.innerHTML = items.map(item => `
-                        <div class="history-item type-${item.type}">
-                            <div class="history-item-header">
-                                <div class="history-item-meta">
-                                    <span class="type-badge type-${item.type}">${getTypeLabel(item.type)}</span>
-                                    <span class="timestamp">${formatTimestamp(item.timestamp)}</span>
-                                </div>
-                                <div class="history-item-actions">
-                                    <button class="btn btn-sm btn-primary" onclick="window.open('/history.html', '_blank')">查看更多</button>
-                                </div>
-                            </div>
-                            <div class="history-item-summary">${item.summary}</div>
-                        </div>
-                    `).join('');
-                }
-            })
-            .catch(error => {
-                console.error('加载历史记录失败:', error);
-                document.getElementById('quickHistoryList').innerHTML = '<div class="no-data">加载失败</div>';
-            });
-    }
-    
-    // 刷新快速历史记录
-    function refreshQuickHistory() {
-        loadQuickHistory();
-    }
+    // 移除快速历史相关逻辑（改为内嵌 history-new）
     
     // 格式化时间戳
     function formatTimestamp(timestamp) {
