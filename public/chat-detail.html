@@ -144,9 +144,9 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 18px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid var(--border-color);
+            margin-bottom: 8px;
+            padding-bottom: 4px;
+            border-bottom: 1px solid var(--border-color);
         }
 
         .messages-title {
@@ -164,7 +164,7 @@
             font-weight: 600;
         }
 
-        .message { margin-bottom: 10px; padding: 12px; border-radius: 12px; position: relative; overflow: hidden; }
+        .message { margin-bottom: 6px; padding: 8px 10px; border-radius: 12px; position: relative; overflow: hidden; }
 
         .message.user {
             background: var(--user-bg);
@@ -181,10 +181,10 @@
         .message-header {
             display: flex;
             align-items: center;
-            gap: 10px;
-            margin-bottom: 8px;
+            gap: 8px;
+            margin-bottom: 4px;
             font-weight: 600;
-            font-size: 0.9rem;
+            font-size: 0.86rem;
         }
 
         .message-icon {
@@ -211,15 +211,24 @@
             font-weight: normal;
         }
 
-        .message-content { font-size: 0.98rem; line-height: 1.35; white-space: pre-wrap; word-wrap: break-word; }
+        .message-content { font-size: 0.93rem; line-height: 1.18; white-space: pre-wrap; word-wrap: break-word; }
         .message-content h1, .message-content h2, .message-content h3,
-        .message-content h4, .message-content h5, .message-content h6 { margin: 0.4em 0 0.25em; line-height: 1.2; }
-        .message-content p { margin: 0.25em 0; }
-        .message-content ul, .message-content ol { margin: 0.2em 0; padding-left: 1.05em; }
-        .message-content li { margin: 0.08em 0; }
-        .message-content li > p { margin: 0.08em 0; }
-        .message-content pre { margin: 4px 0; padding: 8px 10px; line-height: 1.28; }
-        .message-content code { padding: 0.1em 0.3em; }
+        .message-content h4, .message-content h5, .message-content h6 { margin: 0.24em 0 0.12em; line-height: 1.1; }
+        .message-content h1 { font-size: 1.06rem; }
+        .message-content h2 { font-size: 1.03rem; }
+        .message-content h3 { font-size: 1.01rem; }
+        .message-content h4, .message-content h5, .message-content h6 { font-size: 0.98rem; }
+        .message-content p { margin: 0.06em 0; }
+        .message-content ul, .message-content ol { margin: 0.06em 0; padding-left: 0.78em; }
+        .message-content li { margin: 0.02em 0; }
+        .message-content li > p { margin: 0.02em 0; }
+        .message-content pre { margin: 1px 0; padding: 4px 6px; line-height: 1.16; }
+        .message-content code { padding: 0.06em 0.2em; font-size: 0.83em; }
+        .message-content blockquote { margin: 0.16em 0; padding: 0.16em 0.6em; border-left: 3px solid rgba(255,255,255,0.15); color: var(--text-secondary); }
+        .message-content table { border-collapse: collapse; margin: 0.2em 0; }
+        .message-content th, .message-content td { border: 1px solid var(--border-color); padding: 2px 6px; }
+        .message-content > *:first-child { margin-top: 0; }
+        .message-content > *:last-child { margin-bottom: 0; }
 
         .message.user .message-content {
             color: white;
@@ -240,12 +249,12 @@
 
         .message-content pre {
             background-color: rgba(0, 0, 0, 0.3);
-            padding: 8px 10px;
+            padding: 4px 6px;
             border-radius: 6px;
             overflow-x: auto;
-            margin: 4px 0;
+            margin: 1px 0;
             font-family: 'Fira Code', 'Monaco', 'Courier New', monospace;
-            font-size: 0.88em;
+            font-size: 0.83em;
         }
 
         /* Actions */
@@ -562,12 +571,17 @@
 
         // 格式化消息内容
         function formatMessageContent(content) {
+            const src = String(content || '')
+                .replace(/\r\n/g, '\n')
+                // 折叠连续3个以上的空行，避免生成多个段落造成大空隙
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
             if (window.marked) {
-                return marked.parse(content || '');
+                return marked.parse(src);
             }
             // 回退：最简渲染
             const div = document.createElement('div');
-            div.textContent = content || '';
+            div.textContent = src;
             return div.innerHTML.replace(/\n/g, '<br>');
         }
 
