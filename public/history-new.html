@@ -608,6 +608,8 @@
     <script>
         let currentViewMode = 'grouped';
         let currentHistory = [];
+        let allProjects = [];
+        let onlyUnmappedMode = false;
 
         // 页面加载时初始化
             document.addEventListener('DOMContentLoaded', function() {
@@ -654,11 +656,21 @@
 
             try {
                 showLoading();
-                const response = await fetch(`/api/history?${params}`);
-                const result = await response.json();
+                const [historyRes, projectsRes] = await Promise.all([
+                    fetch(`/api/history?${params}`),
+                    fetch('/api/history/projects')
+                ]);
+                const result = await historyRes.json();
+                const projectsResult = await projectsRes.json();
 
                 if (result.success) {
-                    currentHistory = result.data.items || result.data || [];
+                    const allItems = result.data.items || result.data || [];
+                    currentHistory = allItems;
+                    if (projectsResult && projectsResult.success) {
+                        allProjects = Array.isArray(projectsResult.data) ? projectsResult.data : [];
+                    } else {
+                        allProjects = [];
+                    }
                     renderHistory(currentHistory);
                 } else {
                     showError('加载历史记录失败: ' + result.error);
@@ -689,16 +701,29 @@
 
         // 项目唯一视图：每个项目仅出现一次（以最新会话作为预览）
         function renderProjectsUnique(items) {
-            const byProject = new Map(); // rootPath -> {project, chats:[], latest}
+            const byProject = new Map(); // key -> {project, chats:[], latest}
             for (const chat of items) {
-                const root = chat.project?.rootPath || '';
-                if (!root) continue; // 未映射已被后端过滤
-                if (!byProject.has(root)) byProject.set(root, { project: chat.project, chats: [], latest: null });
-                const g = byProject.get(root);
+                const p = chat.project || {};
+                const root = (p.rootPath || '').trim();
+                const name = (p.name || 'Unknown Project').trim();
+                // 当 rootPath 缺失或为 '(unknown)' 时，用名称分组，避免把不同项目合并进同一个“(unknown)”
+                const key = (root && root !== '(unknown)') ? root : `unknown:${name}`;
+                if (!byProject.has(key)) byProject.set(key, { project: chat.project, chats: [], latest: null });
+                const g = byProject.get(key);
                 g.chats.push(chat);
                 const cd = new Date(chat.date || chat.timestamp || 0).getTime();
                 const ld = g.latest ? new Date(g.latest.date || g.latest.timestamp || 0).getTime() : -1;
                 if (!g.latest || cd > ld) g.latest = chat;
+            }
+            // 合并后端提供的“全部项目”列表，确保无会话项目也展示（仅在非仅未映射模式下）
+            if (!onlyUnmappedMode) {
+                for (const p of (allProjects || [])) {
+                    const key = p.rootPath || p.name || '';
+                    if (!key) continue;
+                    if (!byProject.has(key)) {
+                        byProject.set(key, { project: { name: p.name || 'Unknown Project', rootPath: p.rootPath || '' }, chats: [], latest: null });
+                    }
+                }
             }
             const groups = Array.from(byProject.values()).sort((a,b)=>{
                 const ad = new Date(a.latest?.date || a.latest?.timestamp || 0).getTime();
@@ -721,7 +746,7 @@
         function renderProjectCard(project, latestChat, chatCount) {
             const id = latestChat?.id || latestChat?.sessionId || 'unknown';
             const projectName = project?.name || 'Unknown Project';
-            const timestamp = latestChat?.timestamp || latestChat?.date || Date.now();
+            const timestamp = latestChat?.timestamp || latestChat?.date || null;
             const previewMessages = (latestChat?.messages || []).slice(0, 3);
             const projectPath = project?.rootPath || '';
             const pathDisplay = projectPath ? toCursorViewPath(projectPath) : '';
@@ -735,12 +760,12 @@
                         <div class="chat-meta">${pathDisplay}</div>
                     </div>
                     <div class="chat-preview">
-                        ${previewMessages.map(msg => `
+                        ${previewMessages.length > 0 ? previewMessages.map(msg => `
                             <div class="message-preview ${msg.role === 'user' ? 'user-message' : 'assistant-message'}">
                                 <strong>${msg.role === 'user' ? '👤 用户' : '🤖 助手'}:</strong> 
                                 ${truncateText(msg.content, 100)}
                             </div>
-                        `).join('')}
+                        `).join('') : `<div class="message-preview assistant-message">暂无会话</div>`}
                     </div>
                     <div class="chat-actions" onclick="event.stopPropagation()">
                         <button class="btn btn-sm btn-primary" onclick="showChatDetail('${id}')">👁️ 查看详情</button>
@@ -1042,7 +1067,9 @@
         }
 
         function formatTimestamp(timestamp) {
+            if (!timestamp) return '-';
             const date = new Date(timestamp);
+            if (isNaN(date.getTime())) return '-';
             return date.toLocaleString('zh-CN');
         }
 

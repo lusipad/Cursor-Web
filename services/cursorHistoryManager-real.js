@@ -55,21 +55,65 @@ class CursorHistoryManager {
         this.sqliteEngine = { type: 'fallback' };
     }
 
-    // 获取Cursor存储路径
+    // 获取Cursor存储路径（支持 ENV 覆盖 + Windows 下自动在 Roaming/Local 之间择优）
     getCursorStoragePath() {
         const platform = os.platform();
         const home = os.homedir();
-        
-        switch (platform) {
-            case 'darwin': // macOS
-                return path.join(home, 'Library', 'Application Support', 'Cursor');
-            case 'win32': // Windows
-                return path.join(home, 'AppData', 'Roaming', 'Cursor');
-            case 'linux': // Linux
-                return path.join(home, '.config', 'Cursor');
-            default:
-                throw new Error(`不支持的平台: ${platform}`);
+
+        // 1) 明确指定优先：环境变量 CURSOR_STORAGE_PATH
+        const envPath = process.env.CURSOR_STORAGE_PATH;
+        if (envPath && fs.existsSync(envPath)) {
+            console.log(`🔧 使用环境变量 CURSOR_STORAGE_PATH: ${envPath}`);
+            return envPath;
         }
+
+        // 2) 平台默认与自动探测
+        if (platform === 'darwin') {
+            return path.join(home, 'Library', 'Application Support', 'Cursor');
+        }
+        if (platform === 'linux') {
+            return path.join(home, '.config', 'Cursor');
+        }
+        if (platform === 'win32') {
+            const roaming = path.join(home, 'AppData', 'Roaming', 'Cursor');
+            const local = path.join(home, 'AppData', 'Local', 'Cursor');
+
+            // 候选根：优先存在且数据更“丰富”的一个
+            const candidates = [roaming, local].filter(p => fs.existsSync(p));
+            if (candidates.length === 0) return roaming; // 回退
+
+            const scoreRoot = (rootDir) => {
+                try {
+                    const dbPath = path.join(rootDir, 'User', 'globalStorage', 'state.vscdb');
+                    if (!fs.existsSync(dbPath)) return { root: rootDir, score: -1, size: 0, bubbles: -1 };
+                    const size = fs.statSync(dbPath).size || 0;
+                    // 尝试用 better-sqlite3 统计 bubbleId 数量
+                    let bubbles = -1;
+                    try {
+                        const Database = require('better-sqlite3');
+                        const db = new Database(dbPath, { readonly: true });
+                        try {
+                            const row = db.prepare("SELECT COUNT(*) AS c FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'").get();
+                            bubbles = (row && row.c) || 0;
+                        } finally { try { db.close(); } catch {} }
+                    } catch { /* ignore */ }
+                    // 评分：先看 bubbles，再看文件大小
+                    const score = (bubbles >= 0 ? (bubbles * 10) : 0) + Math.min(size / (1024 * 1024), 500); // MB 上限 500 分
+                    return { root: rootDir, score, size, bubbles };
+                } catch {
+                    return { root: rootDir, score: -1, size: 0, bubbles: -1 };
+                }
+            };
+            const scored = candidates.map(scoreRoot).sort((a, b) => b.score - a.score);
+            const chosen = scored[0];
+            try {
+                const detail = scored.map(s => `${s.root} (bubbles=${s.bubbles}, sizeMB=${(s.size/1048576).toFixed(1)})`).join(' | ');
+                console.log(`🧭 Windows 下自动选择 Cursor 根：${chosen.root}，候选：${detail}`);
+            } catch {}
+            return chosen.root;
+        }
+
+        throw new Error(`不支持的平台: ${platform}`);
     }
 
     // 提取全局聊天消息
@@ -97,6 +141,44 @@ class CursorHistoryManager {
             console.error('❌ 数据提取失败:', error.message);
             return this.getFallbackData();
         }
+    }
+
+    // 从全局的 chat 面板（chatdata.tabs）合成会话（cursor-view 也会展示这些）
+    extractChatSessionsFromGlobalPane() {
+        const sessions = [];
+        try {
+            const dbPath = require('path').join(this.cursorStoragePath, 'User', 'globalStorage', 'state.vscdb');
+            if (!require('fs').existsSync(dbPath)) return sessions;
+            const Database = require('better-sqlite3');
+            const db = new Database(dbPath, { readonly: true });
+            try {
+                let pane = null;
+                try { const r1 = db.prepare("SELECT value FROM ItemTable WHERE key='workbench.panel.aichat.view.aichat.chatdata'").get(); if (r1 && r1.value) pane = JSON.parse(r1.value); } catch {}
+                if (!pane) { try { const r2 = db.prepare("SELECT value FROM cursorDiskKV WHERE key='workbench.panel.aichat.view.aichat.chatdata'").get(); if (r2 && r2.value) pane = JSON.parse(r2.value); } catch {} }
+                const tabs = Array.isArray(pane?.tabs) ? pane.tabs : [];
+                for (const tab of tabs) {
+                    const tabId = tab?.tabId; if (!tabId) continue;
+                    const bubbles = Array.isArray(tab?.bubbles) ? tab.bubbles : [];
+                    const messages = [];
+                    for (const bubble of bubbles) {
+                        const type = bubble?.type;
+                        let text = '';
+                        if (typeof bubble?.text === 'string') text = bubble.text;
+                        else if (typeof bubble?.content === 'string') text = bubble.content;
+                        else if (typeof bubble?.richText === 'string') text = bubble.richText;
+                        if (!text) continue;
+                        const role = (type === 'user' || type === 1) ? 'user' : 'assistant';
+                        const ts = bubble?.cTime || bubble?.timestamp || bubble?.time || bubble?.createdAt || bubble?.lastUpdatedAt || tab?.lastUpdatedAt || tab?.createdAt || null;
+                        messages.push({ role, content: String(text), composerId: tabId, timestamp: ts || null });
+                    }
+                    if (messages.length > 0) {
+                        const sessTs = messages[0]?.timestamp || tab?.lastUpdatedAt || tab?.createdAt || null;
+                        sessions.push({ sessionId: tabId, composerId: tabId, messages, timestamp: sessTs });
+                    }
+                }
+            } finally { try { db.close(); } catch {} }
+        } catch {}
+        return sessions;
     }
 
     // 从各 workspace 的 state.vscdb 提取聊天气泡（对齐 cursor-view-main：按 workspace 抽取）
@@ -137,6 +219,156 @@ class CursorHistoryManager {
             } catch {}
         }
         return allSessions;
+    }
+
+    // 从 composerData 与 aiService.generations 合成会话（适用于无 bubble 的对话）
+    async extractSessionsFromComposerData() {
+        const sessions = [];
+        const pickTimestamp = (obj) => {
+            if (!obj || typeof obj !== 'object') return null;
+            const candidate = obj.timestamp || obj.time || obj.ts || obj.createdAt || obj.lastUpdatedAt || obj.updatedAt || obj.cTime || null;
+            if (candidate == null) return null;
+            try {
+                if (typeof candidate === 'number') {
+                    const ms = candidate > 1e12 ? candidate : candidate * 1000;
+                    return new Date(ms).toISOString();
+                }
+                const d = new Date(candidate);
+                if (!isNaN(d.getTime())) return d.toISOString();
+            } catch {}
+            return null;
+        };
+        const pushIfValid = (session) => {
+            if (!session) return;
+            if (!Array.isArray(session.messages) || session.messages.length === 0) {
+                session.messages = [
+                    { role: 'assistant', content: '（composer 记录，无独立聊天气泡）', timestamp: pickTimestamp(session) }
+                ];
+            }
+            session.timestamp = session.messages[0]?.timestamp || pickTimestamp(session) || null;
+            sessions.push(session);
+        };
+
+        // 1) 全局 DB 的 composerData:% 与 aiService.generations
+        try {
+            const globalDbPath = require('path').join(this.cursorStoragePath, 'User', 'globalStorage', 'state.vscdb');
+            if (require('fs').existsSync(globalDbPath) && this.sqliteEngine.type === 'better-sqlite3') {
+                const Database = require('better-sqlite3');
+                const db = new Database(globalDbPath, { readonly: true });
+                try {
+                    // 读取全局 generations（按 composer 归并）
+                    const genByComposer = new Map();
+                    try {
+                        const rowG = db.prepare("SELECT value FROM ItemTable WHERE key='aiService.generations'").get();
+                        if (rowG && rowG.value) {
+                            try {
+                                const gdata = JSON.parse(rowG.value);
+                                const list = Array.isArray(gdata) ? gdata : (Array.isArray(gdata?.items) ? gdata.items : []);
+                                for (const g of list) {
+                                    const cid = g?.composerId || g?.id || g?.tabId; if (!cid) continue;
+                                    const arr = genByComposer.get(cid) || []; arr.push(g); genByComposer.set(cid, arr);
+                                }
+                            } catch {}
+                        }
+                    } catch {}
+                    const rows = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'").all();
+                    for (const row of rows) {
+                        const key = String(row.key || '');
+                        const cid = key.startsWith('composerData:') ? key.slice('composerData:'.length) : null;
+                        if (!cid) continue;
+                        let data = null; try { data = JSON.parse(row.value); } catch { data = null; }
+                        const messages = [];
+                        const tryPush = (role, text, ts) => {
+                            const t = (text || '').toString().trim(); if (!t) return; messages.push({ role, content: t, timestamp: ts || null, composerId: cid });
+                        };
+                        if (data && typeof data === 'object') {
+                            // 常见字段兜底
+                            const baseTs = pickTimestamp(data);
+                            tryPush('user', data.prompt || data.title || data.name || '', baseTs);
+                            tryPush('assistant', data.response || data.output || data.text || data.summary || '', baseTs);
+                            // 深层数组（如 messages / history / logs）
+                            const arrays = [data.messages, data.history, data.logs, data.generations];
+                            for (const arr of arrays) {
+                                if (!Array.isArray(arr)) continue;
+                                for (const it of arr) {
+                                    const role = (it?.role === 'user' || it?.type === 1) ? 'user' : 'assistant';
+                                    tryPush(role, it?.content || it?.text || it?.output || it?.title || '', pickTimestamp(it));
+                                }
+                            }
+                        }
+                        // 合并全局 generations
+                        const gens = genByComposer.get(cid) || [];
+                        for (const g of gens) {
+                            const gts = pickTimestamp(g);
+                            tryPush('user', g?.prompt || g?.input || '', gts);
+                            tryPush('assistant', g?.text || g?.output || g?.answer || '', gts);
+                        }
+                        pushIfValid({ sessionId: cid, composerId: cid, messages, from: 'global-composerData' });
+                    }
+                } finally { try { db.close(); } catch {} }
+            }
+        } catch {}
+
+        // 2) 各 workspace 的 composer.composerData 与 aiService.generations
+        try {
+            const workspaces = this.findWorkspaceDatabases();
+            for (const ws of workspaces) {
+                try {
+                    const Database = require('better-sqlite3');
+                    const db = new Database(ws.workspaceDb, { readonly: true });
+                    try {
+                        let compVal = null;
+                        try { const r1 = db.prepare("SELECT value FROM ItemTable WHERE key='composer.composerData'").get(); if (r1 && r1.value) compVal = r1.value; } catch {}
+                        if (!compVal) { try { const r2 = db.prepare("SELECT value FROM cursorDiskKV WHERE key='composer.composerData'").get(); if (r2 && r2.value) compVal = r2.value; } catch {} }
+                        const genRows = (()=>{ try { const r = db.prepare("SELECT value FROM ItemTable WHERE key='aiService.generations'").get(); return r && r.value ? r.value : null; } catch { return null; } })();
+                        let generations = null; try { generations = genRows ? JSON.parse(genRows) : null; } catch { generations = null; }
+                        const genByComposer = new Map();
+                        if (generations && Array.isArray(generations)) {
+                            for (const g of generations) {
+                                const cid = g?.composerId || g?.id || g?.tabId; if (!cid) continue;
+                                const arr = genByComposer.get(cid) || []; arr.push(g); genByComposer.set(cid, arr);
+                            }
+                        } else if (generations && typeof generations === 'object' && Array.isArray(generations.items)) {
+                            for (const g of generations.items) {
+                                const cid = g?.composerId || g?.id || g?.tabId; if (!cid) continue;
+                                const arr = genByComposer.get(cid) || []; arr.push(g); genByComposer.set(cid, arr);
+                            }
+                        }
+
+                        if (compVal) {
+                            let data = null; try { data = JSON.parse(compVal); } catch { data = null; }
+                            const composers = Array.isArray(data?.allComposers) ? data.allComposers : (Array.isArray(data?.composers) ? data.composers : []);
+                            for (const c of composers) {
+                                const cid = c?.composerId || c?.id; if (!cid) continue;
+                                const messages = [];
+                                const tryPush = (role, text, ts) => { const t=(text||'').toString().trim(); if(!t) return; messages.push({ role, content: t, timestamp: ts||null, composerId: cid }); };
+                                const cts = pickTimestamp(c);
+                                tryPush('user', c?.prompt || c?.title || c?.name || '', cts);
+                                tryPush('assistant', c?.response || c?.output || c?.text || '', cts);
+                                const gens = genByComposer.get(cid) || [];
+                                for (const g of gens) {
+                                    const gts = pickTimestamp(g);
+                                    tryPush('user', g?.prompt || g?.input || '', gts);
+                                    tryPush('assistant', g?.text || g?.output || g?.answer || '', gts);
+                                }
+                                pushIfValid({ sessionId: cid, composerId: cid, messages, workspaceId: ws.workspaceId, dbPath: ws.workspaceDb, from: 'workspace-composerData' });
+                            }
+                        }
+                    } finally { try { db.close(); } catch {} }
+                } catch {}
+            }
+        } catch {}
+
+        // 去重：同一 sessionId 仅保留一次（更多消息优先）
+        const uniq = new Map();
+        for (const s of sessions) {
+            const prev = uniq.get(s.sessionId);
+            if (!prev) { uniq.set(s.sessionId, s); continue; }
+            const prevScore = (prev.messages?.length || 0);
+            const curScore = (s.messages?.length || 0);
+            if (curScore > prevScore) uniq.set(s.sessionId, s);
+        }
+        return Array.from(uniq.values());
     }
 
     // 提取Workspace项目信息（参考 cursor-view-main 实现思路）
@@ -1179,10 +1411,12 @@ class CursorHistoryManager {
                         else if (typeof bubble?.content === 'string') text = bubble.content;
                         if (!text) continue;
                         const role = (type === 'user' || type === 1) ? 'user' : 'assistant';
-                        messages.push({ role, content: String(text), composerId: tabId });
+                        const ts = bubble?.cTime || bubble?.timestamp || bubble?.time || bubble?.createdAt || bubble?.lastUpdatedAt || tab?.lastUpdatedAt || tab?.createdAt || null;
+                        messages.push({ role, content: String(text), composerId: tabId, timestamp: ts || null });
                     }
                     if (messages.length > 0) {
-                        sessions.push({ sessionId: tabId, composerId: tabId, messages, timestamp: messages[0]?.timestamp || new Date().toISOString() });
+                        const sessTs = messages[0]?.timestamp || tab?.lastUpdatedAt || tab?.createdAt || null;
+                        sessions.push({ sessionId: tabId, composerId: tabId, messages, timestamp: sessTs });
                     }
                 }
                 try { db.close(); } catch {}
@@ -1300,7 +1534,7 @@ class CursorHistoryManager {
                 sessionId: conversationId,
                 composerId: topComposerId || null,
                 messages,
-                timestamp: messages[0]?.timestamp || new Date().toISOString()
+                timestamp: messages[0]?.timestamp || null
             });
         }
         
@@ -1364,15 +1598,25 @@ class CursorHistoryManager {
     }
 
     // 获取所有聊天会话
-    async getChats() {
+    async getChats(options = {}) {
+        const includeUnmapped = !!(options && (options.includeUnmapped === true || options.includeUnmapped === 'true' || options.includeUnmapped === 1 || options.includeUnmapped === '1'));
         console.log(`📚 获取聊天会话...`);
         
         try {
-            // 1) 从全局提取会话（cursor-view-main 读取全局 bubbleId），并合并 workspace chatdata 补充
+            // 1) 从全局提取会话（cursor-view-main 读取全局 bubbleId），并合并 workspace 的 chatdata 与 bubbleId 补充，再补 composerData 合成
             const sessions = await this.extractChatMessagesFromGlobal();
+            try { const globalPaneSessions = this.extractChatSessionsFromGlobalPane(); for (const s of globalPaneSessions) sessions.push(s); } catch {}
             try {
-                const wsSessions = this.extractWorkspaceChatSessions();
-                for (const s of wsSessions) sessions.push(s);
+                const wsPaneSessions = this.extractWorkspaceChatSessions();
+                for (const s of wsPaneSessions) sessions.push(s);
+            } catch {}
+            try {
+                const wsBubbleSessions = await this.extractChatMessagesFromWorkspaces();
+                for (const s of wsBubbleSessions) sessions.push(s);
+            } catch {}
+            try {
+                const composerSessions = await this.extractSessionsFromComposerData();
+                for (const s of composerSessions) sessions.push(s);
             } catch {}
 
             // 2) 提取所有 workspace 项目信息（根目录）
@@ -1421,6 +1665,14 @@ class CursorHistoryManager {
                         const byName = projectsArray.find(p => (p.name || '').toLowerCase() === projectInfo.name.toLowerCase());
                         if (byName) projectInfo = { ...projectInfo, rootPath: byName.rootPath };
                     }
+                    // 对齐 cursor-view-main：当 rootPath 仍为空/unknown 时，回退到该会话所属 workspace 的项目根
+                    if (!projectInfo.rootPath || projectInfo.rootPath === '(unknown)') {
+                        const wsIdForUnknown = composerToWorkspace.get(session.sessionId) || (session.composerId && composerToWorkspace.get(session.composerId));
+                        const wsProjForUnknown = wsIdForUnknown && workspaceToProject.get(wsIdForUnknown);
+                        if (wsProjForUnknown && wsProjForUnknown.rootPath && wsProjForUnknown.rootPath !== '/') {
+                            projectInfo = { ...projectInfo, rootPath: wsProjForUnknown.rootPath, name: projectInfo.name || wsProjForUnknown.name };
+                        }
+                    }
                     // 强约束：若根为盘符/根或容器（Repos），用 workspace 项目根替换
                     const normRoot = this.normalizePath(projectInfo.rootPath);
                     const isShallow = /^(?:[A-Za-z]:)?\/?$/.test(normRoot) || /\/repos\/?$/i.test(normRoot);
@@ -1455,9 +1707,13 @@ class CursorHistoryManager {
                         }
                     }
                 }
-                // 与 cursor-view-main 一致：无映射的会话不计入列表
-                if (!projectInfo) return null;
-
+                // 与 cursor-view-main 一致：默认无映射的会话不计入列表；如显式要求则保留为“未映射”
+                if (!projectInfo) {
+                    if (!includeUnmapped) return null;
+                    // 对齐 cursor-view：未映射统一归入 "(unknown)"
+                    projectInfo = { name: '(unknown)', rootPath: '(unknown)', fileCount: 0 };
+                }
+                
                 return {
                     sessionId: session.sessionId,
                     project: projectInfo,
@@ -1466,7 +1722,8 @@ class CursorHistoryManager {
                     workspaceId: 'global',
                     dbPath: 'global',
                     isRealData: this.sqliteEngine.type !== 'fallback',
-                    dataSource: this.sqliteEngine.type
+                    dataSource: this.sqliteEngine.type,
+                    isUnmapped: projectInfo.name === '未映射'
                 };
             });
             
@@ -1511,7 +1768,7 @@ class CursorHistoryManager {
     async getHistory(options = {}) {
         const { limit = 50, offset = 0 } = options;
         
-        const chats = await this.getChats();
+        const chats = await this.getChats(options);
         const paginatedChats = chats.slice(offset, offset + limit);
         
         return {
