@@ -41,19 +41,9 @@
         }
 
         /* Header */
-        .header {
-            background: var(--gradient);
-            padding: 20px 30px;
-            border-radius: 15px;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 20px var(--shadow-color);
-        }
+        .header { background: var(--gradient); padding: 14px 18px; border-radius: 12px; margin-bottom: 16px; box-shadow: 0 2px 12px var(--shadow-color); }
 
-        .header h1 {
-            font-size: 2rem;
-            font-weight: 700;
-            margin-bottom: 10px;
-        }
+        .header h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 6px; }
 
         .header-subtitle {
             color: var(--text-secondary);
@@ -61,13 +51,7 @@
         }
 
         /* Search and Controls */
-        .controls {
-            background-color: var(--surface-color);
-            padding: 25px;
-            border-radius: 15px;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 15px var(--shadow-color);
-        }
+        .controls { background-color: var(--surface-color); padding: 12px 14px; border-radius: 12px; margin-bottom: 14px; box-shadow: 0 2px 10px var(--shadow-color); }
 
         .search-section {
             display: flex;
@@ -198,33 +182,13 @@
         }
 
         /* Stats */
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr); /* 固定一行四列 */
-            gap: 12px;
-            margin-bottom: 18px;
-        }
+        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
 
-        .stat-card {
-            background-color: var(--surface-color);
-            padding: 12px 14px;
-            border-radius: 12px;
-            text-align: center;
-            box-shadow: 0 2px 10px var(--shadow-color);
-        }
+        .stat-card { background-color: var(--surface-color); padding: 8px 10px; border-radius: 10px; text-align: center; box-shadow: 0 2px 10px var(--shadow-color); }
 
-        .stat-card h3 {
-            color: var(--text-secondary);
-            font-size: 0.8rem;
-            margin-bottom: 6px;
-            letter-spacing: 0.5px;
-        }
+        .stat-card h3 { color: var(--text-secondary); font-size: 0.75rem; margin-bottom: 4px; letter-spacing: 0.5px; }
 
-        .stat-value {
-            font-size: 1.4rem;
-            font-weight: 700;
-            color: var(--primary-color);
-        }
+        .stat-value { font-size: 1.2rem; font-weight: 700; color: var(--primary-color); }
 
         /* View Toggle */
         .view-toggle {
@@ -249,44 +213,21 @@
             color: white;
         }
 
-        /* Project Groups */
-        .project-group {
-            background-color: var(--surface-color);
-            border-radius: 15px;
-            margin-bottom: 25px;
-            overflow: hidden;
-            box-shadow: 0 4px 15px var(--shadow-color);
-        }
+        /* Project Cards Grid */
+        .projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+        .project-group { background-color: var(--surface-color); border-radius: 12px; overflow: hidden; box-shadow: 0 2px 10px var(--shadow-color); }
 
-        .project-header {
-            background: linear-gradient(45deg, var(--primary-color), var(--primary-light));
-            padding: 20px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
+        .project-header { background: linear-gradient(45deg, var(--primary-color), var(--primary-light)); padding: 12px 14px; cursor: pointer; transition: all 0.3s ease; display: flex; justify-content: space-between; align-items: center; }
 
         .project-header:hover {
             background: linear-gradient(45deg, var(--primary-dark), var(--primary-color));
         }
 
-        .project-info h3 {
-            font-size: 1.2rem;
-            font-weight: 600;
-            margin-bottom: 5px;
-        }
+        .project-info h3 { font-size: 1rem; font-weight: 600; margin-bottom: 4px; }
 
-        .project-meta {
-            font-size: 0.9rem;
-            opacity: 0.9;
-        }
+        .project-meta { font-size: 0.8rem; opacity: 0.9; }
 
-        .project-stats {
-            text-align: right;
-            font-size: 0.9rem;
-        }
+        .project-stats { text-align: right; font-size: 0.8rem; }
 
         .expand-icon {
             transition: transform 0.3s ease;
@@ -578,14 +519,7 @@
 
             <!-- 简化：移除记录类型与排序控件 -->
 
-            <div class="view-toggle">
-                <button class="view-btn active" onclick="setViewMode('grouped')" data-mode="grouped">
-                    📁 项目分组
-                </button>
-                <button class="view-btn" onclick="setViewMode('list')" data-mode="list">
-                    📋 列表视图
-                </button>
-            </div>
+            <!-- 简化视图：仅项目视图，无切换按钮 -->
         </div>
 
         <!-- Stats -->
@@ -608,11 +542,7 @@
             </div>
         </div>
 
-        <!-- 简易操作：展开/折叠全部 -->
-        <div style="display:flex; gap:10px; margin: 6px 0 16px 0;">
-            <button class="btn btn-primary" onclick="expandAllProjects()">展开全部</button>
-            <button class="btn" style="border:1px solid var(--border-color); color:var(--text-secondary);" onclick="collapseAllProjects()">折叠全部</button>
-        </div>
+        <!-- 简化：去掉全局展开/折叠按钮 -->
 
         <!-- History Content -->
         <div id="historyContent">
@@ -782,8 +712,15 @@
             // 生成HTML
             const keys = Object.keys(projects);
             console.log('[history-new] items:', items.length, 'projects:', keys.length, keys);
-            const summaryBar = `<div style="margin:8px 0 12px 0;color:var(--text-secondary);">共 ${keys.length} 个项目分组</div>`;
-            const html = keys.map(projectKey => {
+            // 将未匹配项目置底部
+            keys.sort((a,b)=>{
+                const aIsUnknown = a === '' || a.toLowerCase().includes('unknown');
+                const bIsUnknown = b === '' || b.toLowerCase().includes('unknown');
+                if (aIsUnknown && !bIsUnknown) return 1;
+                if (!aIsUnknown && bIsUnknown) return -1;
+                return a.localeCompare(b);
+            });
+            const htmlCards = keys.map(projectKey => {
                 const project = projects[projectKey];
                 const safeKey = makeSafeKey(projectKey);
                 return `
@@ -806,9 +743,8 @@
                 `;
             }).join('');
 
-            container.innerHTML = summaryBar + html;
-            // 默认展开，避免用户误以为只有一个分组
-            expandAllProjects();
+            container.innerHTML = `<div class="projects-grid">${htmlCards}</div>`;
+            // 默认不展开：交互点击再展开
         }
 
         // 渲染列表视图

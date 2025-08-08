@@ -36,23 +36,11 @@
             line-height: 1.6;
         }
 
-        .container {
-            max-width: 1000px;
-            margin: 0 auto;
-            padding: 20px;
-        }
+        /* 居中并保持左右一致留白（至少24px），大屏限制最大宽度更美观 */
+        .container { width: min(1280px, 100% - 48px); margin: 0 auto; padding: 12px 0; }
 
         /* Header */
-        .header {
-            background: var(--gradient);
-            padding: 20px 30px;
-            border-radius: 15px;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 20px var(--shadow-color);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
+        .header { background: var(--gradient); padding: 14px 18px; border-radius: 12px; margin-bottom: 16px; box-shadow: 0 2px 12px var(--shadow-color); display: flex; justify-content: space-between; align-items: center; }
 
         .header-content h1 {
             font-size: 1.8rem;
@@ -116,13 +104,7 @@
         }
 
         /* Chat Info */
-        .chat-info {
-            background-color: var(--surface-color);
-            padding: 25px;
-            border-radius: 15px;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 15px var(--shadow-color);
-        }
+        .chat-info { background-color: var(--surface-color); padding: 16px; border-radius: 12px; margin-bottom: 16px; box-shadow: 0 2px 10px var(--shadow-color); }
 
         .info-grid {
             display: grid;
@@ -156,19 +138,14 @@
         }
 
         /* Messages */
-        .messages-container {
-            background-color: var(--surface-color);
-            border-radius: 15px;
-            padding: 30px;
-            box-shadow: 0 4px 15px var(--shadow-color);
-        }
+        .messages-container { background-color: var(--surface-color); border-radius: 12px; padding: 16px; box-shadow: 0 2px 10px var(--shadow-color); }
 
         .messages-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 25px;
-            padding-bottom: 15px;
+            margin-bottom: 18px;
+            padding-bottom: 10px;
             border-bottom: 2px solid var(--border-color);
         }
 
@@ -187,13 +164,7 @@
             font-weight: 600;
         }
 
-        .message {
-            margin-bottom: 25px;
-            padding: 20px;
-            border-radius: 15px;
-            position: relative;
-            overflow: hidden;
-        }
+        .message { margin-bottom: 10px; padding: 12px; border-radius: 12px; position: relative; overflow: hidden; }
 
         .message.user {
             background: var(--user-bg);
@@ -211,7 +182,7 @@
             display: flex;
             align-items: center;
             gap: 10px;
-            margin-bottom: 12px;
+            margin-bottom: 8px;
             font-weight: 600;
             font-size: 0.9rem;
         }
@@ -240,12 +211,15 @@
             font-weight: normal;
         }
 
-        .message-content {
-            font-size: 1rem;
-            line-height: 1.7;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
+        .message-content { font-size: 0.98rem; line-height: 1.35; white-space: pre-wrap; word-wrap: break-word; }
+        .message-content h1, .message-content h2, .message-content h3,
+        .message-content h4, .message-content h5, .message-content h6 { margin: 0.4em 0 0.25em; line-height: 1.2; }
+        .message-content p { margin: 0.25em 0; }
+        .message-content ul, .message-content ol { margin: 0.2em 0; padding-left: 1.05em; }
+        .message-content li { margin: 0.08em 0; }
+        .message-content li > p { margin: 0.08em 0; }
+        .message-content pre { margin: 4px 0; padding: 8px 10px; line-height: 1.28; }
+        .message-content code { padding: 0.1em 0.3em; }
 
         .message.user .message-content {
             color: white;
@@ -258,7 +232,7 @@
         /* Code blocks in messages */
         .message-content code {
             background-color: rgba(0, 0, 0, 0.3);
-            padding: 2px 6px;
+            padding: 0.1em 0.3em;
             border-radius: 4px;
             font-family: 'Fira Code', 'Monaco', 'Courier New', monospace;
             font-size: 0.9em;
@@ -266,12 +240,12 @@
 
         .message-content pre {
             background-color: rgba(0, 0, 0, 0.3);
-            padding: 15px;
-            border-radius: 8px;
+            padding: 8px 10px;
+            border-radius: 6px;
             overflow-x: auto;
-            margin: 10px 0;
+            margin: 4px 0;
             font-family: 'Fira Code', 'Monaco', 'Courier New', monospace;
-            font-size: 0.9em;
+            font-size: 0.88em;
         }
 
         /* Actions */
@@ -334,9 +308,7 @@
 
         /* Responsive */
         @media (max-width: 768px) {
-            .container {
-                padding: 15px;
-            }
+            .container { width: 100%; padding: 12px; }
             
             .header {
                 flex-direction: column;
@@ -389,6 +361,10 @@
             }
         }
     </style>
+    <!-- Markdown 与代码高亮样式/脚本 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -537,12 +513,36 @@
                 return;
             }
 
+            // 合并同一角色的连续消息
+            const merged = mergeConsecutiveByRole(messages);
+
+            // 配置 marked 渲染与代码高亮
+            if (window.marked) {
+                marked.setOptions({
+                    gfm: true,
+                    breaks: true,
+                    mangle: false,
+                    headerIds: false,
+                    highlight: function(code, lang) {
+                        try {
+                            if (lang && window.hljs && hljs.getLanguage(lang)) {
+                                return hljs.highlight(code, { language: lang }).value;
+                            }
+                        } catch (e) {}
+                        if (window.hljs) {
+                            return hljs.highlightAuto(code).value;
+                        }
+                        return code;
+                    }
+                });
+            }
+
             const messagesHtml = `
                 <div class="messages-header">
                     <div class="messages-title">💬 对话消息</div>
-                    <div class="messages-count">${messages.length} 条消息</div>
+                    <div class="messages-count">${merged.length} 条消息</div>
                 </div>
-                ${messages.map((message, index) => `
+                ${merged.map((message, index) => `
                     <div class="message ${message.role}">
                         <div class="message-header">
                             <div class="message-icon">
@@ -557,18 +557,33 @@
             `;
 
             container.innerHTML = messagesHtml;
+            if (window.hljs) { hljs.highlightAll(); }
         }
 
         // 格式化消息内容
         function formatMessageContent(content) {
-            // 简单的代码块格式化
-            content = content.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
-            content = content.replace(/`([^`]+)`/g, '<code>$1</code>');
-            
-            // 转义HTML但保留换行
+            if (window.marked) {
+                return marked.parse(content || '');
+            }
+            // 回退：最简渲染
             const div = document.createElement('div');
-            div.textContent = content;
+            div.textContent = content || '';
             return div.innerHTML.replace(/\n/g, '<br>');
+        }
+
+        // 合并同一角色的连续消息
+        function mergeConsecutiveByRole(messages) {
+            if (!Array.isArray(messages) || messages.length === 0) return [];
+            const merged = [];
+            for (const msg of messages) {
+                const last = merged[merged.length - 1];
+                if (last && last.role === msg.role) {
+                    last.content = `${last.content}\n\n${msg.content || ''}`.trim();
+                } else {
+                    merged.push({ role: msg.role, content: msg.content || '' });
+                }
+            }
+            return merged;
         }
 
         // 显示错误
