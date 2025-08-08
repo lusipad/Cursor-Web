@@ -649,7 +649,7 @@
         // 加载历史记录
         async function loadHistory() {
             const searchQuery = document.getElementById('searchInput').value;
-            const params = new URLSearchParams({ limit: 1000 });
+            const params = new URLSearchParams({ limit: 2000 });
             if (searchQuery) params.append('search', searchQuery);
 
             try {
@@ -683,14 +683,30 @@
                 return;
             }
 
-            // 始终以“扁平会话”视图展示（按项目平铺所有会话）
-            renderSessionsFlat(items);
+            // 与 cursor-view-main 保持一致：每个项目只展示一张卡片（取该项目最新一条会话作为预览）
+            renderProjectsUnique(items);
         }
 
-        // 扁平会话视图（所有项目的会话统一平铺）
-        function renderSessionsFlat(items) {
+        // 项目唯一视图：每个项目仅出现一次（以最新会话作为预览）
+        function renderProjectsUnique(items) {
+            const byProject = new Map(); // rootPath -> {project, chats:[], latest}
+            for (const chat of items) {
+                const root = chat.project?.rootPath || '';
+                if (!root) continue; // 未映射已被后端过滤
+                if (!byProject.has(root)) byProject.set(root, { project: chat.project, chats: [], latest: null });
+                const g = byProject.get(root);
+                g.chats.push(chat);
+                const cd = new Date(chat.date || chat.timestamp || 0).getTime();
+                const ld = g.latest ? new Date(g.latest.date || g.latest.timestamp || 0).getTime() : -1;
+                if (!g.latest || cd > ld) g.latest = chat;
+            }
+            const groups = Array.from(byProject.values()).sort((a,b)=>{
+                const ad = new Date(a.latest?.date || a.latest?.timestamp || 0).getTime();
+                const bd = new Date(b.latest?.date || b.latest?.timestamp || 0).getTime();
+                return bd - ad;
+            });
             const container = document.getElementById('historyContent');
-            const html = items.map(chat => renderChatCard(chat)).join('');
+            const html = groups.map(g => renderProjectCard(g.project, g.latest, g.chats.length)).join('');
             container.innerHTML = `<div class="sessions-grid">${html}</div>`;
         }
 
@@ -701,20 +717,20 @@
             container.innerHTML = `<div style="display: grid; gap: 20px;">${html}</div>`;
         }
 
-        // 渲染聊天卡片
-        function renderChatCard(chat) {
-            const id = chat.id || chat.sessionId || 'unknown';
-            const projectName = chat.project?.name || 'Unknown Project';
-            const messageCount = chat.messages?.length || 0;
-            const timestamp = chat.timestamp || chat.date || Date.now();
-            const previewMessages = (chat.messages || []).slice(0, 3);
-            const projectPath = chat.project?.rootPath || '';
+        // 渲染项目卡片（以最新会话为预览）
+        function renderProjectCard(project, latestChat, chatCount) {
+            const id = latestChat?.id || latestChat?.sessionId || 'unknown';
+            const projectName = project?.name || 'Unknown Project';
+            const timestamp = latestChat?.timestamp || latestChat?.date || Date.now();
+            const previewMessages = (latestChat?.messages || []).slice(0, 3);
+            const projectPath = project?.rootPath || '';
             const pathDisplay = projectPath ? toCursorViewPath(projectPath) : '';
+            const countInfo = chatCount ? `（${chatCount} 会话）` : '';
 
             return `
                 <div class="chat-card" onclick="showChatDetail('${id}')">
                     <div class="chat-header">
-                        <div class="chat-title">📁 ${projectName}</div>
+                        <div class="chat-title">📁 ${projectName} ${countInfo}</div>
                         <div class="chat-date">${formatTimestamp(timestamp)}</div>
                         <div class="chat-meta">${pathDisplay}</div>
                     </div>
@@ -727,12 +743,8 @@
                         `).join('')}
                     </div>
                     <div class="chat-actions" onclick="event.stopPropagation()">
-                        <button class="btn btn-sm btn-primary" onclick="showChatDetail('${id}')">
-                            👁️ 查看详情
-                        </button>
-                        <button class="btn btn-sm btn-secondary" onclick="exportSingleChat('${id}')">
-                            📥 导出
-                        </button>
+                        <button class="btn btn-sm btn-primary" onclick="showChatDetail('${id}')">👁️ 查看详情</button>
+                        <button class="btn btn-sm btn-secondary" onclick="exportSingleChat('${id}')">📥 导出</button>
                     </div>
                 </div>
             `;
@@ -775,22 +787,25 @@
         // 加载统计信息
         async function loadStats() {
             try {
-                const response = await fetch('/api/history/stats');
-                const result = await response.json();
+                const [statsRes, projectsRes] = await Promise.all([
+                    fetch('/api/history/stats'),
+                    fetch('/api/history/projects')
+                ]);
+                const statsResult = await statsRes.json();
+                const projectsResult = await projectsRes.json();
 
-                if (result.success) {
-                    const stats = result.data;
-                    // 以“路径”为唯一键统计项目数量，避免同名不同目录合并
-                    const projectCount = new Set(currentHistory.map(item => item.project?.rootPath || item.project?.name)).size;
-                    const messageCount = currentHistory.reduce((sum, item) => sum + (item.messages?.length || 0), 0);
+                const statsOk = statsResult && statsResult.success;
+                const projectsOk = projectsResult && projectsResult.success;
 
-                    document.getElementById('totalRecords').textContent = stats.total || currentHistory.length;
-                    document.getElementById('chatRecords').textContent = stats.byType?.chat || currentHistory.length;
-                    document.getElementById('projectCount').textContent = projectCount;
-                    document.getElementById('messageCount').textContent = messageCount;
-                } else {
-                    console.error('加载统计信息失败:', result.error);
-                }
+                const messageCount = currentHistory.reduce((sum, item) => sum + (item.messages?.length || 0), 0);
+                const totalRecords = statsOk ? (statsResult.data.total || currentHistory.length) : currentHistory.length;
+                const chatRecords = statsOk ? (statsResult.data.byType?.chat || currentHistory.length) : currentHistory.length;
+                const projectCount = projectsOk ? (projectsResult.data?.length || 0) : new Set(currentHistory.map(item => item.project?.rootPath || item.project?.name)).size;
+
+                document.getElementById('totalRecords').textContent = totalRecords;
+                document.getElementById('chatRecords').textContent = chatRecords;
+                document.getElementById('projectCount').textContent = projectCount;
+                document.getElementById('messageCount').textContent = messageCount;
             } catch (error) {
                 console.error('加载统计信息失败:', error.message);
             }
