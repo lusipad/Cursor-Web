@@ -56,7 +56,8 @@ class HistoryRoutes {
                 searchQuery: req.query.search,
                 sortBy: req.query.sortBy || 'timestamp',
                 sortOrder: req.query.sortOrder || 'desc',
-                includeUnmapped: req.query.includeUnmapped
+                includeUnmapped: req.query.includeUnmapped,
+                mode: req.query.mode
             };
 
             const result = await this.historyManager.getHistory(options);
@@ -78,7 +79,8 @@ class HistoryRoutes {
     async getHistoryItem(req, res) {
         try {
             const { id } = req.params;
-            const item = await this.historyManager.getHistoryItem(id);
+            const options = { mode: req.query.mode, includeUnmapped: req.query.includeUnmapped, segmentMinutes: req.query.segmentMinutes };
+            const item = await this.historyManager.getHistoryItem(id, options);
             
             if (!item) {
                 return res.status(404).json({

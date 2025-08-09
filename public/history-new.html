@@ -612,6 +612,8 @@
         let currentHistory = [];
         let allProjects = [];
         let onlyUnmappedMode = false;
+        let selectedProjectKey = '';
+        let selectedProjectName = '';
 
         // 页面加载时初始化
             document.addEventListener('DOMContentLoaded', function() {
@@ -653,7 +655,7 @@
         // 加载历史记录
         async function loadHistory() {
             const searchQuery = document.getElementById('searchInput').value;
-            const params = new URLSearchParams({ limit: 20000, includeUnmapped: 'true' });
+            const params = new URLSearchParams({ limit: 20000, includeUnmapped: 'true', mode: 'cv' });
             if (searchQuery) params.append('search', searchQuery);
 
             try {
@@ -750,16 +752,17 @@
 
         // 渲染项目卡片（以最新会话为预览）
         function renderProjectCard(project, latestChat, chatCount) {
-            const id = latestChat?.id || latestChat?.sessionId || 'unknown';
+            const id = latestChat?.session_id || latestChat?.id || latestChat?.sessionId || 'unknown';
             const projectName = project?.name || 'Unknown Project';
             const timestamp = latestChat?.timestamp || latestChat?.date || null;
             const previewMessages = (latestChat?.messages || []).slice(0, 3);
             const projectPath = project?.rootPath || '';
             const pathDisplay = projectPath ? toCursorViewPath(projectPath) : '';
             const countInfo = chatCount ? `（${chatCount} 会话）` : '';
+            const projectKey = (projectPath && projectPath !== '(unknown)') ? projectPath : `unknown:${projectName}`;
 
             return `
-                <div class="chat-card" onclick="showChatDetail('${id}')">
+                <div class="chat-card" onclick="showProjectSessions('${encodeURIComponent(projectKey)}','${encodeURIComponent(projectName)}')">
                     <div class="chat-header">
                         <div class="chat-title">📁 ${projectName} ${countInfo}</div>
                         <div class="chat-date">${formatTimestamp(timestamp)}</div>
@@ -781,9 +784,29 @@
             `;
         }
 
+        function showProjectSessions(encodedKey, encodedName){
+            try{
+                selectedProjectKey = decodeURIComponent(encodedKey||'');
+                selectedProjectName = decodeURIComponent(encodedName||'');
+            }catch{ selectedProjectKey = encodedKey||''; selectedProjectName = encodedName||''; }
+            const items = (currentHistory||[]).filter(it=>{
+                const p = it.project||{}; const root=(p.rootPath||'').trim(); const name=(p.name||'Unknown Project').trim();
+                const key = (root && root !== '(unknown)') ? root : `unknown:${name}`;
+                return key === selectedProjectKey;
+            });
+            currentViewMode = 'list';
+            const container = document.getElementById('historyContent');
+            const heading = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <div style=\"font-weight:600;\">${escapeHtml(selectedProjectName || selectedProjectKey)} 的会话列表（${items.length}）</div>
+                <button class=\"btn btn-sm\" onclick=\"setViewMode('grouped')\">← 返回项目</button>
+            </div>`;
+            const html = items.map(chat => renderChatCard(chat)).join('');
+            container.innerHTML = `${heading}<div style="display: grid; gap: 20px;">${html}</div>`;
+        }
+
         // 渲染单个会话卡片（显示每一条会话）
         function renderChatCard(chat) {
-            const id = chat?.id || chat?.sessionId || 'unknown';
+            const id = chat?.session_id || chat?.id || chat?.sessionId || 'unknown';
             const projectName = chat?.project?.name || 'Unknown Project';
             const timestamp = chat?.timestamp || chat?.date || null;
             const previewMessages = (chat?.messages || []).slice(0, 3);
@@ -843,7 +866,7 @@
         // 显示聊天详情
         function showChatDetail(chatId) {
             const sessionId = encodeURIComponent(chatId);
-            window.open(`/chat-detail.html?sessionId=${sessionId}`, '_blank');
+            window.open(`/chat-detail.html?sessionId=${sessionId}&mode=cv`, '_blank');
         }
 
 
@@ -1106,8 +1129,12 @@
         }
 
         function formatTimestamp(timestamp) {
-            if (!timestamp) return '-';
-            const date = new Date(timestamp);
+            if (timestamp == null) return '-';
+            let ts = Number(timestamp);
+            if (!Number.isFinite(ts)) return '-';
+            // 兼容秒级时间戳（cursor-view 使用秒）
+            if (ts < 1e12) ts = ts * 1000;
+            const date = new Date(ts);
             if (isNaN(date.getTime())) return '-';
             return date.toLocaleString('zh-CN');
         }

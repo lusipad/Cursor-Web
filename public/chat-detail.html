@@ -164,18 +164,23 @@
             font-weight: 600;
         }
 
-        .message { margin-bottom: 6px; padding: 8px 10px; border-radius: 12px; position: relative; overflow: hidden; }
+        .message { margin-bottom: 10px; padding: 12px 14px; border-radius: 10px; position: relative; overflow: hidden; background: rgba(255,255,255,0.03); }
 
+        /* 对齐 cursor-view：轻底色 + 左侧色条 + 左右错位 */
         .message.user {
-            background: var(--user-bg);
-            color: white;
-            margin-left: 40px;
+            margin-left: 0;
+            margin-right: 50px;
+            border-left: 4px solid var(--primary-color);
+            background: rgba(0,187,255,0.06);
+            color: var(--text-primary);
         }
 
         .message.assistant {
-            background: var(--assistant-bg);
+            margin-right: 0;
+            margin-left: 50px;
+            border-left: 4px solid var(--secondary-color);
+            background: rgba(255,107,53,0.06);
             color: var(--text-primary);
-            margin-right: 40px;
         }
 
         .message-header {
@@ -222,8 +227,8 @@
         .message-content ul, .message-content ol { margin: 0.06em 0; padding-left: 0.78em; }
         .message-content li { margin: 0.02em 0; }
         .message-content li > p { margin: 0.02em 0; }
-        .message-content pre { margin: 1px 0; padding: 4px 6px; line-height: 1.16; }
-        .message-content code { padding: 0.06em 0.2em; font-size: 0.83em; }
+        .message-content pre { margin: 4px 0; padding: 8px 10px; line-height: 1.16; background: rgba(0,0,0,0.28); border-radius: 6px; }
+        .message-content code { padding: 0.06em 0.2em; font-size: 0.86em; }
         .message-content blockquote { margin: 0.16em 0; padding: 0.16em 0.6em; border-left: 3px solid rgba(255,255,255,0.15); color: var(--text-secondary); }
         .message-content table { border-collapse: collapse; margin: 0.2em 0; }
         .message-content th, .message-content td { border: 1px solid var(--border-color); padding: 2px 6px; }
@@ -390,6 +395,10 @@
                 <button class="btn btn-secondary" onclick="showExportOptions()">
                     📥 导出对话
                 </button>
+                <label style="display:flex;align-items:center;gap:8px;color:#fff;font-size:0.9rem">
+                    <input type="checkbox" id="effectiveToggle" checked>
+                    只看有效文本
+                </label>
             </div>
         </div>
 
@@ -450,23 +459,33 @@
 
     <script>
         let currentChat = null;
+        let onlyEffective = true;
 
         // 页面加载时初始化
         document.addEventListener('DOMContentLoaded', function() {
             const urlParams = new URLSearchParams(window.location.search);
             const sessionId = urlParams.get('sessionId');
+            const mode = urlParams.get('mode') || 'cv';
             
             if (sessionId) {
-                loadChatDetail(sessionId);
+                loadChatDetail(sessionId, mode);
             } else {
                 showError('未提供会话ID参数');
+            }
+
+            const toggle = document.getElementById('effectiveToggle');
+            if (toggle) {
+                toggle.addEventListener('change', () => {
+                    onlyEffective = !!toggle.checked;
+                    if (currentChat) renderChatDetail(currentChat);
+                });
             }
         });
 
         // 加载聊天详情
-        async function loadChatDetail(sessionId) {
+        async function loadChatDetail(sessionId, mode) {
             try {
-                const response = await fetch(`/api/history/${sessionId}`);
+                const response = await fetch(`/api/history/${encodeURIComponent(sessionId)}${mode ? `?mode=${encodeURIComponent(mode)}` : ''}`);
                 const result = await response.json();
 
                 if (result.success && result.data) {
@@ -484,17 +503,17 @@
         function renderChatDetail(chat) {
             // 更新标题和副标题
             const projectName = chat.project?.name || 'Unknown Project';
-            const messageCount = chat.messages?.length || 0;
+            const messageCount = countEffectiveMessages(chat.messages || [], onlyEffective);
             
             document.getElementById('chatTitle').textContent = `💬 ${projectName} - 聊天详情`;
-            document.getElementById('chatSubtitle').textContent = `${messageCount} 条消息 • ${formatTimestamp(chat.date)}`;
+            document.getElementById('chatSubtitle').textContent = `${messageCount} 条消息 • ${formatTimestamp(chat.timestamp || chat.date)}`;
 
             // 更新聊天信息
             document.getElementById('projectName').textContent = projectName;
             document.getElementById('projectPath').textContent = chat.project?.rootPath || 'N/A';
-            document.getElementById('workspaceId').textContent = chat.workspaceId || 'N/A';
-            document.getElementById('sessionId').textContent = chat.sessionId || 'N/A';
-            document.getElementById('createTime').textContent = formatTimestamp(chat.date);
+            document.getElementById('workspaceId').textContent = chat.workspaceId || chat.workspace_id || 'N/A';
+            document.getElementById('sessionId').textContent = chat.sessionId || chat.session_id || 'N/A';
+            document.getElementById('createTime').textContent = formatTimestamp(chat.timestamp || chat.date);
             document.getElementById('messageCount').textContent = messageCount;
 
             // 显示聊天信息
@@ -511,7 +530,7 @@
         function renderMessages(messages) {
             const container = document.getElementById('messagesContainer');
             
-            if (messages.length === 0) {
+            if (!Array.isArray(messages) || messages.length === 0) {
                 container.innerHTML = `
                     <div class="error">
                         <div class="error-icon">💬</div>
@@ -522,8 +541,12 @@
                 return;
             }
 
-            // 合并同一角色的连续消息
-            const merged = mergeConsecutiveByRole(messages);
+            // 预处理与合并（可选只看有效文本）
+            const preprocessed = (messages || []).map(m => ({
+                role: m.role || 'assistant',
+                content: onlyEffective ? sanitizeMessageText(String(m.content || '')) : String(m.content || '')
+            })).filter(m => String(m.content || '').trim());
+            const merged = mergeConsecutiveByRole(preprocessed);
 
             // 配置 marked 渲染与代码高亮
             if (window.marked) {
@@ -598,6 +621,47 @@
                 }
             }
             return merged;
+        }
+
+        // 统计有效消息数（只看有效时会去噪+合并）
+        function countEffectiveMessages(messages, onlyEffectiveFlag) {
+            if (!Array.isArray(messages) || messages.length === 0) return 0;
+            if (!onlyEffectiveFlag) return messages.length;
+            const pre = messages.map(m => ({ role: m.role || 'assistant', content: sanitizeMessageText(String(m.content || '')) }))
+                                  .filter(m => String(m.content || '').trim());
+            return mergeConsecutiveByRole(pre).length;
+        }
+
+        // 前端展示去噪：过滤工具调用/UUID/SHA/状态词等非自然语言（对齐后端规则）
+        function sanitizeMessageText(text) {
+            if (!text) return '';
+            const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            const shaRe = /^[0-9a-f]{7,40}$/i;
+            const longAlphaNumRe = /^[A-Za-z0-9_\-]{20,}$/;
+            const statusWordRe = /^(completed|complete|success|succeeded|ok|done|error|failed|failure|cancelled|canceled|timeout)$/i;
+            const toolWordRe = /^(codebase[_\.-]?search|grep|read_file|run_terminal_cmd|apply_patch|read_lints|list_dir|glob(_file_search)?|create_diagram|fetch_pull_request|update_memory|functions\.[A-Za-z0-9_]+)$/i;
+            const isNoise = (v) => {
+                const s = String(v || '').trim();
+                if (!s) return true;
+                if (uuidRe.test(s)) return true;
+                if (shaRe.test(s)) return true;
+                if (longAlphaNumRe.test(s)) return true;
+                if (statusWordRe.test(s)) return true;
+                if (toolWordRe.test(s)) return true;
+                if (/^(Tool:|Arguments:|Result:)/i.test(s)) return true;
+                if (/^(call_|fc_)[A-Za-z0-9_\-]+$/i.test(s)) return true;
+                if (/^`{3,}$/.test(s)) return true;
+                return false;
+            };
+            const cleaned = String(text)
+                .replace(/\r\n/g, '\n')
+                .split(/\n/)
+                .map(l => l.trimEnd())
+                .filter(l => l && !isNoise(l))
+                .join('\n')
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
+            return cleaned;
         }
 
         // 显示错误

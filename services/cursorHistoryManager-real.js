@@ -20,6 +20,246 @@ class CursorHistoryManager {
         this.initializeSQLiteEngine();
     }
 
+    // ====== cursor-view 等价实现（提取口径完全对齐） ======
+    getChatsCursorView() {
+        try {
+            const out = this.cvExtractChats();
+            // 格式化为前端易用结构（与 cursor-view 的 format_chat_for_frontend 对齐）
+            return out.map(c => this.cvFormatChat(c));
+        } catch (e) {
+            console.log('❌ getChatsCursorView 失败:', e.message);
+            return [];
+        }
+    }
+
+    cvExtractChats() {
+        const pathLib = require('path');
+        const fsLib = require('fs');
+        const out = [];
+        const wsProj = new Map();           // wsId -> {name, rootPath}
+        const compMeta = new Map();         // composerId -> {title, createdAt, lastUpdatedAt}
+        const comp2ws = new Map();          // composerId -> wsId
+        const sessions = new Map();         // composerId -> {messages:[], db_path}
+
+        const pushMsg = (cid, role, text, dbPath) => {
+            if (!cid || !text) return;
+            if (!sessions.has(cid)) sessions.set(cid, { messages: [], db_path: dbPath || undefined });
+            const s = sessions.get(cid);
+            s.messages.push({ role, content: String(text) });
+            if (!s.db_path && dbPath) s.db_path = dbPath;
+        };
+
+        // 遍历 workspace DB，构建项目与 comp 元信息，并从 chatdata/composerData 累积消息
+        try {
+            const workspaces = this.findWorkspaceDatabases();
+            for (const ws of workspaces) {
+                // findWorkspaceDatabases() 返回 { workspaceDb, workspaceId }
+                const wsId = (ws && (ws.workspaceId || ws.id)) || ws;
+                const dbPath = (ws && (ws.workspaceDb || ws.dbPath)) || (typeof ws === 'string' ? ws : (ws && (ws.workspaceDb || ws.db)));
+                if (!dbPath || !fsLib.existsSync(dbPath)) continue;
+
+                const Database = require('better-sqlite3');
+                const db = new Database(dbPath, { readonly: true });
+                try {
+                    // 1) 项目根：ItemTable['history.entries'] 的 editor.resource file:/// 路径求公共前缀（失败则用 debug.selectedroot 兜底）
+                    let project = { name: '(unknown)', rootPath: '(unknown)' };
+                    try {
+                        const row = db.prepare("SELECT value FROM ItemTable WHERE key='history.entries'").get();
+                        const entries = row && row.value ? JSON.parse(row.value) : [];
+                        const paths = [];
+                        for (const e of entries) {
+                            const r = e?.editor?.resource || '';
+                            if (typeof r === 'string' && r.startsWith('file:///')) paths.push(r.slice('file:///'.length));
+                        }
+                        if (paths.length > 0) {
+                            const pref = this.cvLongestCommonPrefix(paths);
+                            const last = pref.lastIndexOf('/');
+                            const root = last > 0 ? pref.slice(0, last) : pref;
+                            const name = this.cvExtractProjectNameFromPath(root);
+                            project = { name: name || '(unknown)', rootPath: '/' + root.replace(/^\/+/, '') };
+                        }
+                    } catch {}
+                    // 兜底：debug.selectedroot（cursor-view 的后备来源）
+                    try {
+                        if (!project || !project.rootPath || project.rootPath === '(unknown)' || project.rootPath === '/') {
+                            const rowSel = db.prepare("SELECT value FROM ItemTable WHERE key='debug.selectedroot'").get();
+                            const sel = rowSel && rowSel.value ? JSON.parse(rowSel.value) : null;
+                            if (typeof sel === 'string' && sel.startsWith('file:///')) {
+                                const root = sel.slice('file:///'.length);
+                                const name = this.cvExtractProjectNameFromPath(root);
+                                project = { name: name || '(unknown)', rootPath: '/' + String(root).replace(/^\/+/, '') };
+                            }
+                        }
+                    } catch {}
+                    wsProj.set(wsId, project);
+
+                    // 2) comp_meta：ItemTable['composer.composerData'] 与 chatdata.tabs 的 tabId
+                    try {
+                        const r = db.prepare("SELECT value FROM ItemTable WHERE key='composer.composerData'").get();
+                        const cd = r && r.value ? JSON.parse(r.value) : {};
+                        for (const c of cd.allComposers || []) {
+                            const cid = c.composerId; if (!cid) continue;
+                            compMeta.set(cid, { title: c.name || '(untitled)', createdAt: c.createdAt, lastUpdatedAt: c.lastUpdatedAt });
+                            comp2ws.set(cid, wsId);
+                        }
+                    } catch {}
+                    try {
+                        const r = db.prepare("SELECT value FROM ItemTable WHERE key='workbench.panel.aichat.view.aichat.chatdata'").get();
+                        const pane = r && r.value ? JSON.parse(r.value) : {};
+                        for (const tab of pane.tabs || []) {
+                            const tid = tab.tabId; if (!tid) continue;
+                            if (!compMeta.has(tid)) compMeta.set(tid, { title: `Chat ${String(tid).slice(0,8)}`, createdAt: null, lastUpdatedAt: null });
+                            comp2ws.set(tid, wsId);
+                        }
+                    } catch {}
+
+                    // 3) 累积消息：chatdata.tabs[].bubbles[] 与 composer.composerData.conversation/messages
+                    try {
+                        const r = db.prepare("SELECT value FROM ItemTable WHERE key='workbench.panel.aichat.view.aichat.chatdata'").get();
+                        const pane = r && r.value ? JSON.parse(r.value) : {};
+                        for (const tab of pane.tabs || []) {
+                            const tid = tab.tabId || 'unknown';
+                            for (const b of tab.bubbles || []) {
+                                const t = typeof b.text === 'string' ? b.text : (typeof b.content === 'string' ? b.content : '');
+                                if (!t) continue;
+                                const role = (b.type === 'user' || b.type === 1) ? 'user' : 'assistant';
+                                pushMsg(tid, role, t, dbPath);
+                            }
+                        }
+                    } catch {}
+                    try {
+                        const r = db.prepare("SELECT value FROM ItemTable WHERE key='composer.composerData'").get();
+                        const cd = r && r.value ? JSON.parse(r.value) : {};
+                        for (const c of cd.allComposers || []) {
+                            const cid = c.composerId || 'unknown';
+                            for (const m of c.messages || []) {
+                                const role = m.role || 'assistant';
+                                const t = m.content || m.text || '';
+                                if (t) pushMsg(cid, role, t, dbPath);
+                            }
+                        }
+                    } catch {}
+                } finally { try { db.close(); } catch {} }
+            }
+        } catch {}
+
+        // 读取全局 globalStorage：cursorDiskKV['bubbleId:%'] / 'composerData:%' 与 ItemTable chatdata
+        try {
+            const pathLib = require('path');
+            const fsLib = require('fs');
+            const globalDb = pathLib.join(this.cursorStoragePath, 'User', 'globalStorage', 'state.vscdb');
+            if (fsLib.existsSync(globalDb)) {
+                const Database = require('better-sqlite3');
+                const db = new Database(globalDb, { readonly: true });
+                try {
+                    // bubbleId
+                    try {
+                        const rows = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'").all();
+                        for (const row of rows) {
+                            const v = row.value ? JSON.parse(row.value) : null; if (!v) continue;
+                            const parts = String(row.key).split(':');
+                            const cid = parts.length >= 3 ? parts[1] : null; if (!cid) continue;
+                            const role = (v.type === 1 || v.type === 'user') ? 'user' : 'assistant';
+                            const t = v.text || v.richText || v.content || '';
+                            if (t) pushMsg(cid, role, t, globalDb);
+                            if (!compMeta.has(cid)) compMeta.set(cid, { title: `Chat ${String(cid).slice(0,8)}`, createdAt: v.createdAt || null, lastUpdatedAt: v.lastUpdatedAt || v.createdAt || null });
+                            if (!comp2ws.has(cid)) comp2ws.set(cid, '(global)');
+                        }
+                    } catch {}
+                    // composerData
+                    try {
+                        const rows = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'").all();
+                        for (const row of rows) {
+                            const v = row.value ? JSON.parse(row.value) : null; if (!v) continue;
+                            const parts = String(row.key).split(':');
+                            const cid = parts.length >= 2 ? parts[1] : null; if (!cid) continue;
+                            const created = v.createdAt || null;
+                            if (!compMeta.has(cid)) compMeta.set(cid, { title: `Chat ${String(cid).slice(0,8)}`, createdAt: created, lastUpdatedAt: created });
+                            if (!comp2ws.has(cid)) comp2ws.set(cid, '(global)');
+                            for (const m of v.conversation || []) {
+                                const role = (m.type === 1) ? 'user' : 'assistant';
+                                const t = m.text || '';
+                                if (t) pushMsg(cid, role, t, globalDb);
+                            }
+                        }
+                    } catch {}
+                    // global ItemTable chatdata
+                    try {
+                        const r = db.prepare("SELECT value FROM ItemTable WHERE key='workbench.panel.aichat.view.aichat.chatdata'").get();
+                        const pane = r && r.value ? JSON.parse(r.value) : {};
+                        for (const tab of pane.tabs || []) {
+                            const tid = tab.tabId || 'unknown';
+                            if (!compMeta.has(tid)) compMeta.set(tid, { title: `Global Chat ${String(tid).slice(0,8)}`, createdAt: null, lastUpdatedAt: null });
+                            if (!comp2ws.has(tid)) comp2ws.set(tid, '(global)');
+                            for (const b of tab.bubbles || []) {
+                                const t = typeof b.text === 'string' ? b.text : (typeof b.content === 'string' ? b.content : '');
+                                if (!t) continue;
+                                const role = (b.type === 'user' || b.type === 1) ? 'user' : 'assistant';
+                                pushMsg(tid, role, t, globalDb);
+                            }
+                        }
+                    } catch {}
+                } finally { try { db.close(); } catch {} }
+            }
+        } catch {}
+
+        // 组装输出
+        for (const [cid, data] of sessions.entries()) {
+            const wsId = comp2ws.get(cid) || '(unknown)';
+            let project = wsProj.get(wsId) || { name: '(unknown)', rootPath: '(unknown)' };
+            // 兜底：如果当前 ws 没有项目根，但全局有候选，优先取最高分的一个，避免全部落入 unknown
+            if ((!project || project.rootPath === '(unknown)' || project.rootPath === '/' || !project.rootPath) && this.lastComposerProjectIndex && Array.isArray(this.lastComposerProjectIndex.globalCandidates) && this.lastComposerProjectIndex.globalCandidates.length > 0) {
+                const top = this.lastComposerProjectIndex.globalCandidates[0];
+                if (top && top.rootPath) {
+                    project = { name: this.extractProjectNameFromPath(top.rootPath), rootPath: top.rootPath };
+                }
+            }
+            const meta = compMeta.get(cid) || { title: '(untitled)', createdAt: null, lastUpdatedAt: null };
+            out.push({ project, session: { composerId: cid, ...meta }, messages: data.messages, workspace_id: wsId, db_path: data.db_path });
+        }
+
+        // 按 lastUpdatedAt 降序
+        out.sort((a, b) => ((b.session.lastUpdatedAt || 0) - (a.session.lastUpdatedAt || 0)));
+        return out;
+    }
+
+    cvFormatChat(chat) {
+        // 与 cursor-view 的 format_chat_for_frontend 对齐的最小集合
+        const sessionId = chat?.session?.composerId || require('crypto').randomUUID();
+        let date = Math.floor(Date.now() / 1000);
+        if (chat?.session?.createdAt) date = Math.floor((chat.session.createdAt) / 1000);
+        const project = chat.project || { name: 'Unknown Project', rootPath: '/' };
+        return {
+            project,
+            messages: Array.isArray(chat.messages) ? chat.messages : [],
+            date,
+            session_id: sessionId,
+            workspace_id: chat.workspace_id || 'unknown',
+            db_path: chat.db_path || 'Unknown database path'
+        };
+    }
+
+    cvLongestCommonPrefix(paths) {
+        if (!paths || paths.length === 0) return '';
+        let prefix = paths[0];
+        for (let i = 1; i < paths.length; i++) {
+            let j = 0;
+            while (j < prefix.length && j < paths[i].length && prefix[j] === paths[i][j]) j++;
+            prefix = prefix.slice(0, j);
+            if (!prefix) break;
+        }
+        return prefix;
+    }
+
+    cvExtractProjectNameFromPath(rootPath) {
+        if (!rootPath || rootPath === '/') return 'Root';
+        const parts = rootPath.split('/').filter(Boolean);
+        if (parts.length === 0) return 'Root';
+        const containers = new Set(['Documents','Projects','Code','workspace','repos','git','src','codebase']);
+        const last = parts[parts.length - 1];
+        if (containers.has(last) && parts.length > 1) return parts[parts.length - 2];
+        return last;
+    }
     // 提取单个气泡的文本与角色
     extractBubbleTextAndRole(bubbleLike) {
         const b = bubbleLike || {};
@@ -40,6 +280,35 @@ class CursorHistoryManager {
             return '';
         };
 
+        // 文本净化：过滤纯 ID/哈希/状态类噪声（如一串字母数字、UUID、git sha、completed/error 等）
+        const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        const shaRe = /^[0-9a-f]{7,40}$/i;
+        const longAlphaNumRe = /^[A-Za-z0-9_\-]{20,}$/;
+        const statusWordRe = /^(completed|complete|success|succeeded|ok|done|error|failed|failure|cancelled|canceled|timeout)$/i;
+        const toolWordRe = /^(codebase[_\.-]?search|grep|read_file|run_terminal_cmd|apply_patch|read_lints|list_dir|glob(_file_search)?|create_diagram|fetch_pull_request|update_memory|functions\.[A-Za-z0-9_]+)$/i;
+        const isNoiseLine = (s) => {
+            if (typeof s !== 'string') return true;
+            const v = s.trim();
+            if (!v) return true;
+            if (uuidRe.test(v)) return true;
+            if (shaRe.test(v)) return true;
+            if (longAlphaNumRe.test(v)) return true;
+            if (statusWordRe.test(v)) return true;
+            if (toolWordRe.test(v)) return true;
+            if (/^(Tool:|Arguments:|Result:)/i.test(v)) return true;
+            if (/^(call_|fc_)[A-Za-z0-9_\-]+$/i.test(v)) return true;
+            if (/^`{3,}$/.test(v)) return true; // 代码围栏
+            return false;
+        };
+        const sanitizeText = (s) => {
+            if (typeof s !== 'string') return '';
+            const cleaned = s
+                .split(/\r?\n/)
+                .map(l => l.trim())
+                .filter(l => l && !isNoiseLine(l));
+            return cleaned.join('\n').trim();
+        };
+
         // 直取常见字段
         let text = pickString(
             b.text,
@@ -52,6 +321,7 @@ class CursorHistoryManager {
             b?.message?.text,
             b?.payload?.content
         );
+        if (text) text = sanitizeText(text);
 
         // parts: 可能是字符串或对象数组
         if (!text && Array.isArray(b.parts)) {
@@ -59,7 +329,7 @@ class CursorHistoryManager {
                 .map(p => (typeof p === 'string' ? p : (typeof p?.content === 'string' ? p.content : (typeof p?.text === 'string' ? p.text : ''))))
                 .filter(Boolean)
                 .join('\n');
-            text = partsText.trim();
+            text = sanitizeText(partsText.trim());
         }
 
         // messages: 某些结构把单条气泡内含多段文本
@@ -68,7 +338,7 @@ class CursorHistoryManager {
                 .map(m => (typeof m?.content === 'string' ? m.content : (typeof m?.text === 'string' ? m.text : '')))
                 .filter(Boolean)
                 .join('\n');
-            text = msgTexts.trim();
+            text = sanitizeText(msgTexts.trim());
             if (!role && typeof b.messages[0]?.role === 'string') role = b.messages[0].role;
         }
 
@@ -77,6 +347,7 @@ class CursorHistoryManager {
             const picked = [];
             const seen = new Set();
             const keyHint = /content|text|rich|markdown|md|snippet|output|result|message|delta|response|body/i;
+            const ignoreKey = /(\b|\.|_)(id|ids|uuid|job|task|status|state|code|error|ok|success|completed|hash|sha|checksum|key|token|requestId|traceId|spanId)s?$/i;
             const isPlausible = (s) => {
                 if (typeof s !== 'string') return false;
                 const v = s.trim();
@@ -84,6 +355,7 @@ class CursorHistoryManager {
                 if (v.startsWith('{') || v.startsWith('[')) return false;
                 if (/^file:\/\//i.test(v)) return false;
                 if (v.length < 3) return false;
+                if (isNoiseLine(v)) return false;
                 return /[\p{L}\p{N}]/u.test(v);
             };
             const walk = (obj, depth = 0) => {
@@ -95,8 +367,11 @@ class CursorHistoryManager {
                 if (typeof obj === 'object') {
                     for (const [k, v] of Object.entries(obj)) {
                         if (seen.size > 12) break; // 控制数量
-                        if (typeof v === 'string' && (keyHint.test(k) || isPlausible(v))) {
-                            if (isPlausible(v)) { picked.push(v); seen.add(v); }
+                        if (typeof v === 'string') {
+                            if (ignoreKey.test(k)) continue;
+                            if ((keyHint.test(k) || isPlausible(v)) && !isNoiseLine(v)) {
+                                if (isPlausible(v)) { picked.push(v); seen.add(v); }
+                            }
                         } else if (typeof v === 'object') {
                             if (keyHint.test(k)) walk(v, depth + 1);
                             else if (depth < 3) walk(v, depth + 1);
@@ -105,7 +380,7 @@ class CursorHistoryManager {
                 }
             };
             walk(b);
-            if (picked.length > 0) text = picked.slice(0, 4).join('\n').trim();
+            if (picked.length > 0) text = sanitizeText(picked.slice(0, 4).join('\n').trim());
         }
 
         return { text, role: role || 'assistant' };
@@ -1757,6 +2032,28 @@ class CursorHistoryManager {
         const includeUnmapped = !!(options && (options.includeUnmapped === true || options.includeUnmapped === 'true' || options.includeUnmapped === 1 || options.includeUnmapped === '1'));
         const segmentMinutes = Number(options?.segmentMinutes || 0); // 默认不分段；>0 时按分钟切分
         console.log(`📚 获取聊天会话...`);
+
+        // 优先：cursor-view 等价实现（显式启用）
+        if (options && options.mode === 'cv') {
+            try {
+                const cvChats = this.getChatsCursorView();
+                const normalized = cvChats.map(c => ({
+                    sessionId: c.session_id,
+                    project: c.project,
+                    messages: Array.isArray(c.messages) ? c.messages : [],
+                    date: typeof c.date === 'number' ? new Date(c.date * 1000).toISOString() : (c.date || new Date().toISOString()),
+                    workspaceId: c.workspace_id || 'unknown',
+                    dbPath: c.db_path || '',
+                    isRealData: true,
+                    dataSource: 'cursor-view'
+                }));
+                console.log(`📊 返回 ${normalized.length} 个聊天会话`);
+                return normalized;
+            } catch (e) {
+                console.error('❌ CV 模式失败:', e.message);
+                return [];
+            }
+        }
         
         try {
             // 1) 采用“composerId 优先”的会话聚合（对齐 Cursor-view）：
@@ -1781,7 +2078,9 @@ class CursorHistoryManager {
             }));
 
             // 3) 主映射：composerId -> 项目（对齐 cursor-view-main）
-            const { composerToProject, conversationToProject, composerToWorkspace, workspaceToProject } = this.buildComposerProjectIndex();
+            const { composerToProject, conversationToProject, composerToWorkspace, workspaceToProject, workspaceCandidates, globalCandidates } = this.buildComposerProjectIndex();
+            // 保存一份全局候选，供 cvExtractChats 兜底
+            this.lastComposerProjectIndex = { composerToProject, conversationToProject, composerToWorkspace, workspaceToProject, workspaceCandidates, globalCandidates };
             console.log(`🔗 composer 映射条数: ${composerToProject.size}, 会话映射: ${conversationToProject.size}`);
 
             // 预先构建便于匹配的数组
@@ -1975,10 +2274,10 @@ class CursorHistoryManager {
         };
     }
 
-    // 获取单个聊天记录
-    async getHistoryItem(sessionId) {
-        const chats = await this.getChats();
-        const chat = chats.find(chat => chat.sessionId === sessionId);
+    // 获取单个聊天记录（支持透传 options，例如 mode=cv）
+    async getHistoryItem(sessionId, options = {}) {
+        const chats = await this.getChats(options);
+        const chat = chats.find(chat => (chat.sessionId === sessionId || chat.session_id === sessionId));
         return chat;
     }
 
