@@ -20,6 +20,168 @@ class CursorHistoryManager {
         this.initializeSQLiteEngine();
     }
 
+    // 提取单个气泡的文本与角色
+    extractBubbleTextAndRole(bubbleLike) {
+        const b = bubbleLike || {};
+        // 角色优先来源：显式 role；否则用 type 推断
+        let role = typeof b.role === 'string' ? b.role : undefined;
+        const type = b.type;
+        if (!role) {
+            if (type === 1 || type === 'user') role = 'user';
+            else if (type === 2 || type === 'assistant') role = 'assistant';
+            else role = 'assistant';
+        }
+
+        // 候选文本字段
+        const pickString = (...cands) => {
+            for (const c of cands) {
+                if (typeof c === 'string' && c.trim()) return c.trim();
+            }
+            return '';
+        };
+
+        // 直取常见字段
+        let text = pickString(
+            b.text,
+            b.content,
+            b.richText,
+            b.markdown,
+            b.md,
+            b?.data?.content,
+            b?.message?.content,
+            b?.message?.text,
+            b?.payload?.content
+        );
+
+        // parts: 可能是字符串或对象数组
+        if (!text && Array.isArray(b.parts)) {
+            const partsText = b.parts
+                .map(p => (typeof p === 'string' ? p : (typeof p?.content === 'string' ? p.content : (typeof p?.text === 'string' ? p.text : ''))))
+                .filter(Boolean)
+                .join('\n');
+            text = partsText.trim();
+        }
+
+        // messages: 某些结构把单条气泡内含多段文本
+        if (!text && Array.isArray(b.messages)) {
+            const msgTexts = b.messages
+                .map(m => (typeof m?.content === 'string' ? m.content : (typeof m?.text === 'string' ? m.text : '')))
+                .filter(Boolean)
+                .join('\n');
+            text = msgTexts.trim();
+            if (!role && typeof b.messages[0]?.role === 'string') role = b.messages[0].role;
+        }
+
+        // 深度兜底：遍历对象里与文本相关的键提取（仅当上述途径均失败时）
+        if (!text) {
+            const picked = [];
+            const seen = new Set();
+            const keyHint = /content|text|rich|markdown|md|snippet|output|result|message|delta|response|body/i;
+            const isPlausible = (s) => {
+                if (typeof s !== 'string') return false;
+                const v = s.trim();
+                if (!v) return false;
+                if (v.startsWith('{') || v.startsWith('[')) return false;
+                if (/^file:\/\//i.test(v)) return false;
+                if (v.length < 3) return false;
+                return /[\p{L}\p{N}]/u.test(v);
+            };
+            const walk = (obj, depth = 0) => {
+                if (!obj || depth > 4) return; // 限制深度
+                if (Array.isArray(obj)) {
+                    for (const it of obj) walk(it, depth + 1);
+                    return;
+                }
+                if (typeof obj === 'object') {
+                    for (const [k, v] of Object.entries(obj)) {
+                        if (seen.size > 12) break; // 控制数量
+                        if (typeof v === 'string' && (keyHint.test(k) || isPlausible(v))) {
+                            if (isPlausible(v)) { picked.push(v); seen.add(v); }
+                        } else if (typeof v === 'object') {
+                            if (keyHint.test(k)) walk(v, depth + 1);
+                            else if (depth < 3) walk(v, depth + 1);
+                        }
+                    }
+                }
+            };
+            walk(b);
+            if (picked.length > 0) text = picked.slice(0, 4).join('\n').trim();
+        }
+
+        return { text, role: role || 'assistant' };
+    }
+
+    // 基于全局/工作区 DB，按 composerId 优先聚合，构建原始会话集合（尽可能完整）
+    async extractSessionsComposerFirst() {
+        const sessions = new Map(); // composerId -> { sessionId, composerId, messages:[], timestamp }
+        const push = (composerId, role, content, ts) => {
+            if (!composerId) return;
+            if (!sessions.has(composerId)) sessions.set(composerId, { sessionId: composerId, composerId, messages: [], timestamp: ts || null });
+            const s = sessions.get(composerId);
+            s.messages.push({ role, content: String(content || ''), timestamp: ts || null, composerId });
+            if (!s.timestamp) s.timestamp = ts || null;
+        };
+
+        // 1) 全局 cursorDiskKV 的 bubbleId:%
+        try {
+            const path = require('path');
+            const fs = require('fs');
+            const globalDbPath = path.join(this.cursorStoragePath, 'User/globalStorage/state.vscdb');
+            if (fs.existsSync(globalDbPath) && this.sqliteEngine.type === 'better-sqlite3') {
+                const Database = require('better-sqlite3');
+                const db = new Database(globalDbPath, { readonly: true });
+                try {
+                    const rows = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'").all();
+                    for (const row of rows) {
+                        try {
+                            const value = JSON.parse(row.value);
+                            const { text, role } = this.extractBubbleTextAndRole(value);
+                            if (!text) continue;
+                            const parts = String(row.key).split(':');
+                            const composerId = parts.length >= 3 ? parts[1] : null;
+                            const ts = value.cTime || value.timestamp || value.time || value.createdAt || value.lastUpdatedAt || null;
+                            push(composerId, role, text, ts);
+                        } catch { /* ignore malformed */ }
+                    }
+                } finally { try { db.close(); } catch {} }
+            }
+        } catch { /* ignore */ }
+
+        // 2) 全局面板 chatdata.tabs
+        try {
+            const global = this.extractChatSessionsFromGlobalPane();
+            for (const s of global) {
+                for (const m of (s.messages || [])) push(s.composerId || s.sessionId, m.role, m.content, m.timestamp);
+            }
+        } catch { /* ignore */ }
+
+        // 3) 各 workspace 的 chatdata
+        try {
+            const wsPane = this.extractWorkspaceChatSessions();
+            for (const s of wsPane) {
+                for (const m of (s.messages || [])) push(s.composerId || s.sessionId, m.role, m.content, m.timestamp);
+            }
+        } catch { /* ignore */ }
+
+        // 4) 各 workspace 的 bubbleId:%（作为补充）
+        try {
+            const wsBubbles = await this.extractChatMessagesFromWorkspaces();
+            for (const s of wsBubbles) {
+                for (const m of (s.messages || [])) push(s.composerId || s.sessionId, m.role, m.content, m.timestamp);
+            }
+        } catch { /* ignore */ }
+
+        // 5) composerData/aiService 等补充
+        try {
+            const comp = await this.extractSessionsFromComposerData();
+            for (const s of comp) {
+                for (const m of (s.messages || [])) push(s.composerId || s.sessionId, m.role, m.content, m.timestamp);
+            }
+        } catch { /* ignore */ }
+
+        return Array.from(sessions.values());
+    }
+
     // 初始化SQLite引擎
     initializeSQLiteEngine() {
         // 尝试不同的SQLite引擎
@@ -161,13 +323,8 @@ class CursorHistoryManager {
                     const bubbles = Array.isArray(tab?.bubbles) ? tab.bubbles : [];
                     const messages = [];
                     for (const bubble of bubbles) {
-                        const type = bubble?.type;
-                        let text = '';
-                        if (typeof bubble?.text === 'string') text = bubble.text;
-                        else if (typeof bubble?.content === 'string') text = bubble.content;
-                        else if (typeof bubble?.richText === 'string') text = bubble.richText;
+                        const { text, role } = this.extractBubbleTextAndRole(bubble);
                         if (!text) continue;
-                        const role = (type === 'user' || type === 1) ? 'user' : 'assistant';
                         const ts = bubble?.cTime || bubble?.timestamp || bubble?.time || bubble?.createdAt || bubble?.lastUpdatedAt || tab?.lastUpdatedAt || tab?.createdAt || null;
                         messages.push({ role, content: String(text), composerId: tabId, timestamp: ts || null });
                     }
@@ -1495,11 +1652,9 @@ class CursorHistoryManager {
                 }
                 const group = sessionGroups.get(conversationId);
                 
-                // 统一消息结构
-                const type = bubbleData.type;
-                const role = (type === 1 || type === 'user') ? 'user' : (type === 2 || type === 'assistant') ? 'assistant' : 'assistant';
-                const text = (bubbleData.text || bubbleData.richText || '').trim();
-                const timestamp = bubbleData.cTime || bubbleData.timestamp || null;
+                // 统一消息结构（通过辅助函数提取）
+                const { text, role } = this.extractBubbleTextAndRole(bubbleData);
+                const timestamp = bubbleData.cTime || bubbleData.timestamp || bubbleData.time || bubbleData.createdAt || bubbleData.lastUpdatedAt || null;
                 const composerId = bubbleData.composerId || bubbleData.composerID || keyComposerId || null;
                 
                 if (composerId) {
@@ -1600,24 +1755,17 @@ class CursorHistoryManager {
     // 获取所有聊天会话
     async getChats(options = {}) {
         const includeUnmapped = !!(options && (options.includeUnmapped === true || options.includeUnmapped === 'true' || options.includeUnmapped === 1 || options.includeUnmapped === '1'));
+        const segmentMinutes = Number(options?.segmentMinutes || 0); // 默认不分段；>0 时按分钟切分
         console.log(`📚 获取聊天会话...`);
         
         try {
-            // 1) 从全局提取会话（cursor-view-main 读取全局 bubbleId），并合并 workspace 的 chatdata 与 bubbleId 补充，再补 composerData 合成
-            const sessions = await this.extractChatMessagesFromGlobal();
+            // 1) 采用“composerId 优先”的会话聚合（对齐 Cursor-view）：
+            const sessions = await this.extractSessionsComposerFirst();
+            // 同步补充：面板/工作区/全局的 chatdata 与 composerData（尽量增强消息完整性）
             try { const globalPaneSessions = this.extractChatSessionsFromGlobalPane(); for (const s of globalPaneSessions) sessions.push(s); } catch {}
-            try {
-                const wsPaneSessions = this.extractWorkspaceChatSessions();
-                for (const s of wsPaneSessions) sessions.push(s);
-            } catch {}
-            try {
-                const wsBubbleSessions = await this.extractChatMessagesFromWorkspaces();
-                for (const s of wsBubbleSessions) sessions.push(s);
-            } catch {}
-            try {
-                const composerSessions = await this.extractSessionsFromComposerData();
-                for (const s of composerSessions) sessions.push(s);
-            } catch {}
+            try { const wsPaneSessions = this.extractWorkspaceChatSessions(); for (const s of wsPaneSessions) sessions.push(s); } catch {}
+            try { const wsBubbleSessions = await this.extractChatMessagesFromWorkspaces(); for (const s of wsBubbleSessions) sessions.push(s); } catch {}
+            try { const composerSessions = await this.extractSessionsFromComposerData(); for (const s of composerSessions) sessions.push(s); } catch {}
 
             // 2) 提取所有 workspace 项目信息（根目录）
             let projectsArray = await this.extractWorkspaceProjects();
@@ -1639,13 +1787,60 @@ class CursorHistoryManager {
             // 预先构建便于匹配的数组
             const projectRootsForLongest = [];
 
-            const allChats = sessions.map((session) => {
+            // 可选：对每个会话按时间进行分段切割
+            const splitSessionsByTime = (session) => {
+                if (!Array.isArray(session.messages) || session.messages.length === 0 || segmentMinutes <= 0) {
+                    return [session];
+                }
+                const thresholdMs = segmentMinutes * 60 * 1000;
+                // 按时间升序
+                const ordered = [...session.messages].sort((a, b) => {
+                    const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+                    const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+                    return ta - tb;
+                });
+                const segments = [];
+                let current = [];
+                let lastTs = null;
+                for (const m of ordered) {
+                    const ts = m.timestamp ? new Date(m.timestamp).getTime() : null;
+                    if (current.length === 0) {
+                        current.push(m);
+                        lastTs = ts;
+                        continue;
+                    }
+                    if (ts != null && lastTs != null && (ts - lastTs) > thresholdMs) {
+                        segments.push(current);
+                        current = [m];
+                    } else {
+                        current.push(m);
+                    }
+                    lastTs = ts;
+                }
+                if (current.length > 0) segments.push(current);
+                // 生成分段会话
+                const out = segments.map((msgs, idx) => ({
+                    ...session,
+                    sessionId: `${session.sessionId}#${idx + 1}`,
+                    messages: msgs,
+                    timestamp: msgs[0]?.timestamp || session.timestamp
+                }));
+                return out;
+            };
+
+            // 展开分段
+            const expandedSessions = segmentMinutes > 0 ? sessions.flatMap(splitSessionsByTime) : sessions;
+
+            const allChats = expandedSessions.map((session) => {
                 // 严格对齐 cursor-view：优先 conversation → project，再 composer → project，再 composer → workspace → projectRoot
                 let projectInfo = null;
+                const baseId = String(session.sessionId || '').split('#')[0];
                 if (!projectInfo && conversationToProject.has(session.sessionId)) projectInfo = { ...conversationToProject.get(session.sessionId) };
+                if (!projectInfo && baseId && conversationToProject.has(baseId)) projectInfo = { ...conversationToProject.get(baseId) };
                 if (!projectInfo && session.composerId && conversationToProject.has(session.composerId)) projectInfo = { ...conversationToProject.get(session.composerId) };
                 if (!projectInfo && session.composerId && composerToProject.has(session.composerId)) projectInfo = { ...composerToProject.get(session.composerId) };
                 if (!projectInfo && composerToProject.has(session.sessionId)) projectInfo = { ...composerToProject.get(session.sessionId) };
+                if (!projectInfo && baseId && composerToProject.has(baseId)) projectInfo = { ...composerToProject.get(baseId) };
                 if (!projectInfo) {
                     const wsId = composerToWorkspace.get(session.sessionId) || (session.composerId && composerToWorkspace.get(session.composerId));
                     const wsProj = wsId && workspaceToProject.get(wsId);
@@ -1788,8 +1983,8 @@ class CursorHistoryManager {
     }
 
     // 获取统计信息
-    async getStatistics() {
-        const chats = await this.getChats();
+    async getStatistics(options = {}) {
+        const chats = await this.getChats(options);
         const stats = {
             total: chats.length,
             byType: {},

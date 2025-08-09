@@ -206,7 +206,11 @@ class HistoryRoutes {
     // 获取统计信息
     async getStats(req, res) {
         try {
-            const stats = await this.historyManager.getStatistics();
+            const options = {
+                includeUnmapped: req.query.includeUnmapped,
+                segmentMinutes: req.query.segmentMinutes
+            };
+            const stats = await this.historyManager.getStatistics(options);
             
             res.json({
                 success: true,
@@ -331,6 +335,48 @@ class HistoryRoutes {
                                 valueLength: sample.value ? sample.value.length : 0,
                                 valuePreview: sample.value ? sample.value.substring(0, 200) : null
                             };
+                            // 额外：采样用户/助手各一条，便于排查结构
+                            try {
+                                const sampleUser = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE '%\"type\":1%' LIMIT 1").get();
+                                if (sampleUser) debugInfo.sampleUserBubble = { key: sampleUser.key, valuePreview: sampleUser.value?.substring(0, 400) };
+                            } catch {}
+                            try {
+                                const sampleAssistant = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE '%\"type\":2%' LIMIT 1").get();
+                                if (sampleAssistant) debugInfo.sampleAssistantBubble = { key: sampleAssistant.key, valuePreview: sampleAssistant.value?.substring(0, 800) };
+                            } catch {}
+
+                            // 统计前 2000 条气泡的关键字段分布（conversationId、composerId 等）
+                            try {
+                                const rows = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' LIMIT 2000").all();
+                                const keyComposerSet = new Set();
+                                const valueComposerSet = new Set();
+                                const conversationIdSet = new Set();
+                                const conversationAltSet = new Set();
+                                let parsed = 0;
+                                for (const r of rows) {
+                                    const parts = typeof r.key === 'string' ? r.key.split(':') : [];
+                                    if (parts.length >= 3) keyComposerSet.add(parts[1]);
+                                    try {
+                                        const v = JSON.parse(r.value);
+                                        parsed++;
+                                        const valComposer = v?.composerId || v?.composerID || v?.composer || v?.authorId || null;
+                                        if (valComposer) valueComposerSet.add(String(valComposer));
+                                        const conv = v?.conversationId || v?.conversationID || v?.conversation || v?.sessionId || v?.sessionID || v?.tabId || null;
+                                        if (conv) conversationIdSet.add(String(conv));
+                                        // 某些结构会把会话 ID 放在 message/conversation 字段里
+                                        const conv2 = v?.message?.conversationId || v?.payload?.conversationId || null;
+                                        if (conv2) conversationAltSet.add(String(conv2));
+                                    } catch {}
+                                }
+                                debugInfo.sampleStats = {
+                                    scanned: rows.length,
+                                    parsed,
+                                    uniqueKeyComposer: keyComposerSet.size,
+                                    uniqueValueComposer: valueComposerSet.size,
+                                    uniqueConversationId: conversationIdSet.size,
+                                    uniqueConversationAlt: conversationAltSet.size
+                                };
+                            } catch {}
                         }
                     }
                     

@@ -526,9 +526,11 @@
                 </button>
             </div>
 
-            <!-- 简化：移除记录类型与排序控件 -->
-
-            <!-- 简化视图：仅项目视图，无切换按钮 -->
+            <!-- 视图切换 -->
+            <div class="view-toggle">
+                <button class="view-btn active" data-mode="list" onclick="setViewMode('list')">全部会话</button>
+                <button class="view-btn" data-mode="grouped" onclick="setViewMode('grouped')">按项目聚合</button>
+            </div>
         </div>
 
         <!-- Stats -->
@@ -605,8 +607,8 @@
 
 
 
-    <script>
-        let currentViewMode = 'grouped';
+        <script>
+        let currentViewMode = 'list';
         let currentHistory = [];
         let allProjects = [];
         let onlyUnmappedMode = false;
@@ -651,7 +653,7 @@
         // 加载历史记录
         async function loadHistory() {
             const searchQuery = document.getElementById('searchInput').value;
-            const params = new URLSearchParams({ limit: 2000 });
+            const params = new URLSearchParams({ limit: 20000, includeUnmapped: 'true' });
             if (searchQuery) params.append('search', searchQuery);
 
             try {
@@ -695,8 +697,12 @@
                 return;
             }
 
-            // 与 cursor-view-main 保持一致：每个项目只展示一张卡片（取该项目最新一条会话作为预览）
-            renderProjectsUnique(items);
+            if (currentViewMode === 'list') {
+                renderListView(items);
+            } else {
+                // 项目唯一视图：每个项目仅一张卡片
+                renderProjectsUnique(items);
+            }
         }
 
         // 项目唯一视图：每个项目仅出现一次（以最新会话作为预览）
@@ -756,6 +762,39 @@
                 <div class="chat-card" onclick="showChatDetail('${id}')">
                     <div class="chat-header">
                         <div class="chat-title">📁 ${projectName} ${countInfo}</div>
+                        <div class="chat-date">${formatTimestamp(timestamp)}</div>
+                        <div class="chat-meta">${pathDisplay}</div>
+                    </div>
+                    <div class="chat-preview">
+                        ${previewMessages.length > 0 ? previewMessages.map(msg => `
+                            <div class="message-preview ${msg.role === 'user' ? 'user-message' : 'assistant-message'}">
+                                <strong>${msg.role === 'user' ? '👤 用户' : '🤖 助手'}:</strong> 
+                                ${truncateText(msg.content, 100)}
+                            </div>
+                        `).join('') : `<div class="message-preview assistant-message">暂无会话</div>`}
+                    </div>
+                    <div class="chat-actions" onclick="event.stopPropagation()">
+                        <button class="btn btn-sm btn-primary" onclick="showChatDetail('${id}')">👁️ 查看详情</button>
+                        <button class="btn btn-sm btn-secondary" onclick="exportSingleChat('${id}')">📥 导出</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 渲染单个会话卡片（显示每一条会话）
+        function renderChatCard(chat) {
+            const id = chat?.id || chat?.sessionId || 'unknown';
+            const projectName = chat?.project?.name || 'Unknown Project';
+            const timestamp = chat?.timestamp || chat?.date || null;
+            const previewMessages = (chat?.messages || []).slice(0, 3);
+            const projectPath = chat?.project?.rootPath || '';
+            const pathDisplay = projectPath ? toCursorViewPath(projectPath) : '';
+            const countInfo = (chat?.messages?.length || 0) ? `（${chat.messages.length} 条消息）` : '';
+
+            return `
+                <div class="chat-card" onclick="showChatDetail('${id}')">
+                    <div class="chat-header">
+                        <div class="chat-title">💬 ${projectName} ${countInfo}</div>
                         <div class="chat-date">${formatTimestamp(timestamp)}</div>
                         <div class="chat-meta">${pathDisplay}</div>
                     </div>
