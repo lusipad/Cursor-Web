@@ -4,7 +4,7 @@ const path = require('path');
 const config = {
     // 服务器配置
     server: {
-        port: process.env.PORT || 3001,
+        port: process.env.PORT || 3000,
         host: process.env.HOST || '0.0.0.0', // 允许所有IP访问，支持局域网连接
         publicPath: path.join(__dirname, '..', 'public')
     },
