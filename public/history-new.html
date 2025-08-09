@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cursor 聊天历史记录</title>
     <style>
         :root {
@@ -21,541 +21,83 @@
             --gradient: linear-gradient(135deg, #6E2CF4 0%, #FF6B35 50%, #3EBD64 100%);
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        body { margin: 0; background: var(--bg-color); color: var(--text-primary); font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; min-height: 100vh; }
 
-        body {
-            font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-primary);
-            line-height: 1.6;
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-
-        /* Header */
         .header { background: var(--gradient); padding: 14px 18px; border-radius: 12px; margin-bottom: 16px; box-shadow: 0 2px 12px var(--shadow-color); }
+        .header h1 { font-size: 1.4rem; font-weight: 700; margin: 0 0 6px; }
+        .header-subtitle { color: var(--text-secondary); font-size: 1rem; }
 
-        .header h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 6px; }
-
-        .header-subtitle {
-            color: var(--text-secondary);
-            font-size: 1rem;
-        }
-
-        /* Search and Controls */
         .controls { background-color: var(--surface-color); padding: 12px 14px; border-radius: 12px; margin-bottom: 14px; box-shadow: 0 2px 10px var(--shadow-color); }
+        /* 让搜索框与按钮稳定排列，避免相互覆盖 */
+        .search-section { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px; margin-bottom: 20px; }
+        @media (max-width: 640px){ .search-section { grid-template-columns: 1fr; } }
+        .search-box { position: relative; min-width: 0; }
+        .search-input { display: block; width: 100%; padding: 12px 45px 12px 15px; border: 2px solid var(--border-color); border-radius: 10px; background-color: var(--bg-color); color: var(--text-primary); font-size: 1rem; }
+        .search-clear { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 1.2rem; padding: 5px; border-radius: 5px; }
+        .btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 500; cursor: pointer; transition: all .3s ease; display: inline-flex; align-items: center; gap: 8px; }
+        .btn-primary { background: var(--primary-color); color: #fff; }
+        .btn-secondary { background: var(--secondary-color); color: #fff; }
+        .btn-sm { padding: 6px 12px; font-size: .8rem; }
 
-        .search-section {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-        }
+        .view-toggle { display: flex; gap: 10px; margin-bottom: 20px; }
+        .view-btn { padding: 8px 16px; border: 2px solid var(--border-color); background: transparent; color: var(--text-secondary); border-radius: 8px; cursor: pointer; }
+        .view-btn.active { border-color: var(--primary-color); background: var(--primary-color); color: #fff; }
 
-        .search-box {
-            flex: 1;
-            min-width: 300px;
-            position: relative;
-        }
-
-        .search-input {
-            width: 100%;
-            padding: 12px 45px 12px 15px;
-            border: 2px solid var(--border-color);
-            border-radius: 10px;
-            background-color: var(--bg-color);
-            color: var(--text-primary);
-            font-size: 1rem;
-            transition: all 0.3s ease;
-        }
-
-        .search-input:focus {
-            border-color: var(--primary-color);
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(0, 187, 255, 0.1);
-        }
-
-        .search-clear {
-            position: absolute;
-            right: 12px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: none;
-            border: none;
-            color: var(--text-secondary);
-            cursor: pointer;
-            font-size: 1.2rem;
-            padding: 5px;
-            border-radius: 5px;
-            transition: color 0.3s ease;
-        }
-
-        .search-clear:hover {
-            color: var(--text-primary);
-        }
-
-        .filter-section {
-            display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-
-        .select-group {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-
-        .select-group label {
-            font-size: 0.9rem;
-            color: var(--text-secondary);
-            font-weight: 500;
-        }
-
-        .filter-select {
-            padding: 10px 15px;
-            border: 2px solid var(--border-color);
-            border-radius: 8px;
-            background-color: var(--bg-color);
-            color: var(--text-primary);
-            font-size: 0.9rem;
-            cursor: pointer;
-            transition: border-color 0.3s ease;
-        }
-
-        .filter-select:focus {
-            border-color: var(--primary-color);
-            outline: none;
-        }
-
-        .btn {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 8px;
-            font-size: 0.9rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .btn-primary {
-            background-color: var(--primary-color);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            background-color: var(--primary-dark);
-            transform: translateY(-2px);
-        }
-
-        .btn-secondary {
-            background-color: var(--secondary-color);
-            color: white;
-        }
-
-        .btn-secondary:hover {
-            background-color: #E04F1D;
-            transform: translateY(-2px);
-        }
-
-        .btn-success {
-            background-color: var(--tertiary-color);
-            color: white;
-        }
-
-        .btn-danger {
-            background-color: #F5222D;
-            color: white;
-        }
-
-        /* Stats */
         .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
-
-        .stat-card { background-color: var(--surface-color); padding: 8px 10px; border-radius: 10px; text-align: center; box-shadow: 0 2px 10px var(--shadow-color); }
-
-        .stat-card h3 { color: var(--text-secondary); font-size: 0.75rem; margin-bottom: 4px; letter-spacing: 0.5px; }
-
+        .stat-card { background: var(--surface-color); padding: 8px 10px; border-radius: 10px; text-align: center; }
+        .stat-card h3 { color: var(--text-secondary); font-size: .75rem; margin: 0 0 4px; }
         .stat-value { font-size: 1.2rem; font-weight: 700; color: var(--primary-color); }
 
-        /* View Toggle */
-        .view-toggle {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-
-        .view-btn {
-            padding: 8px 16px;
-            border: 2px solid var(--border-color);
-            background-color: transparent;
-            color: var(--text-secondary);
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .view-btn.active {
-            border-color: var(--primary-color);
-            background-color: var(--primary-color);
-            color: white;
-        }
-
-        /* Project Cards Masonry Layout: 自适应列数，避免高卡片导致整行空白 */
-        .projects-grid { column-width: 360px; column-gap: 12px; }
-        .project-group { display: inline-block; width: 100%; margin: 0 0 12px; background-color: var(--surface-color); border-radius: 12px; overflow: hidden; box-shadow: 0 2px 10px var(--shadow-color); break-inside: avoid; -webkit-column-break-inside: avoid; }
-
-        .project-header { background: linear-gradient(45deg, var(--primary-color), var(--primary-light)); padding: 12px 14px; cursor: pointer; transition: all 0.3s ease; display: flex; justify-content: space-between; align-items: center; }
-
-        .project-header:hover {
-            background: linear-gradient(45deg, var(--primary-dark), var(--primary-color));
-        }
-
-        .project-info h3 { font-size: 1rem; font-weight: 600; margin-bottom: 4px; }
-
-        .project-meta { font-size: 0.8rem; opacity: 0.9; }
-
-        .project-stats { text-align: right; font-size: 0.8rem; }
-
-        .expand-icon {
-            transition: transform 0.3s ease;
-        }
-
-        .project-group.expanded .expand-icon {
-            transform: rotate(180deg);
-        }
-
-        .chat-list {
-            display: none;
-            padding: 0;
-        }
-
-        .project-group.expanded .chat-list {
-            display: block;
-        }
-
-        /* Chat Cards */
-        .chat-card {
-            background-color: var(--bg-color);
-            border: 1px solid var(--border-color);
-            margin: 15px;
-            border-radius: 10px;
-            overflow: hidden;
-            transition: all 0.3s ease;
-            cursor: pointer;
-        }
-
-        .chat-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 6px 20px var(--shadow-color);
-            border-color: var(--primary-color);
-        }
-
-        .chat-header {
-            padding: 15px 20px;
-            border-bottom: 1px solid var(--border-color);
-            display: grid;
-            grid-template-columns: 1fr auto;
-            row-gap: 6px;
-        }
-
-        .chat-title {
-            font-size: 1rem;
-            font-weight: 600;
-            color: var(--primary-color);
-        }
-
-        .chat-date {
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-        }
-
-        .chat-meta { grid-column: 1 / -1; font-size: 0.8rem; color: var(--text-secondary); }
-
-        /* Sessions flat grid */
         .sessions-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+        .chat-card { background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden; transition: all .3s ease; cursor: pointer; }
+        .chat-card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px var(--shadow-color); border-color: var(--primary-color); }
+        .chat-header { padding: 15px 20px; border-bottom: 1px solid var(--border-color); display: grid; grid-template-columns: 1fr auto; row-gap: 6px; }
+        .chat-title { font-size: 1rem; font-weight: 600; color: var(--primary-color); }
+        .chat-date { font-size: .8rem; color: var(--text-secondary); }
+        .chat-meta { grid-column: 1 / -1; font-size: .8rem; color: var(--text-secondary); }
+        .chat-preview { padding: 15px 20px; max-height: 100px; overflow: hidden; position: relative; }
+        .chat-actions { padding: 10px 20px; border-top: 1px solid var(--border-color); display: flex; gap: 10px; justify-content: flex-end; }
 
-        .chat-preview {
-            padding: 15px 20px;
-            max-height: 100px;
-            overflow: hidden;
-            position: relative;
-        }
+        .loading { text-align: center; padding: 40px; color: var(--text-secondary); }
+        .spinner { width: 40px; height: 40px; border: 4px solid var(--border-color); border-top: 4px solid var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg);} 100% { transform: rotate(360deg);} }
 
-        .chat-preview::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 20px;
-            background: linear-gradient(transparent, var(--bg-color));
-        }
-
-        .message-preview {
-            margin-bottom: 8px;
-            font-size: 0.9rem;
-            line-height: 1.4;
-        }
-
-        .user-message {
-            color: var(--text-primary);
-        }
-
-        .assistant-message {
-            color: var(--text-secondary);
-        }
-
-        .chat-actions {
-            padding: 10px 20px;
-            border-top: 1px solid var(--border-color);
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
-        }
-
-        .btn-sm {
-            padding: 6px 12px;
-            font-size: 0.8rem;
-        }
-
-        /* Loading */
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: var(--text-secondary);
-        }
-
-        .spinner {
-            width: 40px;
-            height: 40px;
-            border: 4px solid var(--border-color);
-            border-top: 4px solid var(--primary-color);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        /* Modal */
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.7);
-            backdrop-filter: blur(5px);
-        }
-
-        .modal-content {
-            background-color: var(--surface-color);
-            margin: 5% auto;
-            padding: 30px;
-            border-radius: 15px;
-            width: 90%;
-            max-width: 600px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-        }
-
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            padding-bottom: 15px;
-            border-bottom: 2px solid var(--border-color);
-        }
-
-        .modal-header h2 {
-            font-size: 1.5rem;
-            background: var(--gradient);
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .close {
-            font-size: 28px;
-            font-weight: bold;
-            cursor: pointer;
-            color: var(--text-secondary);
-            transition: color 0.3s ease;
-        }
-
-        .close:hover {
-            color: var(--text-primary);
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 500;
-            color: var(--text-secondary);
-        }
-
-        .form-input, .form-select {
-            width: 100%;
-            padding: 12px 15px;
-            border: 2px solid var(--border-color);
-            border-radius: 8px;
-            background-color: var(--bg-color);
-            color: var(--text-primary);
-            font-size: 1rem;
-            transition: border-color 0.3s ease;
-        }
-
-        .form-input:focus, .form-select:focus {
-            border-color: var(--primary-color);
-            outline: none;
-        }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            .container {
-                padding: 15px;
-            }
-            
-            .search-section {
-                flex-direction: column;
-            }
-            
-            .search-box {
-                min-width: auto;
-            }
-            
-            .filter-section {
-                justify-content: center;
-            }
-            
-            /* 保持单行四列，不随屏幕变为 2 列 */
-            .stats { grid-template-columns: repeat(4, 1fr); }
-            
-            .project-header {
-                padding: 15px;
-            }
-            
-            .chat-card {
-                margin: 10px;
-            }
-            /* Masonry: 缩小列宽以提升列数自适应 */
-            .projects-grid { column-width: 300px; }
-        }
-
-        @media (max-width: 480px) {
-            /* 保持单行四列；如横向空间不足，容器会出现水平滚动 */
-            .stats { grid-template-columns: repeat(4, 1fr); overflow-x: auto; }
-            
-            .header {
-                padding: 15px 20px;
-            }
-            
-            .header h1 {
-                font-size: 1.5rem;
-            }
-            /* Masonry: 移动端单列更易读 */
-            .projects-grid { column-width: 100%; }
-        }
-
-        /* No data state */
-        .no-data {
-            text-align: center;
-            padding: 60px 20px;
-            color: var(--text-secondary);
-        }
-
-        .no-data-icon {
-            font-size: 4rem;
-            margin-bottom: 20px;
-            opacity: 0.5;
-        }
-
-        .no-data h3 {
-            font-size: 1.2rem;
-            margin-bottom: 10px;
-        }
-
-        .no-data p {
-            font-size: 0.9rem;
-            line-height: 1.6;
-        }
+        .no-data { text-align: center; padding: 60px 20px; color: var(--text-secondary); }
+        .no-data-icon { font-size: 4rem; margin-bottom: 20px; opacity: .5; }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- Header -->
         <div class="header">
             <h1>🤖 Cursor 聊天历史记录</h1>
             <div class="header-subtitle">查看、搜索和导出您的 AI 聊天记录</div>
         </div>
 
-        <!-- Controls -->
         <div class="controls">
             <div class="search-section">
                 <div class="search-box">
-                    <input type="text" id="searchInput" class="search-input" placeholder="搜索聊天内容、项目名称...">
+                    <input type="text" id="searchInput" class="search-input" placeholder="搜索聊天内容、项目名称..." />
                     <button class="search-clear" onclick="clearSearch()">✕</button>
                 </div>
-                <button class="btn btn-primary" onclick="loadHistory()">
-                    🔄 刷新
-                </button>
-                <button class="btn btn-secondary" onclick="showExportModal()">
-                    📥 导出
-                </button>
+                <button class="btn btn-primary" onclick="loadHistory()">🔄 刷新</button>
+                <button class="btn btn-secondary" onclick="showExportModal()">📥 导出</button>
             </div>
 
-            <!-- 视图切换 -->
             <div class="view-toggle">
-                <button class="view-btn active" data-mode="list" onclick="setViewMode('list')">全部会话</button>
+                <button class="view-btn" data-mode="list" onclick="setViewMode('list')">全部会话</button>
                 <button class="view-btn" data-mode="grouped" onclick="setViewMode('grouped')">按项目聚合</button>
+                <button class="view-btn" data-mode="active" onclick="setViewMode('active')">当前活动目录</button>
             </div>
         </div>
 
-        <!-- Stats -->
         <div class="stats" id="statsContainer">
-            <div class="stat-card">
-                <h3>总记录数</h3>
-                <div class="stat-value" id="totalRecords">-</div>
-            </div>
-            <div class="stat-card">
-                <h3>聊天会话</h3>
-                <div class="stat-value" id="chatRecords">-</div>
-            </div>
-            <div class="stat-card">
-                <h3>项目数量</h3>
-                <div class="stat-value" id="projectCount">-</div>
-            </div>
-            <div class="stat-card">
-                <h3>消息总数</h3>
-                <div class="stat-value" id="messageCount">-</div>
-            </div>
+            <div class="stat-card"><h3>总记录数</h3><div class="stat-value" id="totalRecords">-</div></div>
+            <div class="stat-card"><h3>聊天会话</h3><div class="stat-value" id="chatRecords">-</div></div>
+            <div class="stat-card"><h3>项目数量</h3><div class="stat-value" id="projectCount">-</div></div>
+            <div class="stat-card"><h3>消息总数</h3><div class="stat-value" id="messageCount">-</div></div>
         </div>
 
-        <!-- 简化：去掉全局展开/折叠按钮 -->
-
-        <!-- History Content -->
         <div id="historyContent">
             <div class="loading">
                 <div class="spinner"></div>
@@ -564,595 +106,254 @@
         </div>
     </div>
 
-    <!-- Export Modal -->
-    <div id="exportModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>导出聊天记录</h2>
-                <span class="close" onclick="hideExportModal()">&times;</span>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label for="exportFormat">导出格式</label>
-                    <select id="exportFormat" class="form-select">
-                        <option value="json">JSON - 完整数据结构</option>
-                        <option value="html">HTML - 可读性强的网页格式</option>
-                        <option value="markdown">Markdown - 文本格式</option>
-                        <option value="csv">CSV - 表格格式</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="exportType">记录范围</label>
-                    <select id="exportType" class="form-select">
-                        <option value="">所有记录</option>
-                        <option value="chat">仅聊天记录</option>
-                        <option value="filtered">当前筛选结果</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="exportProject">项目筛选</label>
-                    <select id="exportProject" class="form-select">
-                        <option value="">所有项目</option>
-                    </select>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="hideExportModal()">取消</button>
-                <button class="btn btn-primary" onclick="doExport()">
-                    📥 开始导出
-                </button>
-            </div>
-        </div>
-    </div>
+    <script>
+    let currentViewMode = 'list';
+    let currentHistory = [];
+    let allProjects = [];
+    let selectedProjectKey = '';
+    let selectedProjectName = '';
+    let activeWorkspacePath = '';
+    let activeWorkspaceCvPath = '';
+    let activeWorkspaceLoaded = false;
 
+    document.addEventListener('DOMContentLoaded', () => {
+        setViewMode('active');
+        loadHistory();
+        document.getElementById('searchInput').addEventListener('input', debounce(loadHistory, 500));
+    });
 
+    function debounce(fn, wait){ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), wait); }; }
 
-        <script>
-        let currentViewMode = 'list';
-        let currentHistory = [];
-        let allProjects = [];
-        let onlyUnmappedMode = false;
-        let selectedProjectKey = '';
-        let selectedProjectName = '';
+    function setViewMode(mode){
+        currentViewMode = mode;
+        document.querySelectorAll('.view-btn').forEach(b=>{ b.classList.toggle('active', b.dataset.mode===mode); });
+        const stats = document.getElementById('statsContainer');
+        if (mode === 'active') { stats.style.display='none'; renderActiveView(); } else { stats.style.display='grid'; loadStats(); renderHistory(currentHistory); }
+    }
 
-        // 页面加载时初始化
-            document.addEventListener('DOMContentLoaded', function() {
-                loadHistory();
-                loadStats();
-                loadProjectsForExport();
-                // 仅保留搜索监听
-                document.getElementById('searchInput').addEventListener('input', debounce(loadHistory, 500));
-            });
+    async function loadHistory(){
+        const q = document.getElementById('searchInput').value;
+        const params = new URLSearchParams({ limit: 20000, includeUnmapped: 'true', mode: 'cv' });
+        if (q) params.append('search', q);
+        showLoading();
+        try{
+            const [hRes, pRes] = await Promise.all([
+                fetch(`/api/history?${params}`),
+                fetch('/api/history/projects')
+            ]);
+            const result = await hRes.json();
+            const projects = await pRes.json();
+            if (result.success){
+                const raw = result.data.items || result.data || [];
+                currentHistory = (Array.isArray(raw) ? raw : []).map(ensurePrimaryTimestamp);
+                allProjects = projects && projects.success ? (Array.isArray(projects.data)?projects.data:[]) : [];
+                if (currentViewMode==='active') renderActiveView(); else renderHistory(currentHistory);
+            } else { showError('加载历史记录失败：' + result.error); }
+        } catch(e){ showError('加载历史记录失败：' + e.message); }
+    }
 
-        // 防抖函数
-        function debounce(func, wait) {
-            let timeout;
-            return function executedFunction(...args) {
-                const later = () => {
-                    clearTimeout(timeout);
-                    func(...args);
-                };
-                clearTimeout(timeout);
-                timeout = setTimeout(later, wait);
-            };
+    function renderHistory(items){
+        if (currentViewMode==='active') return renderActiveView();
+        const container=document.getElementById('historyContent');
+        if (!items || items.length===0){
+            container.innerHTML = `<div class="no-data"><div class="no-data-icon">💬</div><h3>暂无聊天记录</h3><p>当前筛选条件下没有找到聊天记录</p></div>`; return;
         }
+        if (currentViewMode==='list') return renderListView(items);
+        return renderProjectsUnique(items);
+    }
 
-        // 设置视图模式
-        function setViewMode(mode) {
-            currentViewMode = mode;
-            
-            // 更新按钮状态
-            document.querySelectorAll('.view-btn').forEach(btn => {
-                btn.classList.remove('active');
-                if (btn.dataset.mode === mode) {
-                    btn.classList.add('active');
-                }
-            });
-            
-            renderHistory(currentHistory);
+    // ===== 当前活动目录视图 =====
+    function normalizeCvPathLower(p){
+        if (!p) return '';
+        const s = String(p).replace(/\\/g,'/');
+        const replaced = s.replace(/^([A-Za-z]):/, (m,d)=>`${d}%3A`);
+        const cv = replaced.startsWith('/') ? replaced : '/' + replaced;
+        return cv.replace(/^\/([A-Za-z])%3A/, (_, d) => '/' + String(d).toLowerCase() + '%3A');
+    }
+
+    function normalizeProjectCvPathLower(p){
+        if (!p) return '';
+        const s = String(p).replace(/\\/g,'/');
+        if (/^\/[A-Za-z]%3A\//.test(s)){
+            return s.replace(/^\/([A-Za-z])%3A/, (_, d) => '/' + String(d).toLowerCase() + '%3A');
         }
+        return normalizeCvPathLower(s);
+    }
 
-        // 加载历史记录
-        async function loadHistory() {
-            const searchQuery = document.getElementById('searchInput').value;
-            const params = new URLSearchParams({ limit: 20000, includeUnmapped: 'true', mode: 'cv' });
-            if (searchQuery) params.append('search', searchQuery);
-
-            try {
-                showLoading();
-                const [historyRes, projectsRes] = await Promise.all([
-                    fetch(`/api/history?${params}`),
-                    fetch('/api/history/projects')
-                ]);
-                const result = await historyRes.json();
-                const projectsResult = await projectsRes.json();
-
-                if (result.success) {
-                    const allItems = result.data.items || result.data || [];
-                    currentHistory = allItems;
-                    if (projectsResult && projectsResult.success) {
-                        allProjects = Array.isArray(projectsResult.data) ? projectsResult.data : [];
-                    } else {
-                        allProjects = [];
-                    }
-                    renderHistory(currentHistory);
-                } else {
-                    showError('加载历史记录失败: ' + result.error);
-                }
-            } catch (error) {
-                showError('加载历史记录失败: ' + error.message);
-            }
+    async function ensureActiveWorkspaceLoaded(){
+        if (activeWorkspaceLoaded && activeWorkspacePath && activeWorkspaceCvPath) return;
+        try{
+            const res = await fetch('/api/health');
+            const json = await res.json();
+            const ws = json && (json.workspace || (json.data && json.data.workspace)) || '';
+            activeWorkspacePath = ws || '';
+            activeWorkspaceCvPath = normalizeCvPathLower(activeWorkspacePath);
+            activeWorkspaceLoaded = true;
+        }catch(err){
+            activeWorkspacePath = '';
+            activeWorkspaceCvPath = '';
+            activeWorkspaceLoaded = true;
         }
+    }
 
-        // 渲染历史记录
-        function renderHistory(items) {
-            const container = document.getElementById('historyContent');
-            
-            if (!items || items.length === 0) {
-                container.innerHTML = `
-                    <div class="no-data">
-                        <div class="no-data-icon">💬</div>
-                        <h3>暂无聊天记录</h3>
-                        <p>当前筛选条件下没有找到聊天记录<br>尝试调整搜索条件或检查 Cursor 是否有聊天数据</p>
-                    </div>
-                `;
-                return;
-            }
+    function matchActiveDirectory(projectRoot){
+        if (!projectRoot || !activeWorkspaceCvPath) return false;
+        const pr = normalizeProjectCvPathLower(projectRoot);
+        const ar = activeWorkspaceCvPath;
+        return pr === ar || pr.startsWith(ar + '/') || ar.startsWith(pr + '/');
+    }
 
-            if (currentViewMode === 'list') {
-                renderListView(items);
-            } else {
-                // 项目唯一视图：每个项目仅一张卡片
-                renderProjectsUnique(items);
-            }
-        }
-
-        // 项目唯一视图：每个项目仅出现一次（以最新会话作为预览）
-        function renderProjectsUnique(items) {
-            const byProject = new Map(); // key -> {project, chats:[], latest}
-            for (const chat of items) {
-                const p = chat.project || {};
-                const root = (p.rootPath || '').trim();
-                const name = (p.name || 'Unknown Project').trim();
-                // 当 rootPath 缺失或为 '(unknown)' 时，用名称分组，避免把不同项目合并进同一个“(unknown)”
-                const key = (root && root !== '(unknown)') ? root : `unknown:${name}`;
-                if (!byProject.has(key)) byProject.set(key, { project: chat.project, chats: [], latest: null });
-                const g = byProject.get(key);
-                g.chats.push(chat);
-                const cd = new Date(chat.date || chat.timestamp || 0).getTime();
-                const ld = g.latest ? new Date(g.latest.date || g.latest.timestamp || 0).getTime() : -1;
-                if (!g.latest || cd > ld) g.latest = chat;
-            }
-            // 合并后端提供的“全部项目”列表，确保无会话项目也展示（仅在非仅未映射模式下）
-            if (!onlyUnmappedMode) {
-                for (const p of (allProjects || [])) {
-                    const key = p.rootPath || p.name || '';
-                    if (!key) continue;
-                    if (!byProject.has(key)) {
-                        byProject.set(key, { project: { name: p.name || 'Unknown Project', rootPath: p.rootPath || '' }, chats: [], latest: null });
-                    }
-                }
-            }
-            const groups = Array.from(byProject.values()).sort((a,b)=>{
-                const ad = new Date(a.latest?.date || a.latest?.timestamp || 0).getTime();
-                const bd = new Date(b.latest?.date || b.latest?.timestamp || 0).getTime();
-                return bd - ad;
-            });
-            const container = document.getElementById('historyContent');
-            const html = groups.map(g => renderProjectCard(g.project, g.latest, g.chats.length)).join('');
-            container.innerHTML = `<div class="sessions-grid">${html}</div>`;
-        }
-
-        // 渲染列表视图
-        function renderListView(items) {
-            const container = document.getElementById('historyContent');
-            const html = items.map(chat => renderChatCard(chat)).join('');
-            container.innerHTML = `<div style="display: grid; gap: 20px;">${html}</div>`;
-        }
-
-        // 渲染项目卡片（以最新会话为预览）
-        function renderProjectCard(project, latestChat, chatCount) {
-            const id = latestChat?.session_id || latestChat?.id || latestChat?.sessionId || 'unknown';
-            const projectName = project?.name || 'Unknown Project';
-            const timestamp = latestChat?.timestamp || latestChat?.date || null;
-            const previewMessages = (latestChat?.messages || []).slice(0, 3);
-            const projectPath = project?.rootPath || '';
-            const pathDisplay = projectPath ? toCursorViewPath(projectPath) : '';
-            const countInfo = chatCount ? `（${chatCount} 会话）` : '';
-            const projectKey = (projectPath && projectPath !== '(unknown)') ? projectPath : `unknown:${projectName}`;
-
-            return `
-                <div class="chat-card" onclick="showProjectSessions('${encodeURIComponent(projectKey)}','${encodeURIComponent(projectName)}')">
-                    <div class="chat-header">
-                        <div class="chat-title">📁 ${projectName} ${countInfo}</div>
-                        <div class="chat-date">${formatTimestamp(timestamp)}</div>
-                        <div class="chat-meta">${pathDisplay}</div>
-                    </div>
-                    <div class="chat-preview">
-                        ${previewMessages.length > 0 ? previewMessages.map(msg => `
-                            <div class="message-preview ${msg.role === 'user' ? 'user-message' : 'assistant-message'}">
-                                <strong>${msg.role === 'user' ? '👤 用户' : '🤖 助手'}:</strong> 
-                                ${truncateText(msg.content, 100)}
-                            </div>
-                        `).join('') : `<div class="message-preview assistant-message">暂无会话</div>`}
-                    </div>
-                    <div class="chat-actions" onclick="event.stopPropagation()">
-                        <button class="btn btn-sm btn-primary" onclick="showChatDetail('${id}')">👁️ 查看详情</button>
-                        <button class="btn btn-sm btn-secondary" onclick="exportSingleChat('${id}')">📥 导出</button>
-                    </div>
-                </div>
-            `;
-        }
-
-        function showProjectSessions(encodedKey, encodedName){
-            try{
-                selectedProjectKey = decodeURIComponent(encodedKey||'');
-                selectedProjectName = decodeURIComponent(encodedName||'');
-            }catch{ selectedProjectKey = encodedKey||''; selectedProjectName = encodedName||''; }
-            const items = (currentHistory||[]).filter(it=>{
-                const p = it.project||{}; const root=(p.rootPath||'').trim(); const name=(p.name||'Unknown Project').trim();
-                const key = (root && root !== '(unknown)') ? root : `unknown:${name}`;
-                return key === selectedProjectKey;
-            });
-            currentViewMode = 'list';
-            const container = document.getElementById('historyContent');
-            const heading = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-                <div style=\"font-weight:600;\">${escapeHtml(selectedProjectName || selectedProjectKey)} 的会话列表（${items.length}）</div>
-                <button class=\"btn btn-sm\" onclick=\"setViewMode('grouped')\">← 返回项目</button>
-            </div>`;
-            const html = items.map(chat => renderChatCard(chat)).join('');
-            container.innerHTML = `${heading}<div style="display: grid; gap: 20px;">${html}</div>`;
-        }
-
-        // 渲染单个会话卡片（显示每一条会话）
-        function renderChatCard(chat) {
-            const id = chat?.session_id || chat?.id || chat?.sessionId || 'unknown';
-            const projectName = chat?.project?.name || 'Unknown Project';
-            const timestamp = chat?.timestamp || chat?.date || null;
-            const previewMessages = (chat?.messages || []).slice(0, 3);
-            const projectPath = chat?.project?.rootPath || '';
-            const pathDisplay = projectPath ? toCursorViewPath(projectPath) : '';
-            const countInfo = (chat?.messages?.length || 0) ? `（${chat.messages.length} 条消息）` : '';
-
-            return `
-                <div class="chat-card" onclick="showChatDetail('${id}')">
-                    <div class="chat-header">
-                        <div class="chat-title">💬 ${projectName} ${countInfo}</div>
-                        <div class="chat-date">${formatTimestamp(timestamp)}</div>
-                        <div class="chat-meta">${pathDisplay}</div>
-                    </div>
-                    <div class="chat-preview">
-                        ${previewMessages.length > 0 ? previewMessages.map(msg => `
-                            <div class="message-preview ${msg.role === 'user' ? 'user-message' : 'assistant-message'}">
-                                <strong>${msg.role === 'user' ? '👤 用户' : '🤖 助手'}:</strong> 
-                                ${truncateText(msg.content, 100)}
-                            </div>
-                        `).join('') : `<div class="message-preview assistant-message">暂无会话</div>`}
-                    </div>
-                    <div class="chat-actions" onclick="event.stopPropagation()">
-                        <button class="btn btn-sm btn-primary" onclick="showChatDetail('${id}')">👁️ 查看详情</button>
-                        <button class="btn btn-sm btn-secondary" onclick="exportSingleChat('${id}')">📥 导出</button>
-                    </div>
-                </div>
-            `;
-        }
-
-        // 切换项目展开/收起
-        function makeSafeKey(str) {
-            try { return btoa(unescape(encodeURIComponent(String(str)))); } catch { return String(str).replace(/[^a-zA-Z0-9_-]/g,'_'); }
-        }
-
-        function toggleProjectByKey(safeKey) {
-            const projectGroup = document.querySelector(`[data-key="${safeKey}"]`);
-            if (projectGroup) projectGroup.classList.toggle('expanded');
-        }
-
-        function expandAllProjects() {
-            document.querySelectorAll('.project-group').forEach(el => el.classList.add('expanded'));
-        }
-
-        function collapseAllProjects() {
-            document.querySelectorAll('.project-group').forEach(el => el.classList.remove('expanded'));
-        }
-
-        // 将 Windows 路径转换为 cursor-view-main 风格：/d%3A/Repos/xxx
-        function toCursorViewPath(p) {
-            if (!p) return '';
-            const s = String(p).replace(/\\/g,'/');
-            const replaced = s.replace(/^([A-Za-z]):/, (m, d) => `${d}%3A`);
-            return replaced.startsWith('/') ? replaced : '/' + replaced;
-        }
-
-        // 显示聊天详情
-        function showChatDetail(chatId) {
-            const sessionId = encodeURIComponent(chatId);
-            window.open(`/chat-detail.html?sessionId=${sessionId}&mode=cv`, '_blank');
-        }
-
-
-
-        // 加载统计信息
-        async function loadStats() {
-            try {
-                const [statsRes, projectsRes] = await Promise.all([
-                    fetch('/api/history/stats'),
-                    fetch('/api/history/projects')
-                ]);
-                const statsResult = await statsRes.json();
-                const projectsResult = await projectsRes.json();
-
-                const statsOk = statsResult && statsResult.success;
-                const projectsOk = projectsResult && projectsResult.success;
-
-                const messageCount = currentHistory.reduce((sum, item) => sum + (item.messages?.length || 0), 0);
-                const totalRecords = statsOk ? (statsResult.data.total || currentHistory.length) : currentHistory.length;
-                const chatRecords = statsOk ? (statsResult.data.byType?.chat || currentHistory.length) : currentHistory.length;
-                const projectCount = projectsOk ? (projectsResult.data?.length || 0) : new Set(currentHistory.map(item => item.project?.rootPath || item.project?.name)).size;
-
-                document.getElementById('totalRecords').textContent = totalRecords;
-                document.getElementById('chatRecords').textContent = chatRecords;
-                document.getElementById('projectCount').textContent = projectCount;
-                document.getElementById('messageCount').textContent = messageCount;
-            } catch (error) {
-                console.error('加载统计信息失败:', error.message);
-            }
-        }
-
-        // 加载项目列表用于导出
-        async function loadProjectsForExport() {
-            // 导出下拉：按“路径+名称”展示，value 用路径，避免重名
-            const projects = new Map();
-            currentHistory.forEach(item => {
-                const p = item.project || {};
-                const key = p.rootPath || p.name || '';
-                const name = p.rootPath ? (p.rootPath.replace(/\\/g,'/').split('/').filter(Boolean).pop() || p.name || 'Unknown Project') : (p.name || 'Unknown Project');
-                if (key) projects.set(key, name);
-            });
-            const select = document.getElementById('exportProject');
-            
-            // 清空现有选项（保留"所有项目"）
-            while (select.children.length > 1) {
-                select.removeChild(select.lastChild);
-            }
-            
-            // 添加项目选项
-            projects.forEach((name, key) => {
-                const option = document.createElement('option');
-                option.value = key;
-                option.textContent = `${name} — ${key}`;
-                select.appendChild(option);
-            });
-        }
-
-        // 显示导出模态框
-        function showExportModal() {
-            loadProjectsForExport();
-            document.getElementById('exportModal').style.display = 'block';
-        }
-
-        // 隐藏导出模态框
-        function hideExportModal() {
-            document.getElementById('exportModal').style.display = 'none';
-        }
-
-        // 执行导出
-        async function doExport() {
-            const format = document.getElementById('exportFormat').value;
-            const type = document.getElementById('exportType').value;
-            const project = document.getElementById('exportProject').value;
-
-            let dataToExport = currentHistory;
-
-            // 应用筛选
-            if (type === 'chat') {
-                dataToExport = dataToExport.filter(item => item.type === 'chat' || !item.type);
-            } else if (type === 'filtered') {
-                // 使用当前筛选结果
-            }
-
-            if (project) {
-                dataToExport = dataToExport.filter(item => (item.project?.rootPath || item.project?.name) === project);
-            }
-
-            // 生成文件
-            let content, filename, mimeType;
-
-            switch (format) {
-                case 'json':
-                    content = JSON.stringify(dataToExport, null, 2);
-                    filename = `cursor-chats-${new Date().toISOString().split('T')[0]}.json`;
-                    mimeType = 'application/json';
-                    break;
-                
-                case 'markdown':
-                    content = generateMarkdown(dataToExport);
-                    filename = `cursor-chats-${new Date().toISOString().split('T')[0]}.md`;
-                    mimeType = 'text/markdown';
-                    break;
-                
-                case 'html':
-                    content = generateHTML(dataToExport);
-                    filename = `cursor-chats-${new Date().toISOString().split('T')[0]}.html`;
-                    mimeType = 'text/html';
-                    break;
-                
-                case 'csv':
-                    content = generateCSV(dataToExport);
-                    filename = `cursor-chats-${new Date().toISOString().split('T')[0]}.csv`;
-                    mimeType = 'text/csv';
-                    break;
-            }
-
-            // 下载文件
-            downloadFile(content, filename, mimeType);
-            hideExportModal();
-        }
-
-        // 导出单个聊天
-        function exportSingleChat(chatId) {
-            // 直接跳转到聊天详情页面，在那里进行导出
-            showChatDetail(chatId);
-        }
-
-        // 生成Markdown格式
-        function generateMarkdown(data) {
-            let content = `# Cursor 聊天记录\n\n`;
-            content += `导出时间: ${new Date().toLocaleString()}\n`;
-            content += `记录数量: ${data.length}\n\n`;
-
-            data.forEach((chat, index) => {
-                content += `## ${index + 1}. ${chat.project?.name || 'Unknown Project'}\n\n`;
-                content += `- **项目路径**: ${chat.project?.rootPath || 'N/A'}\n`;
-                content += `- **时间**: ${formatTimestamp(chat.timestamp || chat.date)}\n`;
-                content += `- **消息数量**: ${chat.messages?.length || 0}\n\n`;
-
-                if (chat.messages && chat.messages.length > 0) {
-                    content += `### 对话内容\n\n`;
-                    chat.messages.forEach((msg, msgIndex) => {
-                        const role = msg.role === 'user' ? '👤 用户' : '🤖 AI助手';
-                        content += `**${role}** (#${msgIndex + 1}):\n\n`;
-                        content += `${msg.content}\n\n---\n\n`;
-                    });
-                }
-            });
-
-            return content;
-        }
-
-        // 生成HTML格式
-        function generateHTML(data) {
-            return `
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cursor 聊天记录导出</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 40px; line-height: 1.6; color: #333; }
-        .header { background: linear-gradient(135deg, #6E2CF4, #FF6B35); color: white; padding: 30px; border-radius: 10px; margin-bottom: 30px; }
-        .chat { border: 1px solid #e0e0e0; border-radius: 10px; margin-bottom: 30px; overflow: hidden; }
-        .chat-header { background-color: #f8f9fa; padding: 20px; border-bottom: 1px solid #e0e0e0; }
-        .chat-content { padding: 20px; }
-        .message { margin-bottom: 20px; padding: 15px; border-radius: 8px; }
-        .user-message { background-color: #e3f2fd; border-left: 4px solid #2196f3; }
-        .assistant-message { background-color: #f3e5f5; border-left: 4px solid #9c27b0; }
-        .message-header { font-weight: bold; margin-bottom: 8px; }
-        .timestamp { color: #666; font-size: 0.9em; }
-        pre { white-space: pre-wrap; word-wrap: break-word; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>🤖 Cursor 聊天记录</h1>
-        <p>导出时间: ${new Date().toLocaleString()}</p>
-        <p>记录数量: ${data.length}</p>
-    </div>
-    
-    ${data.map((chat, index) => `
-        <div class="chat">
-            <div class="chat-header">
-                <h2>${index + 1}. ${escapeHtml(chat.project?.name || 'Unknown Project')}</h2>
-                <p><strong>项目路径:</strong> ${escapeHtml(chat.project?.rootPath || 'N/A')}</p>
-                <p><strong>时间:</strong> ${formatTimestamp(chat.timestamp || chat.date)}</p>
-                <p><strong>消息数量:</strong> ${chat.messages?.length || 0}</p>
-            </div>
-            <div class="chat-content">
-                ${(chat.messages || []).map((msg, msgIndex) => `
-                    <div class="message ${msg.role}-message">
-                        <div class="message-header">
-                            ${msg.role === 'user' ? '👤 用户' : '🤖 AI助手'} (#${msgIndex + 1})
-                        </div>
-                        <pre>${escapeHtml(msg.content)}</pre>
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-    `).join('')}
-</body>
-</html>`;
-        }
-
-        // 生成CSV格式
-        function generateCSV(data) {
-            let csv = 'Project,Path,Timestamp,Role,Message\n';
-            
-            data.forEach(chat => {
-                const project = escapeCSV(chat.project?.name || 'Unknown');
-                const path = escapeCSV(chat.project?.rootPath || 'N/A');
-                const timestamp = formatTimestamp(chat.timestamp || chat.date);
-                
-                (chat.messages || []).forEach(msg => {
-                    csv += `"${project}","${path}","${timestamp}","${msg.role}","${escapeCSV(msg.content)}"\n`;
-                });
-            });
-            
-            return csv;
-        }
-
-        // 下载文件
-        function downloadFile(content, filename, mimeType) {
-            const blob = new Blob([content], { type: mimeType });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }
-
-        // 工具函数
-        function clearSearch() {
-            document.getElementById('searchInput').value = '';
-            loadHistory();
-        }
-
-        function showLoading() {
-            document.getElementById('historyContent').innerHTML = `
-                <div class="loading">
-                    <div class="spinner"></div>
-                    <div>正在加载聊天记录...</div>
-                </div>
-            `;
-        }
-
-        function showError(message) {
-            document.getElementById('historyContent').innerHTML = `
+    async function renderActiveView(){
+        const container = document.getElementById('historyContent');
+        showLoading();
+        await ensureActiveWorkspaceLoaded();
+        if (!activeWorkspaceCvPath){
+            container.innerHTML = `
                 <div class="no-data">
                     <div class="no-data-icon">⚠️</div>
-                    <h3>加载失败</h3>
-                    <p>${message}</p>
+                    <h3>无法获取当前活动目录</h3>
+                    <p>请稍后重试，或检查服务器是否正常运行。</p>
+                </div>`;
+            return;
+        }
+        const filtered = (currentHistory||[]).filter(item => matchActiveDirectory(item?.project?.rootPath || ''));
+        const heading = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <div style="font-weight:600;">当前活动目录：<span style="opacity:.8">${escapeHtml(activeWorkspacePath || activeWorkspaceCvPath)}</span>（${filtered.length}）</div>
+        </div>`;
+        if (filtered.length === 0){
+            container.innerHTML = `${heading}
+                <div class="no-data">
+                    <div class="no-data-icon">💬</div>
+                    <h3>暂无聊天记录</h3>
+                    <p>当前活动目录下没有匹配的会话</p>
+                </div>`;
+            return;
+        }
+        const html = filtered.map(chat => renderChatCard(chat)).join('');
+        container.innerHTML = `${heading}<div style="display:grid;gap:20px;">${html}</div>`;
+    }
+
+    function renderProjectsUnique(items){
+        const byProject = new Map();
+        for (const chat of items){
+            const normalized = ensurePrimaryTimestamp(chat);
+            const p = normalized.project || {}; const root=(p.rootPath||'').trim(); const name=(p.name||'Unknown Project').trim();
+            const key = (root && root!=='(unknown)') ? root : `unknown:${name}`;
+            if (!byProject.has(key)) byProject.set(key, { project: normalized.project, chats: [], latest: null });
+            const g = byProject.get(key); g.chats.push(normalized);
+            const cd = new Date(normalized.timestamp || normalized.date || 0).getTime();
+            const ld = g.latest ? new Date(g.latest.timestamp || g.latest.date || 0).getTime() : -1;
+            if (!g.latest || cd>ld) g.latest = normalized;
+        }
+        const groups = Array.from(byProject.values()).sort((a,b)=> new Date(b.latest?.timestamp||b.latest?.date||0) - new Date(a.latest?.timestamp||a.latest?.date||0));
+        const html = groups.map(g => renderProjectCard(g.project, g.latest, g.chats.length)).join('');
+        document.getElementById('historyContent').innerHTML = `<div class="sessions-grid">${html}</div>`;
+    }
+
+    function renderListView(items){
+        const html = items.map(chat => renderChatCard(ensurePrimaryTimestamp(chat))).join('');
+        document.getElementById('historyContent').innerHTML = `<div style="display:grid;gap:20px;">${html}</div>`;
+    }
+
+    function renderProjectCard(project, latestChat, chatCount){
+        const id = latestChat?.session_id || latestChat?.id || latestChat?.sessionId || 'unknown';
+        const projectName = project?.name || 'Unknown Project';
+        // 与 chat-detail 一致：仅读取会话上直带的时间（timestamp 优先）
+        const baseTimestamp = latestChat?.timestamp ?? latestChat?.date ?? null;
+        const previewMessages = (latestChat?.messages || []).slice(0,3);
+        const projectPath = project?.rootPath || '';
+        const pathDisplay = projectPath ? toCursorViewPath(projectPath) : '';
+        const dateDisplay = formatTimestamp(baseTimestamp);
+        const countInfo = chatCount ? `（${chatCount} 会话）` : '';
+        const projectKey = (projectPath && projectPath !== '(unknown)') ? projectPath : `unknown:${projectName}`;
+        return `
+            <div class="chat-card" onclick="showProjectSessions('${encodeURIComponent(projectKey)}','${encodeURIComponent(projectName)}')">
+                <div class="chat-header">
+                    <div class="chat-title">📁 ${projectName} ${countInfo} · ${dateDisplay}</div>
+                    <div class="chat-meta">${pathDisplay ? pathDisplay : ''}</div>
                 </div>
-            `;
-        }
+                <div class="chat-preview">
+                    ${previewMessages.length>0 ? previewMessages.map(m=>`<div>${escapeHtml(m.content)}</div>`).join('') : `<div class="message-preview assistant-message">暂无会话</div>`}
+                </div>
+                <div class="chat-actions" onclick="event.stopPropagation()">
+                    <button class="btn btn-sm btn-primary" onclick="showChatDetail('${id}')">👁️ 查看详情</button>
+                </div>
+            </div>`;
+    }
 
-        function formatTimestamp(timestamp) {
-            if (timestamp == null) return '-';
-            let ts = Number(timestamp);
-            if (!Number.isFinite(ts)) return '-';
-            // 兼容秒级时间戳（cursor-view 使用秒）
-            if (ts < 1e12) ts = ts * 1000;
-            const date = new Date(ts);
-            if (isNaN(date.getTime())) return '-';
-            return date.toLocaleString('zh-CN');
-        }
+    function showProjectSessions(k,n){ try{selectedProjectKey=decodeURIComponent(k||'');selectedProjectName=decodeURIComponent(n||'');}catch{selectedProjectKey=k||'';selectedProjectName=n||'';}
+        const items=(currentHistory||[]).filter(it=>{ const p=it.project||{}; const root=(p.rootPath||'').trim(); const name=(p.name||'Unknown Project').trim(); const key=(root&&root!=='(unknown)')?root:`unknown:${name}`; return key===selectedProjectKey; });
+        currentViewMode='list';
+        const heading = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;"><div style="font-weight:600;">${escapeHtml(selectedProjectName||selectedProjectKey)} 的会话列表（${items.length}）</div><button class="btn btn-sm" onclick="setViewMode('grouped')">← 返回项目</button></div>`;
+        document.getElementById('historyContent').innerHTML = heading + `<div style="display:grid;gap:20px;">${items.map(chat=>renderChatCard(chat)).join('')}</div>`;
+    }
 
-        function truncateText(text, maxLength) {
-            if (text.length <= maxLength) return text;
-            return text.substring(0, maxLength) + '...';
-        }
+    function renderChatCard(chat){
+        const id = chat?.session_id || chat?.id || chat?.sessionId || 'unknown';
+        const projectName = chat?.project?.name || 'Unknown Project';
+        // 与 chat-detail 保持一致：仅使用 chat.timestamp 或 chat.date（timestamp 优先）
+        const baseTimestamp = (chat?.timestamp ?? chat?.date ?? null);
+        const projectPath = chat?.project?.rootPath || '';
+        const pathDisplay = projectPath ? toCursorViewPath(projectPath) : '';
+        const dateDisplay = formatTimestamp(baseTimestamp);
+        const previewMessages = (chat?.messages || []).slice(-3); // 取最近3条
+        return `
+        <div class="chat-card" onclick="showChatDetail('${id}')">
+            <div class="chat-header">
+                <div class="chat-title">💬 ${projectName} · ${dateDisplay}</div>
+                <div class="chat-meta">${pathDisplay ? pathDisplay : ''}</div>
+            </div>
+            <div class="chat-preview">
+                ${previewMessages.length > 0 ? previewMessages.map(msg => `
+                    <div class="message-preview ${msg.role === 'user' ? 'user-message' : 'assistant-message'}">
+                        <strong>${msg.role === 'user' ? '👤 用户' : '🤖 助手'}:</strong>
+                        ${escapeHtml(String(msg.content || '').slice(0, 120))}
+                    </div>
+                `).join('') : `<div class="message-preview assistant-message">暂无会话</div>`}
+            </div>
+            <div class="chat-actions" onclick="event.stopPropagation()">
+                <button class="btn btn-sm btn-primary" onclick="showChatDetail('${id}')">👁️ 查看详情</button>
+            </div>
+        </div>`;
+    }
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
+    // 提取会话最佳时间戳（尽量保证卡片显示日期）
+    function getChatTimestamp(chat){
+        if (!chat) return null;
+        let ts = chat.timestamp ?? chat.date ?? chat.lastUpdatedAt ?? chat.updatedAt
+            ?? (chat.session ? (chat.session.lastUpdatedAt ?? chat.session.createdAt) : null);
+        if (!ts && Array.isArray(chat.messages) && chat.messages.length){
+            let maxTs = 0; for (const m of chat.messages){ const mt = Number(m.timestamp || 0); if (mt > maxTs) maxTs = mt; }
+            ts = maxTs || null;
         }
+        return ts || null;
+    }
 
-        function escapeCSV(text) {
-            return text.replace(/"/g, '""');
+    function toCursorViewPath(p){ if (!p) return ''; const s=String(p).replace(/\\/g,'/'); const replaced=s.replace(/^([A-Za-z]):/, (m,d)=>`${d}%3A`); return replaced.startsWith('/')?replaced:'/'+replaced; }
+    function showChatDetail(id){ window.open(`/chat-detail.html?sessionId=${encodeURIComponent(id)}&mode=cv`, '_blank'); }
+
+    // 保障每条记录具备 primary 时间戳字段（timestamp 或 date），方便统一展示
+    function ensurePrimaryTimestamp(item){
+        const copy = { ...(item||{}) };
+        if (copy.timestamp == null && copy.date != null) {
+            copy.timestamp = copy.date;
         }
+        return copy;
+    }
+
+    async function loadStats(){ if (currentViewMode==='active') return; try{ const [sRes,pRes]=await Promise.all([fetch('/api/history/stats'), fetch('/api/history/projects')]); const s=await sRes.json(); const p=await pRes.json(); const messageCount=currentHistory.reduce((sum,it)=>sum+(it.messages?.length||0),0); const total=(s&&s.success)?(s.data.total||currentHistory.length):currentHistory.length; const chats=(s&&s.success)?(s.data.byType?.chat||currentHistory.length):currentHistory.length; const proj=(p&&p.success)?(p.data?.length||0):new Set(currentHistory.map(it=>it.project?.rootPath||it.project?.name)).size; document.getElementById('totalRecords').textContent=total; document.getElementById('chatRecords').textContent=chats; document.getElementById('projectCount').textContent=proj; document.getElementById('messageCount').textContent=messageCount; }catch(e){}}
+
+    function showLoading(){ document.getElementById('historyContent').innerHTML = `<div class="loading"><div class="spinner"></div><div>正在加载聊天记录...</div></div>`; }
+    function showError(msg){ document.getElementById('historyContent').innerHTML = `<div class="no-data"><div class="no-data-icon">⚠️</div><h3>加载失败</h3><p>${msg}</p></div>`; }
+    function clearSearch(){ document.getElementById('searchInput').value=''; loadHistory(); }
+    // 与 chat-detail.html 完全一致：简单直取并展示
+    function formatTimestamp(timestamp){
+        if (!timestamp) return 'N/A';
+        const date = new Date(timestamp);
+        return date.toLocaleString('zh-CN');
+    }
+    function escapeHtml(t){ const div=document.createElement('div'); div.textContent=t; return div.innerHTML; }
     </script>
 </body>
 </html>
+
