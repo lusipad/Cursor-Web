@@ -34,6 +34,7 @@
             background-color: var(--bg-color);
             color: var(--text-primary);
             line-height: 1.6;
+            font-size: 16px; /* 对齐 cursor-view 的基础字号 */
         }
 
         /* 居中并保持左右一致留白（至少24px），大屏限制最大宽度更美观 */
@@ -164,7 +165,7 @@
             font-weight: 600;
         }
 
-        .message { margin-bottom: 10px; padding: 12px 14px; border-radius: 10px; position: relative; overflow: hidden; background: rgba(255,255,255,0.03); }
+        .message { margin-bottom: 14px; padding: 14px 16px; border-radius: 12px; position: relative; overflow: hidden; background: rgba(255,255,255,0.035); box-shadow: 0 1px 0 rgba(255,255,255,0.03), 0 0 0 1px rgba(0,0,0,0.2) inset; }
 
         /* 对齐 cursor-view：轻底色 + 左侧色条 + 左右错位 */
         .message.user {
@@ -216,19 +217,26 @@
             font-weight: normal;
         }
 
-        .message-content { font-size: 0.93rem; line-height: 1.18; white-space: pre-wrap; word-wrap: break-word; }
+        .message-content { font-size: 1rem; line-height: 1.3; white-space: normal; word-wrap: break-word; word-break: break-word; }
+        /* 开关：需要保留单换行时，通过容器类名切换为 pre-wrap */
+        .preserve-breaks .message-content { white-space: pre-wrap; }
         .message-content h1, .message-content h2, .message-content h3,
-        .message-content h4, .message-content h5, .message-content h6 { margin: 0.24em 0 0.12em; line-height: 1.1; }
-        .message-content h1 { font-size: 1.06rem; }
-        .message-content h2 { font-size: 1.03rem; }
-        .message-content h3 { font-size: 1.01rem; }
-        .message-content h4, .message-content h5, .message-content h6 { font-size: 0.98rem; }
-        .message-content p { margin: 0.06em 0; }
-        .message-content ul, .message-content ol { margin: 0.06em 0; padding-left: 0.78em; }
-        .message-content li { margin: 0.02em 0; }
+        .message-content h4, .message-content h5, .message-content h6 { margin: 0.28em 0 0.14em; line-height: 1.12; }
+        .message-content h1 { font-size: 1.12rem; }
+        .message-content h2 { font-size: 1.08rem; }
+        .message-content h3 { font-size: 1.05rem; }
+        .message-content h4, .message-content h5, .message-content h6 { font-size: 1.02rem; }
+        /* 段落与列表：略放松间距提升可读性 */
+        .message-content p { margin: 0.25em 0; }
+        .message-content ul, .message-content ol { margin: 0.22em 0; padding-left: 1.2em; }
+        .message-content li { margin: 0; }
         .message-content li > p { margin: 0.02em 0; }
-        .message-content pre { margin: 4px 0; padding: 8px 10px; line-height: 1.16; background: rgba(0,0,0,0.28); border-radius: 6px; }
-        .message-content code { padding: 0.06em 0.2em; font-size: 0.86em; }
+        .message-content pre { margin: 0.45em 0; padding: 12px 14px; line-height: 1.16; background: rgba(0,0,0,0.28); border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); }
+        .message-content pre code { line-height: 1.1; }
+        /* 首尾元素不要额外空隙 */
+        .message-content > *:first-child { margin-top: 0; }
+        .message-content > *:last-child { margin-bottom: 0; }
+        .message-content code { padding: 0.06em 0.2em; font-size: 0.95em; }
         .message-content blockquote { margin: 0.16em 0; padding: 0.16em 0.6em; border-left: 3px solid rgba(255,255,255,0.15); color: var(--text-secondary); }
         .message-content table { border-collapse: collapse; margin: 0.2em 0; }
         .message-content th, .message-content td { border: 1px solid var(--border-color); padding: 2px 6px; }
@@ -396,8 +404,16 @@
                     📥 导出对话
                 </button>
                 <label style="display:flex;align-items:center;gap:8px;color:#fff;font-size:0.9rem">
-                    <input type="checkbox" id="effectiveToggle" checked>
+                    <input type="checkbox" id="effectiveToggle">
                     只看有效文本
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;color:#fff;font-size:0.9rem">
+                    <input type="checkbox" id="mergeToggle">
+                    合并同角色消息
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;color:#fff;font-size:0.9rem">
+                    <input type="checkbox" id="breaksToggle">
+                    保留换行
                 </label>
             </div>
         </div>
@@ -459,7 +475,10 @@
 
     <script>
         let currentChat = null;
-        let onlyEffective = true;
+        // 与 cursor-view 保持一致：默认不过滤、不过度合并
+        let onlyEffective = false;
+        let mergeSameRole = false;
+        let preserveLineBreaks = false; // 控制是否将单换行渲染为 <br>
 
         // 页面加载时初始化
         document.addEventListener('DOMContentLoaded', function() {
@@ -477,6 +496,26 @@
             if (toggle) {
                 toggle.addEventListener('change', () => {
                     onlyEffective = !!toggle.checked;
+                    if (currentChat) renderChatDetail(currentChat);
+                });
+            }
+            const mergeT = document.getElementById('mergeToggle');
+            if (mergeT) {
+                mergeT.addEventListener('change', () => {
+                    mergeSameRole = !!mergeT.checked;
+                    if (currentChat) renderChatDetail(currentChat);
+                });
+            }
+            const breaksT = document.getElementById('breaksToggle');
+            if (breaksT) {
+                breaksT.addEventListener('change', () => {
+                    preserveLineBreaks = !!breaksT.checked;
+                    // 切换容器类，控制 white-space 行为
+                    const root = document.querySelector('.container');
+                    if (root) {
+                        if (preserveLineBreaks) root.classList.add('preserve-breaks');
+                        else root.classList.remove('preserve-breaks');
+                    }
                     if (currentChat) renderChatDetail(currentChat);
                 });
             }
@@ -546,13 +585,14 @@
                 role: m.role || 'assistant',
                 content: onlyEffective ? sanitizeMessageText(String(m.content || '')) : String(m.content || '')
             })).filter(m => String(m.content || '').trim());
-            const merged = mergeConsecutiveByRole(preprocessed);
+            const merged = mergeSameRole ? mergeConsecutiveByRole(preprocessed) : preprocessed;
 
             // 配置 marked 渲染与代码高亮
             if (window.marked) {
                 marked.setOptions({
                     gfm: true,
-                    breaks: true,
+                    // 可选：保留单换行（<br>）
+                    breaks: !!preserveLineBreaks,
                     mangle: false,
                     headerIds: false,
                     highlight: function(code, lang) {
@@ -596,7 +636,7 @@
         function formatMessageContent(content) {
             const src = String(content || '')
                 .replace(/\r\n/g, '\n')
-                // 折叠连续3个以上的空行，避免生成多个段落造成大空隙
+                // 允许一个“空白行”：3 个及以上换行折叠为两个换行
                 .replace(/\n{3,}/g, '\n\n')
                 .trim();
             if (window.marked) {
@@ -615,7 +655,10 @@
             for (const msg of messages) {
                 const last = merged[merged.length - 1];
                 if (last && last.role === msg.role) {
-                    last.content = `${last.content}\n\n${msg.content || ''}`.trim();
+                    const left = String(last.content || '').replace(/[\s\n]+$/,'');
+                    const right = String(msg.content || '').replace(/^[\s\n]+/,'');
+                    // 在两段之间插入一个空行（两个换行），确保视觉分隔
+                    last.content = `${left}\n\n${right}`.trim();
                 } else {
                     merged.push({ role: msg.role, content: msg.content || '' });
                 }
@@ -626,10 +669,10 @@
         // 统计有效消息数（只看有效时会去噪+合并）
         function countEffectiveMessages(messages, onlyEffectiveFlag) {
             if (!Array.isArray(messages) || messages.length === 0) return 0;
-            if (!onlyEffectiveFlag) return messages.length;
+            if (!onlyEffectiveFlag) return mergeSameRole ? mergeConsecutiveByRole(messages).length : messages.length;
             const pre = messages.map(m => ({ role: m.role || 'assistant', content: sanitizeMessageText(String(m.content || '')) }))
                                   .filter(m => String(m.content || '').trim());
-            return mergeConsecutiveByRole(pre).length;
+            return mergeSameRole ? mergeConsecutiveByRole(pre).length : pre.length;
         }
 
         // 前端展示去噪：过滤工具调用/UUID/SHA/状态词等非自然语言（对齐后端规则）
