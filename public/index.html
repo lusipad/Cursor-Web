@@ -3,19 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Claude Web - Cursor 聊天同步</title>
+    <title>Cursor Web - Cursor 聊天同步</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
         <header class="header">
-            <h1>Claude Web</h1>
+            <h1>Cursor Web</h1>
             <div id="status" class="status disconnected">等待连接...</div>
         </header>
 
         <!-- Tab 导航 -->
         <nav class="tab-nav">
             <button class="tab-btn active" data-tab="chat-tab">聊天</button>
+            <button class="tab-btn" data-tab="history-tab">历史记录</button>
             <button class="tab-btn" data-tab="git-tab">Git 管理</button>
             <button class="tab-btn" data-tab="diagnostic-tab">系统诊断</button>
         </nav>
@@ -25,7 +26,7 @@
             <section id="chat-tab" class="tab-content active">
                 <div id="messages-container" class="messages-container">
                     <div class="welcome-message">
-                        <h2>欢迎使用 Claude Web</h2>
+                        <h2>欢迎使用 Cursor Web</h2>
                         <p>状态说明：</p>
                         <p>🟡 <strong>已连接 - 等待 Cursor 内容</strong>：需要在 Cursor 中运行注入脚本</p>
                         <p>🟢 <strong>已连接 - 同步正常</strong>：内容同步工作正常</p>
@@ -42,6 +43,13 @@
                         <button id="clear-btn" type="button">清除</button>
                     </form>
                 </footer>
+            </section>
+
+            <!-- 历史记录 Tab 内容 -->
+            <section id="history-tab" class="tab-content">
+                <div class="history-panel" style="padding:0;">
+                    <iframe id="historyFrame" src="/history-new.html" style="width:100%;height:100vh;border:0;border-radius:8px;background:#111;"></iframe>
+                </div>
             </section>
 
             <!-- Git 管理 Tab 内容 -->
@@ -147,6 +155,8 @@
             if (this.dataset.tab === 'diagnostic-tab') {
                 updateQuickStatus();
             }
+            
+            // 历史记录tab 直接内嵌，无需额外加载
         });
     });
 
@@ -254,6 +264,8 @@
         if (document.querySelector('.tab-btn[data-tab="diagnostic-tab"]').classList.contains('active')) {
             updateQuickStatus();
         }
+        
+        // 历史记录tab 直接内嵌，无需预加载
 
         // 定期更新状态（每5秒）
         setInterval(function() {
@@ -262,6 +274,58 @@
             }
         }, 5000);
     });
+    
+    // 移除快速历史相关逻辑（改为内嵌 history-new）
+    
+    // 格式化时间戳
+    function formatTimestamp(timestamp) {
+        return new Date(timestamp).toLocaleString();
+    }
+    
+    // 获取类型标签
+    function getTypeLabel(type) {
+        const labels = {
+            'chat': '聊天',
+            'system': '系统',
+            'error': '错误',
+            'git': 'Git'
+        };
+        return labels[type] || type;
+    }
+
+    // 让历史记录 iframe 自适应内容高度，保证页面可持续向下滚动
+    (function setupHistoryIframeAutoHeight(){
+        const iframe = document.getElementById('historyFrame');
+        if (!iframe) return;
+        const resize = () => {
+            try {
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+                if (!doc) return;
+                const h = Math.max(
+                    doc.body.scrollHeight,
+                    doc.documentElement.scrollHeight,
+                    doc.body.offsetHeight,
+                    doc.documentElement.offsetHeight
+                );
+                if (h && Math.abs(iframe.clientHeight - h) > 8) {
+                    iframe.style.height = h + 'px';
+                }
+            } catch {}
+        };
+        iframe.addEventListener('load', () => {
+            resize();
+            try {
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+                if (!doc) return;
+                const mo = new MutationObserver(() => resize());
+                mo.observe(doc.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
+                iframe.contentWindow.addEventListener('resize', resize);
+                // 兜底定时器，处理异步渲染
+                setInterval(resize, 800);
+            } catch {}
+        });
+        window.addEventListener('resize', resize);
+    })();
     </script>
 </body>
 </html>

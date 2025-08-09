@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm start:*)",
+      "Bash(curl:*)",
+      "Bash(pkill:*)",
+      "Bash(node:*)",
+      "Bash(timeout:*)",
+      "Bash(npm install:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(rm:*)",
+      "Bash(echo:*)",
+      "Bash(cat:*)",
+      "Bash(find:*)",
+      "Bash(mkdir:*)",
+      "Bash(fuser:*)",
+      "Bash(BROWSER=none npm start)",
+      "Bash(BROWSER=none DANGEROUSLY_DISABLE_HOST_CHECK=true npm start)",
+      "Bash(kill:*)",
+      "Bash(apt:*)"
+    ],
+    "deny": []
+  }
+}
