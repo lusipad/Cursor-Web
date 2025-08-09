@@ -2,7 +2,6 @@
 
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D14.0.0-brightgreen.svg)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/your-username/claude-web)
 
 一个强大的 Web 界面远程控制平台，让您可以通过浏览器远程操作 Cursor 的 AI 聊天功能，同时提供 Git 仓库管理、实时消息同步等高级功能。
 
@@ -25,7 +24,7 @@
 ### 🌐 Web 界面
 - **响应式设计** - 支持桌面和移动设备
 - **实时状态** - WebSocket 连接状态监控
-- **多标签页** - 工作空间、AI 助手、Git 管理分离
+- **多标签页** - 聊天、历史记录、Git 管理、系统诊断
 - **现代化 UI** - 美观的用户界面
 
 ### ⚡ 技术特性
@@ -39,8 +38,7 @@
 ### 方式一：使用可执行文件（推荐）
 
 1. **下载最新版本**
-   - 从 [Releases](https://github.com/your-username/claude-web/releases) 下载 `cursor-web.exe`
-   - 或直接下载：`cursor-web.exe` (40MB)
+   - 请在本项目的 Releases 页面下载 `cursor-web.exe`
 
 2. **运行程序**
    ```bash
@@ -53,14 +51,14 @@
 
 3. **访问 Web 界面**
    - 打开浏览器访问：`http://localhost:3000`
-   - 查看服务器状态：`http://localhost:3000/health`
+   - 查看服务器状态：`http://localhost:3000/api/health`
 
 ### 方式二：从源码运行
 
 1. **克隆项目**
    ```bash
-   git clone https://github.com/your-username/claude-web.git
-   cd claude-web
+   git clone <你的仓库地址>
+   cd <目录名>
    ```
 
 2. **安装依赖**
@@ -94,11 +92,10 @@
    - 打开 AI 聊天面板
 
 3. **注入连接脚本**
-   - 在 Cursor 中按 `F12` 打开开发者工具
-   - 切换到 `Console` 标签
-   - 复制 Web 界面"工作空间"标签页中的注入脚本
+   - 在 Cursor 中按 `F12` 打开开发者工具，切换到 `Console`
+   - 打开 `http://localhost:3000/script.html`，一键复制同步脚本
    - 粘贴到 Console 并执行
-   - 看到"✅ WebSocket 连接成功"表示连接成功
+   - 看到“✅ WebSocket 连接成功”表示连接成功
 
 ### 使用 AI 聊天
 
@@ -136,9 +133,10 @@
 
 ### 服务器状态
 ```http
-GET /health
+GET /api/health
+GET /api/status
 ```
-返回服务器健康状态和连接信息
+返回服务器健康状态、连接信息与运行统计
 
 ### 内容管理
 ```http
@@ -147,13 +145,35 @@ POST /api/content
 ```
 获取和设置当前聊天内容
 
+### 聊天记录
+```http
+GET /api/chats
+GET /api/chat/:sessionId
+GET /api/chat/:sessionId/export?format=html|json
+```
+获取所有会话、单个会话详情，以及导出指定会话
+
 ### Git 操作
 ```http
 GET /api/git/branches
 POST /api/git/checkout
 POST /api/git/pull
+GET /api/git/status
+POST /api/git/add
+POST /api/git/commit
+POST /api/git/push
 ```
 Git 分支管理和代码同步
+
+### 历史记录（高级）
+```http
+GET /api/history
+GET /api/history/stats
+GET /api/history/projects
+GET /api/history/:id
+GET /api/history/export?format=json|csv|html
+```
+历史记录检索、统计与导出
 
 ### WebSocket 事件
 - `html_content` - 接收 HTML 内容
@@ -165,31 +185,29 @@ Git 分支管理和代码同步
 
 ### 项目结构
 ```
-claude-web/
-├── app.js              # 主服务器文件
-├── package.json        # 项目配置
-├── public/             # 前端静态文件
-│   ├── index.html      # 主页面
-│   ├── style.css       # 样式文件
-│   ├── simple-client.js # 客户端脚本
-│   ├── cursor-browser.js # Cursor浏览器脚本
-│   └── git-manager.js  # Git管理脚本
-├── routes/             # 路由文件
-├── services/           # 服务文件
-├── middleware/         # 中间件
-├── utils/              # 工具函数
-├── tests/              # 测试文件
-│   ├── unit/           # 单元测试
-│   │   ├── test-git.js
-│   │   └── test-remote-branch.js
-│   ├── integration/    # 集成测试
-│   │   ├── test-checkout.js
-│   │   └── test-dynamic-git.js
-│   ├── run-all-tests.js # 测试运行器
-│   └── README.md       # 测试说明
-├── config/             # 配置文件
-├── docs/               # 文档目录
-└── README.assets/      # README资源文件
+Cursor-Web-2/
+├── app.js                   # 主服务器入口
+├── package.json             # 项目配置与脚本
+├── public/                  # 前端静态资源
+│   ├── index.html           # 主页面（内嵌历史记录 iframe）
+│   ├── history-new.html     # 现代历史记录页面
+│   ├── chat-detail.html     # 会话详情页
+│   ├── diagnostic.html      # 系统诊断页
+│   ├── script.html          # 一键复制同步脚本页
+│   ├── style.css            # 样式
+│   ├── git-manager.js       # Git 前端逻辑
+│   ├── cursor-browser.js    # 浏览器桥接辅助
+│   └── js/
+│       ├── SimpleWebClient.js
+│       └── modules/         # ContentManager / WebSocketManager 等模块
+├── routes/                  # API 路由（content/git/history）
+├── services/                # 业务模块（websocketManager / cursorHistoryManager* / sqliteReader 等）
+├── middleware/              # 中间件
+├── utils/                   # 工具函数
+├── config/                  # 配置
+├── tests/                   # 测试（unit / integration）
+├── scripts/                 # 脚本
+└── README.assets/           # 文档资源
 ```
 
 ### 开发环境
@@ -273,7 +291,7 @@ node tests/run-all-tests.js --help
 3. 连接 Cursor 并测试双向同步
 4. 测试 Git 管理功能
 
-详细的测试指南请参考 [tests/README.md](./tests/README.md)
+注：测试脚本以 `package.json` 中的命令为准
 
 ## 🤝 贡献指南
 
@@ -313,9 +331,8 @@ A: 确保在 Git 仓库目录中运行测试，集成测试需要先启动服务
 A: 使用 `npm run test:unit` 运行单元测试，`npm run test:integration` 运行集成测试。
 
 ### 获取帮助
-- 📖 查看 [测试指南](./tests/README.md)
-- 🐛 提交 [Issue](https://github.com/your-username/claude-web/issues)
-- 💬 参与 [讨论](https://github.com/your-username/claude-web/discussions)
+- 🐛 提交 Issue：请在项目仓库的 Issues 区发布
+- 💬 问题反馈：欢迎在讨论区或提交 PR 交流
 
 ## ⭐ 致谢
 
