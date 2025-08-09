@@ -1,4 +1,4 @@
-// Claude Web 服务器 - 重构版本
+// Cursor Web 服务器 - 重构版本
 const express = require('express');
 const { createServer } = require('http');
 

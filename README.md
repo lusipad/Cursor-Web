@@ -1,4 +1,4 @@
-# Claude Web - Cursor AI 远程控制平台
+# Cursor Web - Cursor AI 远程控制平台
 
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D14.0.0-brightgreen.svg)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -323,4 +323,4 @@ A: 使用 `npm run test:unit` 运行单元测试，`npm run test:integration` �
 
 ---
 
-**Claude Web** - 让 Cursor AI 控制更简单、更强大！ 🚀
+**Cursor Web** - 让 Cursor AI 控制更简单、更强大！ 🚀

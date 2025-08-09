@@ -41,7 +41,7 @@ class ContentRoutes {
         console.log('📡 HTTP API 测试请求');
         res.json({
             status: 'ok',
-            message: 'Claude Web 服务器运行正常',
+            message: 'Cursor Web 服务器运行正常',
             timestamp: Date.now(),
             method: 'http'
         });

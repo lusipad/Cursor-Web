@@ -71,7 +71,7 @@ function setupProcessHandlers(server, websocketManager) {
 
 // 打印服务器启动信息
 function printServerInfo(port) {
-    console.log('🚀 Claude Web 服务器已启动！');
+    console.log('🚀 Cursor Web 服务器已启动！');
     console.log(`📍 本地访问：http://localhost:${port}`);
     console.log(`🌐 局域网访问：http://${getLocalIP()}:${port}`);
     console.log(`🔌 WebSocket: ws://localhost:${port}`);

@@ -4,7 +4,7 @@
  */
 class SimpleWebClient {
     constructor() {
-        console.log('🚀 Simple Claude Web Client 开始初始化...');
+        console.log('🚀 Simple Cursor Web Client 开始初始化...');
 
         // 初始化各个管理器
         this.wsManager = new WebSocketManager();
