@@ -404,10 +404,6 @@
                     📥 导出对话
                 </button>
                 <label style="display:flex;align-items:center;gap:8px;color:#fff;font-size:0.9rem">
-                    <input type="checkbox" id="effectiveToggle">
-                    只看有效文本
-                </label>
-                <label style="display:flex;align-items:center;gap:8px;color:#fff;font-size:0.9rem">
                     <input type="checkbox" id="mergeToggle">
                     合并同角色消息
                 </label>
@@ -475,8 +471,7 @@
 
     <script>
         let currentChat = null;
-        // 与 cursor-view 保持一致：默认不过滤、不过度合并
-        let onlyEffective = false;
+        // 与 cursor-view 保持一致：默认不过度合并
         let mergeSameRole = false;
         let preserveLineBreaks = false; // 控制是否将单换行渲染为 <br>
 
@@ -492,13 +487,6 @@
                 showError('未提供会话ID参数');
             }
 
-            const toggle = document.getElementById('effectiveToggle');
-            if (toggle) {
-                toggle.addEventListener('change', () => {
-                    onlyEffective = !!toggle.checked;
-                    if (currentChat) renderChatDetail(currentChat);
-                });
-            }
             const mergeT = document.getElementById('mergeToggle');
             if (mergeT) {
                 mergeT.addEventListener('change', () => {
@@ -542,7 +530,7 @@
         function renderChatDetail(chat) {
             // 更新标题和副标题
             const projectName = chat.project?.name || 'Unknown Project';
-            const messageCount = countEffectiveMessages(chat.messages || [], onlyEffective);
+            const messageCount = countMessagesWithPolicy(chat.messages || []);
             
             document.getElementById('chatTitle').textContent = `💬 ${projectName} - 聊天详情`;
             document.getElementById('chatSubtitle').textContent = `${messageCount} 条消息 • ${formatTimestamp(chat.timestamp || chat.date)}`;
@@ -580,10 +568,10 @@
                 return;
             }
 
-            // 预处理与合并（可选只看有效文本）
+            // 预处理与合并
             const preprocessed = (messages || []).map(m => ({
                 role: m.role || 'assistant',
-                content: onlyEffective ? sanitizeMessageText(String(m.content || '')) : String(m.content || '')
+                content: String(m.content || '')
             })).filter(m => String(m.content || '').trim());
             const merged = mergeSameRole ? mergeConsecutiveByRole(preprocessed) : preprocessed;
 
@@ -666,45 +654,10 @@
             return merged;
         }
 
-        // 统计有效消息数（只看有效时会去噪+合并）
-        function countEffectiveMessages(messages, onlyEffectiveFlag) {
+        // 统计消息数（按当前合并策略）
+        function countMessagesWithPolicy(messages) {
             if (!Array.isArray(messages) || messages.length === 0) return 0;
-            if (!onlyEffectiveFlag) return mergeSameRole ? mergeConsecutiveByRole(messages).length : messages.length;
-            const pre = messages.map(m => ({ role: m.role || 'assistant', content: sanitizeMessageText(String(m.content || '')) }))
-                                  .filter(m => String(m.content || '').trim());
-            return mergeSameRole ? mergeConsecutiveByRole(pre).length : pre.length;
-        }
-
-        // 前端展示去噪：过滤工具调用/UUID/SHA/状态词等非自然语言（对齐后端规则）
-        function sanitizeMessageText(text) {
-            if (!text) return '';
-            const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-            const shaRe = /^[0-9a-f]{7,40}$/i;
-            const longAlphaNumRe = /^[A-Za-z0-9_\-]{20,}$/;
-            const statusWordRe = /^(completed|complete|success|succeeded|ok|done|error|failed|failure|cancelled|canceled|timeout)$/i;
-            const toolWordRe = /^(codebase[_\.-]?search|grep|read_file|run_terminal_cmd|apply_patch|read_lints|list_dir|glob(_file_search)?|create_diagram|fetch_pull_request|update_memory|functions\.[A-Za-z0-9_]+)$/i;
-            const isNoise = (v) => {
-                const s = String(v || '').trim();
-                if (!s) return true;
-                if (uuidRe.test(s)) return true;
-                if (shaRe.test(s)) return true;
-                if (longAlphaNumRe.test(s)) return true;
-                if (statusWordRe.test(s)) return true;
-                if (toolWordRe.test(s)) return true;
-                if (/^(Tool:|Arguments:|Result:)/i.test(s)) return true;
-                if (/^(call_|fc_)[A-Za-z0-9_\-]+$/i.test(s)) return true;
-                if (/^`{3,}$/.test(s)) return true;
-                return false;
-            };
-            const cleaned = String(text)
-                .replace(/\r\n/g, '\n')
-                .split(/\n/)
-                .map(l => l.trimEnd())
-                .filter(l => l && !isNoise(l))
-                .join('\n')
-                .replace(/\n{3,}/g, '\n\n')
-                .trim();
-            return cleaned;
+            return mergeSameRole ? mergeConsecutiveByRole(messages).length : messages.length;
         }
 
         // 显示错误
