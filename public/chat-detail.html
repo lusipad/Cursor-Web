@@ -537,7 +537,7 @@
 
             // 更新聊天信息
             document.getElementById('projectName').textContent = projectName;
-            document.getElementById('projectPath').textContent = chat.project?.rootPath || 'N/A';
+            document.getElementById('projectPath').textContent = toPrettyDisplayPath(chat.project?.rootPath) || 'N/A';
             document.getElementById('workspaceId').textContent = chat.workspaceId || chat.workspace_id || 'N/A';
             document.getElementById('sessionId').textContent = chat.sessionId || chat.session_id || 'N/A';
             document.getElementById('createTime').textContent = formatTimestamp(chat.timestamp || chat.date);
@@ -757,7 +757,7 @@
             <div class="info-grid">
                 <div class="info-item">
                     <div class="info-label">项目路径</div>
-                    <div class="info-value">${escapeHtml(chat.project?.rootPath || 'N/A')}</div>
+                    <div class="info-value">${escapeHtml(toPrettyDisplayPath(chat.project?.rootPath) || 'N/A')}</div>
                 </div>
                 <div class="info-item">
                     <div class="info-label">会话ID</div>
@@ -796,7 +796,7 @@
 
             let content = `# ${projectName} - Cursor 聊天记录\n\n`;
             content += `**导出时间**: ${new Date().toLocaleString()}\n`;
-            content += `**项目路径**: ${chat.project?.rootPath || 'N/A'}\n`;
+            content += `**项目路径**: ${toPrettyDisplayPath(chat.project?.rootPath) || 'N/A'}\n`;
             content += `**会话ID**: ${chat.sessionId || 'N/A'}\n`;
             content += `**工作区**: ${chat.workspaceId || 'N/A'}\n`;
             content += `**消息数量**: ${messages.length}\n\n`;
@@ -853,6 +853,26 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+        // 将 /d%3A/Repos/X、D:/Repos/X 或 d:\\Repos\\X 等格式统一为 D:\\Repos\\X
+        function toPrettyDisplayPath(p){
+            if (!p) return '';
+            let s = String(p);
+            if (/^\/[A-Za-z]%3A\//.test(s)){
+                s = s.replace(/^\/([A-Za-z])%3A\//, (_, d) => `${String(d).toUpperCase()}:\\`);
+                s = s.replace(/\//g, '\\');
+                return s;
+            }
+            if (/^[A-Za-z]:\//.test(s)){
+                s = s.replace(/^([A-Za-z]):\//, (_, d) => `${String(d).toUpperCase()}:\\`);
+                s = s.replace(/\//g, '\\');
+                return s;
+            }
+            if (/^[A-Za-z]:\\/.test(s)){
+                s = s.replace(/^([A-Za-z]):\\/, (_, d) => `${String(d).toUpperCase()}:\\`);
+                return s;
+            }
+            return s;
         }
     </script>
 </body>
