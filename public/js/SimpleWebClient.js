@@ -14,6 +14,8 @@ class SimpleWebClient {
         this.uiManager = new UIManager();
         this.homePageStatusManager = new HomePageStatusManager(this.wsManager, this.cursorStatusManager, this.uiManager);
         this.debugManager = new DebugManager(this);
+        // 启用轻量聊天时间线（基于历史轮询）
+        try { this.timeline = new ChatTimeline(); } catch {}
 
         // 方案1：发送后轮询历史的状态
         this._lastMessageHash = null;       // 最近消息基线哈希
@@ -197,6 +199,7 @@ class SimpleWebClient {
                         this.uiManager.showNotification('已获取最新回复', 'info');
                         // 更新基线，避免重复提示
                         this._lastMessageHash = h;
+                        try { const text = message && (message.content || message.text || message.value || ''); if (text && options.onAssistant) options.onAssistant(text); } catch {}
                         return true;
                     }
                 }
@@ -223,8 +226,11 @@ class SimpleWebClient {
             const chats = await this._fetchJson(url0);
             this._captureBaseline(chats || []);
         } catch {}
+        // 本地时间线先展示用户消息，并生成 msgId
+        const msgId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2);
+        try { if (this.timeline) { this.timeline.appendUserMessage(typeof message === 'string' ? message : JSON.stringify(message), msgId); } } catch {}
 
-        const ok = this.wsManager.send({ type: 'user_message', data: message, targetInstanceId: this.instanceId || undefined });
+        const ok = this.wsManager.send({ type: 'user_message', data: message, targetInstanceId: this.instanceId || undefined, msgId });
         if (!ok) {
             this.uiManager.showNotification('发送失败', 'error');
             return false;
@@ -232,7 +238,9 @@ class SimpleWebClient {
         const sentAt = Date.now();
         this.uiManager.showNotification('已发送，等待回复…', 'info');
         // 后台轮询，不阻塞 UI
-        this._pollReplyAfterSend(sentAt);
+        // 已路由（本端直接点亮），等待注入端ACK与历史回复
+        try { if(this.timeline) this.timeline.markRouted(msgId); } catch {}
+        this._pollReplyAfterSend(sentAt, { onAssistant: (text) => { try { if (this.timeline){ this.timeline.appendAssistantMessage(String(text||'')); this.timeline.markReplied(msgId);} } catch {} } });
         return true;
     }
 
@@ -266,6 +274,12 @@ class SimpleWebClient {
                 this.contentManager.handleClearContent(data);
                 // 记录Cursor清除活动
                 this.cursorStatusManager.recordCursorActivity('clear_content');
+                break;
+            case 'delivery_ack':
+                try{ if(this.timeline && data.msgId){ this.timeline.markDelivered(data.msgId); } }catch{}
+                break;
+            case 'delivery_error':
+                try{ this.uiManager.showNotification('注入失败：'+(data.reason||'unknown'),'warning'); }catch{}
                 break;
             case 'pong':
                 console.log('💓 收到心跳响应');

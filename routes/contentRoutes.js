@@ -172,7 +172,7 @@ class ContentRoutes {
             const originalCacheTimeout = this.historyManager.cacheTimeout;
             if (req.query.maxAgeMs) {
                 const n = Math.max(0, Math.min(Number(req.query.maxAgeMs) || 0, 10000));
-                if (n > 0) this.historyManager.cacheTimeout = n;
+                this.historyManager.cacheTimeout = n; // 允许设为0
             }
 
             // 解析实例 openPath 作为过滤条件

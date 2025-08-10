@@ -12,8 +12,8 @@ class InjectRoutes {
   constructor(websocketManager) {
     this.websocketManager = websocketManager;
     this.processes = [];
-    this.setupRoutes();
-  }
+        this.setupRoutes();
+    }
 
   setupRoutes() {
     router.get('/inject/processes', this.handleList.bind(this));
@@ -30,14 +30,14 @@ class InjectRoutes {
   // ---- helpers ----
   resolveInstancesFilePath() {
     try {
-      const cfg = require('../config');
-      const primary = path.isAbsolute(cfg.instances?.file || '')
-        ? cfg.instances.file
-        : path.join(process.cwd(), cfg.instances?.file || 'instances.json');
+            const cfg = require('../config');
+            const primary = path.isAbsolute(cfg.instances?.file || '')
+              ? cfg.instances.file
+              : path.join(process.cwd(), cfg.instances?.file || 'instances.json');
       if (fs.existsSync(primary)) return primary;
-      const fallback = path.join(process.cwd(), 'config', 'instances.json');
+              const fallback = path.join(process.cwd(), 'config', 'instances.json');
       if (fs.existsSync(fallback)) return fallback;
-      return null;
+            return null;
     } catch { return null; }
   }
 
@@ -97,7 +97,9 @@ class InjectRoutes {
     const scriptPath = path.join(__dirname, '..', 'public', 'cursor-browser.js');
     const raw = fs.readFileSync(scriptPath, 'utf8');
     const header = instanceId ? `try{ window.__cursorInstanceId = ${JSON.stringify(instanceId)} }catch(e){}` : '';
-    const source = `;(() => { try {\n${header}\n${raw}\n} catch (e) { console.error('cursor-browser.js injection error', e); } })();`;
+    // 在 VSCode/Cursor 内嵌页（vscode-file:// 等）无法使用同源 host，固定回 localhost:3000
+    const wsOverride = `try{ window.__cursorWS = 'ws://localhost:3000'; }catch{}`;
+    const source = `;(() => { try {\n${header}\n${wsOverride}\n${raw}\n} catch (e) { console.error('cursor-browser.js injection error', e); } })();`;
     const targets = await CDP.List({ host: '127.0.0.1', port: cdpPort });
     const rel = targets.filter(t => ['page','webview','other'].includes(t.type));
     for (const t of rel) {

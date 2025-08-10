@@ -2,7 +2,13 @@
 class WebSocketManager {
     constructor() {
         this.ws = null;
-        this.url = 'ws://localhost:3000/ws';
+        // 优先使用注入时下发的固定地址，其次回退到 localhost:3000，最后才尝试同源
+        const injectedUrl = (typeof window.__cursorWS === 'string' && window.__cursorWS.trim()) ? window.__cursorWS.trim() : null;
+        const defaultLocal = 'ws://localhost:3000';
+        const sameOrigin = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`;
+        // vscode-file://、vscode-webview:// 等环境下同源 host 无法直连，需要使用 localhost
+        const isVSCodeScheme = String(location.protocol || '').startsWith('vscode');
+        this.url = injectedUrl || (isVSCodeScheme ? defaultLocal : (location.host ? sameOrigin : defaultLocal));
         this.isConnecting = false;
         this.retryCount = 0;
         this.maxRetries = 5;
@@ -588,6 +594,10 @@ class CursorSync {
             if (!contentPayload) {
                 return;
             }
+            // 附带 instanceId，便于后端识别来源实例
+            const payload = { ...contentPayload };
+            try { const iid = (window.__cursorInstanceId && String(window.__cursorInstanceId)) || null; if (iid) payload.instanceId = iid; } catch {}
+
             const response = await fetch(`${this.serverUrl}/api/content`, {
                 method: 'POST',
                 headers: {
@@ -595,7 +605,7 @@ class CursorSync {
                 },
                 body: JSON.stringify({
                     type: 'html_content',
-                    data: contentPayload
+                    data: payload
                 })
             });
             if (response.ok) {
@@ -696,7 +706,12 @@ class CursorSync {
 
         switch (message.type) {
             case 'user_message':
-                this.handleUserMessage(message.data);
+                // 兼容对象结构：{data,msgId}
+                if (message && typeof message === 'object') {
+                    this.handleUserMessage(message.data, message.msgId);
+                } else {
+                    this.handleUserMessage(message.data);
+                }
                 break;
             case 'pong':
                 // 心跳响应，无需处理
@@ -713,9 +728,25 @@ class CursorSync {
         }
     }
 
+    // 简易分发锁，确保同一 msgId 只由一个窗口处理
+    acquireDispatchLock(msgId){
+        try{
+            if(!msgId) return true; // 无ID时不加锁
+            const key = `__cw_dispatch_${msgId}`;
+            const exists = localStorage.getItem(key);
+            if (exists) return false;
+            const winId = (window.__cwWindowId ||= (Date.now()+Math.random()).toString(16));
+            localStorage.setItem(key, winId);
+            return true;
+        }catch{return true}
+    }
+
     // 处理用户消息 - 将消息发送到 Cursor 聊天输入框
-    handleUserMessage(messageText) {
+    handleUserMessage(messageText, msgId) {
         console.log('💬 收到用户消息，发送到 Cursor：', messageText);
+
+        // 加锁：若其他窗口已处理此 msgId，则当前窗口忽略
+        if (!this.acquireDispatchLock(msgId)) { console.log('⛔ 已由其他窗口处理，本窗口忽略'); return; }
 
         try {
             // 🎯 使用 Cursor 特定的选择器（基于成功的旧版本）
@@ -755,10 +786,33 @@ class CursorSync {
             console.log('✅ 消息已通过粘贴事件发送到 Cursor');
             this.showNotification('💬 消息已发送到 Cursor', '#2196F3', 3000);
 
+            // 发送投递确认
+            try {
+                const instanceId = (window.__cursorInstanceId && String(window.__cursorInstanceId)) || null;
+                if (window.webSocketManager && window.webSocketManager.ws && window.webSocketManager.ws.readyState === WebSocket.OPEN) {
+                    window.webSocketManager.ws.send(JSON.stringify({ type:'delivery_ack', msgId, instanceId, timestamp: Date.now() }));
+                }
+            } catch {}
+
+            // 额外提示：告知 Web 端“可能有新回复”，加速其轮询
+            try {
+                const instanceId = (window.__cursorInstanceId && String(window.__cursorInstanceId)) || null;
+                if (window.webSocketManager && window.webSocketManager.ws && window.webSocketManager.ws.readyState === WebSocket.OPEN) {
+                    window.webSocketManager.ws.send(JSON.stringify({ type:'assistant_hint', msgId, instanceId, timestamp: Date.now() }));
+                }
+            } catch {}
+
         } catch (error) {
             console.error('❌ 发送消息到 Cursor 失败：', error);
             this.showNotification('❌ 发送失败，尝试备用方案', '#FF5722', 4000);
             this.tryFallbackInputMethods(messageText);
+            // 发送失败事件
+            try {
+                const instanceId = (window.__cursorInstanceId && String(window.__cursorInstanceId)) || null;
+                if (window.webSocketManager && window.webSocketManager.ws && window.webSocketManager.ws.readyState === WebSocket.OPEN) {
+                    window.webSocketManager.ws.send(JSON.stringify({ type:'delivery_error', msgId, instanceId, reason:'inject_failed', timestamp: Date.now() }));
+                }
+            } catch {}
         }
     }
 

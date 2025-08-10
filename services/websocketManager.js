@@ -1,374 +1,118 @@
-// WebSocket 管理器
+// WebSocket 管理器（精简稳定版）
 const { WebSocketServer } = require('ws');
 
 class WebSocketManager {
-    constructor(server, chatManager, historyManager) {
-        this.wss = new WebSocketServer({ server });
-        this.connectedClients = new Set();
-        this.chatManager = chatManager;
-        this.historyManager = historyManager;
-        this.setupWebSocketServer();
-        this.setupHeartbeat();
+  constructor(server, chatManager, historyManager){
+    this.wss = new WebSocketServer({ server });
+    this.connectedClients = new Set();
+    this.chatManager = chatManager;
+    this.historyManager = historyManager;
+    this.setup();
+    this.setupHeartbeat();
+  }
+
+  setup(){
+    this.wss.on('connection', (ws, req) => {
+      const ip = req.socket.remoteAddress;
+      ws._meta = { role:'unknown', instanceId:null, ip, connectedAt: Date.now(), lastPongAt:null, injected:false, url:null };
+      ws.isAlive = true;
+      ws.on('pong', () => { ws.isAlive = true; ws._meta.lastPongAt = Date.now(); });
+      this.connectedClients.add(ws);
+      ws.on('message', (buf)=>{ this.handleMessage(ws, buf); });
+      ws.on('close', ()=>{ this.connectedClients.delete(ws); });
+      ws.on('error', ()=>{ this.connectedClients.delete(ws); });
+    });
+  }
+
+  handleMessage(ws, data){
+    let msg; try{ msg = JSON.parse(data.toString()); }catch{ return; }
+    const t = msg.type;
+    if (t==='register') return this.handleRegister(ws, msg);
+    if (t==='html_content') return this.handleHtmlContent(ws, msg);
+    if (t==='user_message') return this.handleUserMessage(ws, msg);
+    if (t==='ping') return ws.send(JSON.stringify({ type:'pong', timestamp:Date.now() }));
+    if (t==='delivery_ack' || t==='delivery_error') return this.handleDeliveryEvent(ws, msg);
+    if (t==='assistant_hint') return this.handleAssistantHint(ws, msg);
+  }
+
+  handleRegister(ws, message){
+    const role = typeof message.role==='string' ? message.role : 'unknown';
+    const instanceId = (typeof message.instanceId==='string' && message.instanceId.trim()) ? message.instanceId.trim() : null;
+    ws._meta = { ...(ws._meta||{}), role, instanceId, injected: Boolean(message.injected), url: typeof message.url==='string'? message.url : null };
+    try{ ws.send(JSON.stringify({ type:'register_ack', ok:true, role, instanceId })); }catch{}
+  }
+
+  handleHtmlContent(ws, message){
+    // 更新当前会话 HTML（仅用于演示，实际项目可移除）
+    try{ this.chatManager.updateContent?.(message.data?.html||'', message.data?.timestamp||Date.now()); }catch{}
+    this.broadcastToClients(message, ws);
+  }
+
+  broadcastToClients(message, sender){
+    const msg = JSON.stringify(message);
+    this.connectedClients.forEach(client => {
+      if (client!==sender && client.readyState===client.OPEN){
+        try{ client.send(msg); }catch{ this.connectedClients.delete(client); }
+      }
+    });
+  }
+
+  handleUserMessage(ws, message){
+    const target = typeof message.targetInstanceId==='string' && message.targetInstanceId.trim() ? message.targetInstanceId.trim() : null;
+    const payload = { type:'user_message', data: message.data, timestamp: Date.now(), targetInstanceId: target||undefined, msgId: message.msgId||null };
+    const msgStr = JSON.stringify(payload);
+    if (!target) return this.broadcastToClients(payload, ws);
+
+    // 只选匹配实例的最新一个 cursor 客户端
+    let best=null;
+    this.connectedClients.forEach(c=>{
+      if (c!==ws && c.readyState===c.OPEN){
+        const m=c._meta||{}; if (m.role==='cursor' && m.instanceId===target){ if(!best || (m.connectedAt||0)>(best._meta?.connectedAt||0)) best=c; }
+      }
+    });
+    if (best){ try{ best.send(msgStr); }catch{ this.connectedClients.delete(best); } }
+    else { // 通知 web 端无目标
+      const fb = JSON.stringify({ type:'delivery_error', msgId: message.msgId||null, instanceId: target, reason:'no_target', timestamp: Date.now() });
+      this.connectedClients.forEach(c=>{ if (c!==ws && c.readyState===c.OPEN && (c._meta?.role==='web' && c._meta?.instanceId===target)) { try{ c.send(fb); }catch{ this.connectedClients.delete(c);} } });
     }
+  }
 
-    // 设置 WebSocket 服务器
-    setupWebSocketServer() {
-        this.wss.on('connection', (ws, req) => {
-            this.handleNewConnection(ws, req);
-        });
-    }
+  handleDeliveryEvent(ws, message){
+    const payload = { type: message.type, msgId: message.msgId||null, instanceId: message.instanceId||null, reason: message.reason||null, timestamp: message.timestamp||Date.now() };
+    const msgStr = JSON.stringify(payload);
+    this.connectedClients.forEach(c=>{
+      if (c!==ws && c.readyState===c.OPEN){ const m=c._meta||{}; if (m.role==='web' && (!payload.instanceId || m.instanceId===payload.instanceId)) { try{ c.send(msgStr); }catch{ this.connectedClients.delete(c);} } }
+    });
+  }
 
-    // 处理新连接
-    handleNewConnection(ws, req) {
-        const clientIP = req.socket.remoteAddress;
-        console.log(`📱 新 WebSocket 客户端连接：${clientIP}`);
+  handleAssistantHint(ws, message){
+    const payload = { type:'assistant_hint', msgId: message.msgId||null, instanceId: message.instanceId||ws._meta?.instanceId||null, timestamp: message.timestamp||Date.now() };
+    const msgStr = JSON.stringify(payload);
+    this.connectedClients.forEach(c=>{ if (c!==ws && c.readyState===c.OPEN){ const m=c._meta||{}; if (m.role==='web' && (!payload.instanceId || m.instanceId===payload.instanceId)){ try{ c.send(msgStr); }catch{ this.connectedClients.delete(c);} } } });
+  }
 
-        this.connectedClients.add(ws);
-
-        // 记录客户端元数据（角色/实例/时间戳）
-        ws._meta = {
-            role: 'unknown',
-            instanceId: null,
-            ip: clientIP,
-            connectedAt: Date.now(),
-            lastPongAt: null,
-            injected: false,
-            url: null
-        };
-
-        // 设置心跳机制
-        ws.isAlive = true;
-        ws.on('pong', () => {
-            ws.isAlive = true;
-            if (ws._meta) ws._meta.lastPongAt = Date.now();
-        });
-
-        // 发送当前聊天内容（如果有）
-        this.sendCurrentContentToClient(ws);
-
-        // 设置消息处理器
-        ws.on('message', (data) => {
-            this.handleMessage(ws, data);
-        });
-
-        // 连接关闭处理
-        ws.on('close', (code, reason) => {
-            this.handleClientDisconnect(ws, clientIP, code);
-        });
-
-        // 错误处理
-        ws.on('error', (error) => {
-            this.handleClientError(ws, error);
-        });
-    }
-
-    // 向新客户端发送当前内容
-    sendCurrentContentToClient(ws) {
-        const content = this.chatManager.getContent();
-        if (content.hasContent) {
-            try {
-                ws.send(JSON.stringify({
-                    type: 'html_content',
-                    data: {
-                        html: content.html,
-                        timestamp: Date.now()
-                    }
-                }));
-                console.log('📤 向新 WebSocket 客户端发送当前内容');
-            } catch (error) {
-                console.log('❌ 发送失败：', error.message);
-            }
+  setupHeartbeat(){
+    setInterval(()=>{
+      this.connectedClients.forEach(ws=>{
+        if (ws.readyState===ws.OPEN){
+          if (ws.isAlive===false){ try{ ws.terminate(); }catch{} this.connectedClients.delete(ws); return; }
+          ws.isAlive=false; try{ ws.ping(); }catch{}
         }
-    }
+      });
+    }, 30000);
+  }
 
-    // 处理收到的消息
-    handleMessage(ws, data) {
-        try {
-            const message = JSON.parse(data.toString());
-            console.log(`📥 WebSocket 收到消息类型：${message.type}`);
+  getClientsOverview(){
+    const map = ['CONNECTING','OPEN','CLOSING','CLOSED'];
+    const out=[]; this.connectedClients.forEach(ws=>{ const m=ws._meta||{}; out.push({ role:m.role||'unknown', instanceId:m.instanceId||null, ip:m.ip||null, connectedAt:m.connectedAt||null, lastPongAt:m.lastPongAt||null, injected:Boolean(m.injected), url:m.url||null, online: ws.readyState===ws.OPEN, readyState: map[ws.readyState]||String(ws.readyState) }); });
+    return out;
+  }
 
-            switch (message.type) {
-                case 'register':
-                    this.handleRegister(ws, message);
-                    break;
-                case 'html_content':
-                    this.handleHtmlContent(ws, message);
-                    break;
-
-                case 'user_message':
-                    this.handleUserMessage(ws, message);
-                    break;
-
-                case 'test':
-                    this.handleTestMessage(ws, message);
-                    break;
-
-                case 'debug':
-                    this.handleDebugMessage(ws, message);
-                    break;
-
-                case 'ping':
-                    this.handlePing(ws);
-                    break;
-
-                case 'clear_content':
-                    this.handleClearContent(message);
-                    break;
-
-                case 'sync_clear_timestamp':
-                    this.handleSyncClearTimestamp(message);
-                    break;
-
-                default:
-                    console.log('❓ 未知 WebSocket 消息类型：', message.type);
-            }
-
-        } catch (error) {
-            console.log('❌ WebSocket 消息解析错误：', error.message);
-        }
-    }
-
-    // 处理客户端注册（标识角色与实例ID）
-    handleRegister(ws, message) {
-        const role = typeof message.role === 'string' ? message.role : 'unknown';
-        const instanceId = typeof message.instanceId === 'string' && message.instanceId.trim().length > 0
-            ? message.instanceId.trim()
-            : null;
-        const injected = Boolean(message.injected);
-        const url = typeof message.url === 'string' ? message.url : (ws._meta?.url || null);
-        ws._meta = { ...(ws._meta || {}), role, instanceId, injected, url };
-        console.log(`🆔 客户端注册：role=${role}, instanceId=${instanceId || 'n/a'}`);
-        try {
-            ws.send(JSON.stringify({ type: 'register_ack', ok: true, role, instanceId }));
-        } catch {}
-    }
-
-    // 处理 HTML 内容消息
-    handleHtmlContent(ws, message) {
-        const result = this.chatManager.updateContent(message.data.html, message.data.timestamp);
-        if (result.success) {
-            // 添加到历史记录（如果支持写入）
-            if (this.historyManager && typeof this.historyManager.addHistoryItem === 'function') {
-                this.historyManager.addHistoryItem(message.data.html, 'chat', {
-                    timestamp: message.data.timestamp,
-                    source: 'cursor',
-                    clientIP: ws._socket?.remoteAddress
-                });
-            }
-            // 转发给所有连接的客户端
-            this.broadcastToClients(message, ws);
-        }
-    }
-
-    // 广播消息给所有客户端（公共方法，供外部调用）
-    broadcastToClients(message, sender) {
-        const messageStr = JSON.stringify(message);
-        let broadcastCount = 0;
-
-        this.connectedClients.forEach(client => {
-            if (client !== sender && client.readyState === client.OPEN) {
-                try {
-                    client.send(messageStr);
-                    broadcastCount++;
-                } catch (error) {
-                    console.log('❌ WebSocket 广播失败：', error.message);
-                    this.connectedClients.delete(client);
-                }
-            }
-        });
-
-        if (broadcastCount > 0) {
-            console.log(`📢 消息已广播给 ${broadcastCount} 个 WebSocket 客户端`);
-        }
-    }
-
-    // 处理用户消息
-    handleUserMessage(ws, message) {
-        console.log('💬 Web 端用户消息转发：', message.data);
-        const target = typeof message.targetInstanceId === 'string' && message.targetInstanceId.trim() ? message.targetInstanceId.trim() : null;
-        const payload = {
-            type: 'user_message',
-            data: message.data,
-            timestamp: Date.now(),
-            targetInstanceId: target || undefined
-        };
-
-        if (!target) {
-            // 无目标实例，广播
-            this.broadcastToClients(payload, ws);
-            return;
-        }
-
-        // 定向转发：仅发给匹配实例ID的客户端
-        const messageStr = JSON.stringify(payload);
-        let count = 0;
-        this.connectedClients.forEach(client => {
-            if (client !== ws && client.readyState === client.OPEN) {
-                const cid = client._meta && client._meta.instanceId;
-                if (cid && cid === target) {
-                    try { client.send(messageStr); count++; } catch { this.connectedClients.delete(client); }
-                }
-            }
-        });
-        if (count > 0) console.log(`🎯 已定向发送到实例 ${target} 的 ${count} 个客户端`);
-    }
-
-    // 处理测试消息
-    handleTestMessage(ws, message) {
-        console.log('🧪 WebSocket 收到测试消息：', message.content);
-        this.broadcastToClients({
-            type: 'test_response',
-            content: `服务器已收到测试消息：${message.content}`,
-            timestamp: Date.now()
-        }, ws);
-    }
-
-    // 处理调试消息
-    handleDebugMessage(ws, message) {
-        console.log('🔍 WebSocket 收到调试信息：');
-        console.log('  - 消息：', message.message);
-        console.log('  - URL:', message.url);
-        console.log('  - 时间戳：', new Date(message.timestamp));
-
-        // 回复调试信息
-        ws.send(JSON.stringify({
-            type: 'debug_response',
-            message: '服务器已收到调试信息',
-            server_time: Date.now()
-        }));
-    }
-
-    // 处理心跳
-    handlePing(ws) {
-        ws.send(JSON.stringify({
-            type: 'pong',
-            timestamp: Date.now()
-        }));
-    }
-
-    // 处理清除内容
-    handleClearContent(message) {
-        const result = this.chatManager.clearContent(message.timestamp);
-        this.broadcastToClients({
-            type: 'clear_content',
-            timestamp: result.timestamp
-        });
-    }
-
-    // 处理同步清除时间戳
-    handleSyncClearTimestamp(message) {
-        const result = this.chatManager.syncClearTimestamp(message.timestamp);
-        this.broadcastToClients({
-            type: 'sync_clear_timestamp',
-            timestamp: result.timestamp
-        });
-    }
-
-    // 处理客户端断开连接
-    handleClientDisconnect(ws, clientIP, code) {
-        this.connectedClients.delete(ws);
-        console.log(`📱 WebSocket 客户端断开连接：${clientIP} (code: ${code})`);
-        console.log(`📊 当前 WebSocket 连接数：${this.connectedClients.size}`);
-    }
-
-    // 处理客户端错误
-    handleClientError(ws, error) {
-        console.log('🔥 WebSocket 错误：', error.message);
-        this.connectedClients.delete(ws);
-    }
-
-
-
-    // 设置心跳检测
-    setupHeartbeat() {
-        setInterval(() => {
-            const activeClients = new Set();
-
-            this.connectedClients.forEach(client => {
-                if (client.readyState === client.OPEN) {
-                    if (client.isAlive === false) {
-                        // 客户端未响应心跳，断开连接
-                        console.log('💔 客户端心跳超时，断开连接');
-                        client.terminate();
-                        return;
-                    }
-
-                    // 发送心跳包
-                    client.isAlive = false;
-                    client.ping();
-                    activeClients.add(client);
-                }
-            });
-
-            if (this.connectedClients.size !== activeClients.size) {
-                console.log(`🧹 清理断开连接：${this.connectedClients.size} -> ${activeClients.size}`);
-                this.connectedClients = activeClients;
-            }
-        }, 30000); // 每 30 秒清理一次
-    }
-
-    // 获取连接数
-    getConnectedClientsCount() {
-        return this.connectedClients.size;
-    }
-
-    // 概览当前连接（用于测试页展示）
-    getClientsOverview() {
-        const toState = (ws) => {
-            const map = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'];
-            try { return map[ws.readyState] || String(ws.readyState); } catch { return 'UNKNOWN'; }
-        };
-        const list = [];
-        this.connectedClients.forEach((ws) => {
-            const meta = ws._meta || {};
-            list.push({
-                role: meta.role || 'unknown',
-                instanceId: meta.instanceId || null,
-                ip: meta.ip || null,
-                connectedAt: meta.connectedAt || null,
-                lastPongAt: meta.lastPongAt || null,
-                injected: Boolean(meta.injected),
-                url: meta.url || null,
-                online: ws.readyState === ws.OPEN,
-                readyState: toState(ws)
-            });
-        });
-        return list;
-    }
-
-    // 通知所有客户端服务器关闭
-    notifyServerShutdown() {
-        const clientClosePromises = [];
-
-        this.connectedClients.forEach(client => {
-            if (client.readyState === client.OPEN) {
-                try {
-                    client.send(JSON.stringify({
-                        type: 'server_shutdown',
-                        message: '服务器正在关闭'
-                    }));
-
-                    // 创建客户端关闭Promise
-                    const closePromise = new Promise((resolve) => {
-                        client.on('close', resolve);
-                        client.close();
-                        // 设置客户端关闭超时
-                        setTimeout(resolve, 1000);
-                    });
-                    clientClosePromises.push(closePromise);
-                } catch (error) {
-                    console.log('⚠️ 关闭客户端时出错:', error.message);
-                }
-            }
-        });
-
-        return Promise.allSettled(clientClosePromises);
-    }
-
-    // 关闭 WebSocket 服务器
-    close() {
-        this.wss.close();
-    }
+  close(){ try{ this.wss.close(); }catch{} }
 }
 
 module.exports = WebSocketManager;
+
+
+
+

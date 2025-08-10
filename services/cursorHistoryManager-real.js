@@ -8,7 +8,7 @@ class CursorHistoryManager {
         this.cursorStoragePath = this.getCursorStoragePath();
         this.cachedHistory = null;
         this.lastCacheTime = 0;
-        this.cacheTimeout = 30000; // 30秒缓存
+        this.cacheTimeout = 3000; // 默认 3 秒缓存，前端可通过 maxAgeMs 调整
         this.sqliteEngine = null;
         // 对齐 cursor-view-main 的项目提取与分组表现：
         // - 不做 Git 根提升
@@ -41,11 +41,11 @@ class CursorHistoryManager {
         const comp2ws = new Map();          // composerId -> wsId
         const sessions = new Map();         // composerId -> {messages:[], db_path}
 
-        const pushMsg = (cid, role, text, dbPath) => {
+        const pushMsg = (cid, role, text, dbPath, ts) => {
             if (!cid || !text) return;
             if (!sessions.has(cid)) sessions.set(cid, { messages: [], db_path: dbPath || undefined });
             const s = sessions.get(cid);
-            s.messages.push({ role, content: String(text) });
+            s.messages.push({ role, content: String(text), timestamp: ts || null });
             if (!s.db_path && dbPath) s.db_path = dbPath;
         };
 
@@ -123,7 +123,8 @@ class CursorHistoryManager {
                                 const t = typeof b.text === 'string' ? b.text : (typeof b.content === 'string' ? b.content : '');
                                 if (!t) continue;
                                 const role = (b.type === 'user' || b.type === 1) ? 'user' : 'assistant';
-                                pushMsg(tid, role, t, dbPath);
+                                const ts = b?.cTime || b?.timestamp || b?.time || b?.createdAt || b?.lastUpdatedAt || tab?.lastUpdatedAt || tab?.createdAt || null;
+                                pushMsg(tid, role, t, dbPath, ts);
                             }
                         }
                     } catch {}
@@ -135,7 +136,8 @@ class CursorHistoryManager {
                             for (const m of c.messages || []) {
                                 const role = m.role || 'assistant';
                                 const t = m.content || m.text || '';
-                                if (t) pushMsg(cid, role, t, dbPath);
+                                const ts = m?.timestamp || m?.time || m?.createdAt || m?.lastUpdatedAt || c?.lastUpdatedAt || c?.createdAt || null;
+                                if (t) pushMsg(cid, role, t, dbPath, ts);
                             }
                         }
                     } catch {}
@@ -161,7 +163,8 @@ class CursorHistoryManager {
                             const cid = parts.length >= 3 ? parts[1] : null; if (!cid) continue;
                             const role = (v.type === 1 || v.type === 'user') ? 'user' : 'assistant';
                             const t = v.text || v.richText || v.content || '';
-                            if (t) pushMsg(cid, role, t, globalDb);
+                            const ts = v?.cTime || v?.timestamp || v?.time || v?.createdAt || v?.lastUpdatedAt || null;
+                            if (t) pushMsg(cid, role, t, globalDb, ts);
                             if (!compMeta.has(cid)) compMeta.set(cid, { title: `Chat ${String(cid).slice(0,8)}`, createdAt: v.createdAt || null, lastUpdatedAt: v.lastUpdatedAt || v.createdAt || null });
                             if (!comp2ws.has(cid)) comp2ws.set(cid, '(global)');
                         }
@@ -179,7 +182,8 @@ class CursorHistoryManager {
                             for (const m of v.conversation || []) {
                                 const role = (m.type === 1) ? 'user' : 'assistant';
                                 const t = m.text || '';
-                                if (t) pushMsg(cid, role, t, globalDb);
+                                const ts = m?.timestamp || m?.time || m?.createdAt || m?.lastUpdatedAt || created || null;
+                                if (t) pushMsg(cid, role, t, globalDb, ts);
                             }
                         }
                     } catch {}
@@ -195,7 +199,8 @@ class CursorHistoryManager {
                                 const t = typeof b.text === 'string' ? b.text : (typeof b.content === 'string' ? b.content : '');
                                 if (!t) continue;
                                 const role = (b.type === 'user' || b.type === 1) ? 'user' : 'assistant';
-                                pushMsg(tid, role, t, globalDb);
+                                const ts = b?.cTime || b?.timestamp || b?.time || b?.createdAt || b?.lastUpdatedAt || tab?.lastUpdatedAt || tab?.createdAt || null;
+                                pushMsg(tid, role, t, globalDb, ts);
                             }
                         }
                     } catch {}

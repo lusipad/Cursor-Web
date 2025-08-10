@@ -154,11 +154,13 @@ class WebSocketManager {
 
         if (!this.ws) {
             console.error('❌ WebSocket实例不存在');
+            try{ this.onMessageCallback && this.onMessageCallback({ type:'delivery_error', reason:'ws_not_initialized', msgId: message?.msgId||null, instanceId: message?.targetInstanceId||null }); }catch{}
             return false;
         }
 
         if (this.ws.readyState !== WebSocket.OPEN) {
             console.error('❌ WebSocket未连接，状态:', this.ws.readyState);
+            try{ this.onMessageCallback && this.onMessageCallback({ type:'delivery_error', reason:'ws_not_connected', msgId: message?.msgId||null, instanceId: message?.targetInstanceId||null }); }catch{}
             return false;
         }
 

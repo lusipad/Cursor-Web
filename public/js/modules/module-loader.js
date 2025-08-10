@@ -13,6 +13,8 @@ const ModuleLoader = {
         'StatusManager': ['ErrorHandler'],
         'CursorStatusManager': ['ErrorHandler'],
         'HomePageStatusManager': ['ErrorHandler', 'WebSocketManager', 'CursorStatusManager', 'UIManager'],
+        'ChatTimeline': ['ErrorHandler'],
+        'InjectBar': ['ErrorHandler'],
         'UIManager': ['ErrorHandler'],
         'EventManager': ['ErrorHandler', 'WebSocketManager', 'ContentManager', 'UIManager'],
         'DebugManager': ['ErrorHandler', 'WebSocketManager', 'ContentManager', 'UIManager'],
@@ -148,6 +150,8 @@ const ModuleLoader = {
             'CursorStatusManager',
             'HomePageStatusManager',
             'UIManager',
+            'ChatTimeline',
+            'InjectBar',
             'EventManager',
             'DebugManager',
             'SimpleWebClient'

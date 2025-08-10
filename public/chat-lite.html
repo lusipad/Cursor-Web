@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chat Lite</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .lite-container{max-width:1200px;margin:0 auto;}
+    .topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:#1f2937;border-bottom:1px solid #374151;position:sticky;top:0;z-index:5}
+    .topbar .title{font-weight:700}
+    .sender{display:flex;gap:8px;padding:10px;background:#111;border-top:1px solid #2a2a2a;position:sticky;bottom:0}
+    .sender input{flex:1;background:#0e0e0e;border:1px solid #2a2a2a;color:#fff;border-radius:8px;padding:10px}
+    .sender button{background:#2563eb;color:#fff;border:none;border-radius:8px;padding:10px 14px;cursor:pointer}
+    .sender button:hover{background:#1d4ed8}
+  </style>
+</head>
+<body>
+  <div class="lite-container">
+    <div class="topbar">
+      <div class="title">Chat Lite</div>
+      <div id="instLabel">实例：(未指定)</div>
+    </div>
+
+    <!-- 注入控制条（可选，但不影响“只读历史”界面逻辑） -->
+    <div id="chat-tab" class="tab-content active" style="position:relative;"></div>
+
+    <div id="messages-container" class="messages-container"></div>
+
+    <div class="sender">
+      <input id="msgInput" placeholder="输入消息..." />
+      <button id="sendBtn">发送</button>
+      <button id="refreshBtn">刷新</button>
+    </div>
+  </div>
+
+  <!-- 仅用到需要的最少模块：时间线/注入条/WS 管理器 -->
+  <script src="js/modules/ChatTimeline.js"></script>
+  <script src="js/modules/WebSocketManager.js"></script>
+  <script src="js/modules/InjectBar.js"></script>
+  <script>
+  (function(){
+    const qsInst = (()=>{ try{ const u=new URL(window.location.href); return u.searchParams.get('instance')||''; }catch{ return ''; } })();
+    document.getElementById('instLabel').textContent = '实例：' + (qsInst||'(未指定)');
+    // 注入条会自动挂载在 #chat-tab
+    try{ window.InjectBar && window.InjectBar.init && window.InjectBar.init(); }catch{}
+
+    // 时间线
+    const timeline = new window.ChatTimeline();
+
+    // 最简 WS：用 WebSocketManager 只负责发送/接收 ack，不订阅 html_content
+    const ws = new window.WebSocketManager();
+    ws.setMessageCallback((data)=>{
+      if (data.type === 'delivery_ack' && data.msgId){ try{ timeline.markDelivered(data.msgId); }catch{} }
+      if (data.type === 'delivery_error'){ try{ alert('注入失败: '+(data.reason||'unknown')); }catch{} }
+      if (data.type === 'assistant_hint'){
+        // 收到注入端提示后，立即触发一次快速轮询
+        try{ if (window.__lastSentAt && window.__lastMsgId) { pollReply(window.__lastSentAt, window.__lastMsgId); } }catch{}
+      }
+    });
+    ws.setConnectCallback(()=>{
+      try{ ws.send({ type:'register', role:'web', instanceId: qsInst || null }); }catch{}
+    });
+    ws.connect();
+
+    function uuid(){ try{ return crypto.randomUUID(); } catch{ return String(Date.now())+Math.random().toString(16).slice(2); } }
+    function embedId(text, id){ return `${text} \n<!--#msg:${id}-->`; }
+    function containsId(text, id){ return typeof text==='string' && text.includes(`<!--#msg:${id}-->`); }
+    async function fetchJson(url){ const r=await fetch(url); return r.json(); }
+    // 在同一会话内：先定位包含 msgId 的用户消息，再取其后的第一条助理消息
+    function findReplyByMarker(chats, msgId, afterTs){
+      if(!Array.isArray(chats)) return { session:null, message:null };
+      let best = { session:null, userIdx:-1, userTs:0 };
+      for(const s of chats){
+        const msgs = Array.isArray(s.messages)? s.messages : [];
+        for(let i=msgs.length-1;i>=0;i--){
+          const m = msgs[i];
+          const role = String(m?.role||'');
+          const text = String(m?.content||m?.text||'');
+          const mt = Number(m?.timestamp||0);
+          const hit = role==='user' && text.includes(`<!--#msg:${msgId}-->`) && (!afterTs || !mt || mt>=afterTs);
+          if (hit){
+            const score = mt || (new Date(s.date||s.timestamp||0).getTime()) || Date.now();
+            if (score >= best.userTs){ best = { session:s, userIdx:i, userTs:score }; }
+            break;
+          }
+        }
+      }
+      if (!best.session || best.userIdx<0) return { session:null, message:null };
+      const msgs = Array.isArray(best.session.messages)? best.session.messages : [];
+      for(let j=best.userIdx+1;j<msgs.length;j++){
+        const r = msgs[j];
+        const rRole = String(r?.role||'');
+        if (rRole==='assistant' || rRole==='assistant_bot'){
+          return { session: best.session, message: r };
+        }
+      }
+      return { session: best.session, message: null };
+    }
+
+    // 基于时间戳的兜底：取所有会话中时间>afterTs的最新一条助手消息
+    function pickLatestAssistantTs(chats, afterTs){
+      if(!Array.isArray(chats)) return { message:null };
+      const ok=new Set(['assistant','assistant_bot']);
+      let candidate=null;
+      for(const s of chats){
+        const msgs=Array.isArray(s.messages)?s.messages:[];
+        for(let i=msgs.length-1;i>=0;i--){
+          const m=msgs[i]; const mt=Number(m?.timestamp||0);
+          if (m && ok.has(String(m.role)) && (!afterTs || !mt || mt>afterTs)){
+            const score = mt || (new Date(s.date||0).getTime()) || 0;
+            if(!candidate || score>candidate.score){ candidate={ msg:m, score }; }
+            break;
+          }
+        }
+      }
+      return { message: candidate?candidate.msg:null };
+    }
+    async function pollReply(sentAt, msgId){
+      // 更密集的前几轮轮询，整体收敛更快
+      const delays=[800,1200,2000,3000,5000,8000];
+      for(let i=0;i<delays.length;i++){
+        await new Promise(r=>setTimeout(r,delays[i]));
+        try{
+          // 绕过后端缓存（默认30s），提高新消息可见性
+          const ts = Date.now();
+          const url = qsInst
+            ? `/api/chats?instance=${encodeURIComponent(qsInst)}&mode=cv&maxAgeMs=0&nocache=1&ts=${ts}`
+            : `/api/chats?mode=cv&maxAgeMs=0&nocache=1&ts=${ts}`;
+          let raw = await fetchJson(url);
+          let chats = Array.isArray(raw) ? raw : (raw.data || raw.value || []);
+          let { message } = findReplyByMarker(chats||[], msgId, sentAt);
+          if (message){
+            const text = String(message.content||message.text||'');
+            timeline.appendAssistantMessage(text.replace(/<!--#msg:[^>]+-->/g,''));
+            timeline.markReplied(msgId);
+            return true;
+          }
+          // 若 CV 模式未命中，再尝试默认模式（常带 timestamp）
+          try{
+            const url2 = qsInst
+              ? `/api/chats?instance=${encodeURIComponent(qsInst)}&includeUnmapped=true&maxAgeMs=0&nocache=1`
+              : `/api/chats?includeUnmapped=true&maxAgeMs=0&nocache=1`;
+            raw = await fetchJson(url2);
+            chats = Array.isArray(raw) ? raw : (raw.data || raw.value || []);
+            let r = findReplyByMarker(chats||[], msgId, sentAt);
+            if (r && r.message){
+              const text = String(r.message.content||r.message.text||'');
+              timeline.appendAssistantMessage(text.replace(/<!--#msg:[^>]+-->/g,''));
+              timeline.markReplied(msgId);
+              return true;
+            }
+            const { message: m2 } = pickLatestAssistantTs(chats||[], sentAt);
+            if (m2){
+              const text = String(m2.content||m2.text||'');
+              timeline.appendAssistantMessage(text.replace(/<!--#msg:[^>]+-->/g,''));
+              timeline.markReplied(msgId);
+              return true;
+            }
+          }catch{}
+          // 第二轮仍未命中时，主动清一次缓存以进一步降低延迟
+          if (i===1){ try{ await fetchJson('/api/history/cache/clear'); }catch{} }
+        }catch{}
+      }
+      return false;
+    }
+
+    async function refreshOnce(){
+      try{
+        const url = qsInst? `/api/chats?instance=${encodeURIComponent(qsInst)}&mode=cv` : '/api/chats?mode=cv';
+        const raw = await fetchJson(url);
+        const chats = Array.isArray(raw) ? raw : (raw.data || raw.value || []);
+        // 简单渲染：只显示最新 1 条会话的最近 3 条消息
+        if (Array.isArray(chats) && chats.length){
+          const last = chats[0];
+          const msgs = (last.messages||[]).slice(-3);
+          for(const m of msgs){
+            if(String(m.role)==='user') timeline.appendUserMessage(String(m.content||'')); else timeline.appendAssistantMessage(String(m.content||''));
+          }
+        }
+      }catch{}
+    }
+
+    // UI bind
+    document.getElementById('sendBtn').onclick = async () => {
+      const input = document.getElementById('msgInput');
+      const text = input.value.trim(); if(!text) return;
+      const msgId = uuid();
+      timeline.appendUserMessage(text, msgId); timeline.markRouted(msgId);
+      const ok = ws.send({ type:'user_message', data: embedId(text, msgId), targetInstanceId: qsInst || undefined, msgId });
+      if(!ok){ alert('发送失败：WebSocket未连接或无注入端'); return; }
+      const sentAt = Date.now();
+      window.__lastSentAt = sentAt; window.__lastMsgId = msgId;
+      const got = await pollReply(sentAt, msgId);
+      if(!got){ alert('等待回复超时，可稍后刷新历史'); }
+      input.value=''; input.focus();
+    };
+    document.getElementById('refreshBtn').onclick = () => refreshOnce();
+
+    // 首次加载一份概览
+    refreshOnce();
+  })();
+  </script>
+</body>
+</html>
+
+

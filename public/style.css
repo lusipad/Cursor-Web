@@ -88,6 +88,24 @@ body {
     margin-bottom: 80px; /* 留出输入框高度空间 */
 }
 
+/* 轻量聊天时间线样式 */
+.chat-timeline { display: flex; flex-direction: column; gap: 12px; }
+.chat-message { display: flex; }
+.chat-message .bubble { max-width: 900px; padding: 10px 12px; border-radius: 10px; background: #0e0e0e; border: 1px solid #2a2a2a; }
+.chat-message .meta { font-size: 12px; color: #8a8a8a; margin-bottom: 6px; }
+.chat-message .content { white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.6; color: #eaeaea; }
+.user-message { justify-content: flex-end; }
+.user-message .bubble { background: #13233a; border-color: #274565; }
+.assistant-message { justify-content: flex-start; }
+.assistant-message .bubble { background: #121212; border-color: #2f2f2f; }
+
+/* 消息进度条 */
+.msg-progress{ margin-top:6px; display:flex; gap:10px; }
+.msg-progress .stage{ font-size:12px; color:#7a7a7a; position:relative; padding-left:14px; }
+.msg-progress .stage::before{ content:''; width:8px; height:8px; border-radius:50%; background:#555; position:absolute; left:0; top:4px; }
+.msg-progress .stage.on{ color:#e5e7eb; }
+.msg-progress .stage.on::before{ background:#16a34a; }
+
 .welcome-message {
     text-align: center;
     padding: 60px 20px;
@@ -271,6 +289,17 @@ body {
 .messages-container::-webkit-scrollbar-thumb:hover {
     background: #505050;
 }
+
+/* 注入控制条 */
+.inject-bar{ position: absolute; right: 16px; top: 8px; background:#111; border:1px solid #2a2a2a; padding:6px 10px; border-radius:8px; display:flex; align-items:center; z-index: 20; }
+.inject-bar .row{ display:flex; align-items:center; gap:10px; }
+.inject-bar .label{ color:#aaa; }
+.inject-bar .value{ color:#fff; font-weight:600; }
+.inject-bar .dot{ width:10px; height:10px; border-radius:50%; background:#555; display:inline-block; }
+.inject-bar .dot.ok{ background:#16a34a; }
+.inject-bar .dot.off{ background:#f59e0b; }
+.inject-bar .ib-btn{ background:#374151; color:#fff; border:none; border-radius:6px; padding:6px 10px; cursor:pointer; }
+.inject-bar .ib-btn:hover{ background:#4b5563; }
 
 /* 响应式设计 */
 @media (max-width: 768px) {
