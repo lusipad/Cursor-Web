@@ -8,6 +8,7 @@
     "start": "node app.js",
     "dev": "nodemon app.js",
     "legacy": "node server.js",
+    "inject": "node scripts/auto-inject-cursor.js",
     "test": "node tests/run-all-tests.js",
     "test:unit": "node tests/run-all-tests.js --unit",
     "test:integration": "node tests/run-all-tests.js --integration",
@@ -26,6 +27,7 @@
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
+    "chrome-remote-interface": "^0.33.0",
     "better-sqlite3": "^12.2.0",
     "cors": "^2.8.5",
     "express": "^4.18.2",

@@ -463,21 +463,65 @@ class CursorSync {
     }
 
     findChatContainer() {
-        // 优先 conversations 区域
-        this.chatContainer = document.querySelector('.conversations') ||
-            document.querySelector('.chat-container') ||
-            document.querySelector('[data-testid="chat-container"]') ||
-            document.querySelector('.conversation-container') ||
-            document.querySelector('[contenteditable]') ||
-            document.body; // 最后兜底
+        // 1) 先按已知选择器尝试（VSCode/Cursor 常见结构）
+        const selectorCandidates = [
+            '.interactive-session .monaco-list-rows',
+            '.interactive-session .chat-list',
+            '.chat-view .monaco-list-rows',
+            '.chat-view',
+            '.conversations',
+            '.chat-container',
+            '[data-testid="chat-container"]',
+            '.conversation-container'
+        ];
+
+        const nodes = [];
+        for (const sel of selectorCandidates) {
+            const n = document.querySelector(sel);
+            if (n) nodes.push(n);
+        }
+
+        // 2) 可选：尝试所有滚动区域（很可能承载消息列表）
+        document.querySelectorAll('[role="list"], .monaco-list, .scrollable, .scrollbar').forEach(n => nodes.push(n));
+
+        // 3) 永远把 body 加入候选，确保有兜底
+        nodes.push(document.body);
+
+        // 4) 评分：
+        //   - 文本长度（越长越像整体内容）
+        //   - 元素高度（越高越像滚动区域）
+        //   - 子块元素数量（div/p/li/pre/code 的数量）
+        const scoreOf = (el) => {
+            try {
+                const textLen = (el.textContent || '').length;
+                const blocks = el.querySelectorAll('div,p,li,pre,code').length;
+                const height = Math.max(el.scrollHeight || 0, el.clientHeight || 0);
+                return textLen + blocks * 10 + height / 2;
+            } catch { return 0; }
+        };
+
+        let best = null;
+        for (const el of nodes) {
+            if (!el) continue;
+            const s = scoreOf(el);
+            if (!best || s > best.score) best = { el, score: s };
+        }
+
+        this.chatContainer = best ? best.el : document.body;
+
+        // 如果选中的容器文本太短，向上查找更大的父容器
+        const MIN_TEXT = 300; // 小于该阈值大概率选到了输入框等
+        let guard = 0;
+        while (this.chatContainer && (this.chatContainer.textContent || '').length < MIN_TEXT && this.chatContainer.parentElement && guard < 5) {
+            this.chatContainer = this.chatContainer.parentElement;
+            guard++;
+        }
 
         if (this.chatContainer) {
-            console.log('✅ 找到聊天容器', this.chatContainer);
+            const tlen = (this.chatContainer.textContent || '').length;
+            console.log('✅ 选定聊天容器:', this.chatContainer, '文本长度:', tlen);
         } else {
             console.warn('❌ 未找到聊天容器');
-            // 打印所有可疑节点，便于调试
-            const allCE = document.querySelectorAll('[contenteditable]');
-            console.log('所有 contenteditable 元素：', allCE);
         }
     }
 
@@ -556,6 +600,10 @@ class CursorSync {
             return null;
         }
         
+        // 若文本无变化则跳过，减少重复传输
+        if (text === this.lastContent) {
+            return null;
+        }
         this.lastContent = text;
         return {
             html: html,

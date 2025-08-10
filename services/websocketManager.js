@@ -117,13 +117,14 @@ class WebSocketManager {
     handleHtmlContent(ws, message) {
         const result = this.chatManager.updateContent(message.data.html, message.data.timestamp);
         if (result.success) {
-            // 添加到历史记录
-            this.historyManager.addHistoryItem(message.data.html, 'chat', {
-                timestamp: message.data.timestamp,
-                source: 'cursor',
-                clientIP: ws._socket?.remoteAddress
-            });
-            
+            // 添加到历史记录（如果支持写入）
+            if (this.historyManager && typeof this.historyManager.addHistoryItem === 'function') {
+                this.historyManager.addHistoryItem(message.data.html, 'chat', {
+                    timestamp: message.data.timestamp,
+                    source: 'cursor',
+                    clientIP: ws._socket?.remoteAddress
+                });
+            }
             // 转发给所有连接的客户端
             this.broadcastToClients(message, ws);
         }
