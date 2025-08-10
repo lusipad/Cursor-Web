@@ -19,6 +19,9 @@ class InjectRoutes {
 
   setupRoutes() {
     this.router.get('/inject/processes', (req, res) => this.handleListProcesses(req, res));
+    // 实例管理：列出配置实例
+    this.router.get('/instances', (req, res) => this.listConfiguredInstances(req, res));
+    this.router.post('/instances/launch-all', express.json(), (req, res) => this.launchAllAutoStart(req, res));
     this.router.post('/inject/launch', express.json(), (req, res) => this.launchOne(req, res));
     this.router.post('/inject/launch-many', express.json(), (req, res) => this.launchMany(req, res));
     this.router.post('/inject/stop', express.json(), (req, res) => this.stopOne(req, res));
@@ -28,6 +31,71 @@ class InjectRoutes {
     this.router.post('/inject/kill-all', express.json(), (req, res) => this.killAll(req, res));
     this.router.post('/inject/restart', express.json(), (req, res) => this.restartAndInject(req, res));
     this.router.get('/inject/clients', (req, res) => this.listClients(req, res));
+  }
+
+  // 读取配置实例
+  getConfiguredInstances() {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const p = path.join(process.cwd(), 'config', 'instances.json');
+      if (!fs.existsSync(p)) return [];
+      const raw = fs.readFileSync(p, 'utf8');
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+  }
+
+  // GET /api/instances
+  listConfiguredInstances(req, res){
+    try{
+      const items = this.getConfiguredInstances();
+      // 附加进程/连接状态
+      const byId = new Map(items.map(x => [x.id, x]));
+      const processes = [...this.processes.values()];
+      const status = (this.wsManager && this.wsManager.getClientsOverview) ? this.wsManager.getClientsOverview() : [];
+      const onlineById = new Map();
+      status.forEach(c => {
+        const cid = c.instanceId || null;
+        if (!cid) return;
+        const list = onlineById.get(cid) || [];
+        list.push(c);
+        onlineById.set(cid, list);
+      });
+      const result = items.map(it => {
+        const procs = processes.filter(p => p.instanceId === it.id || p.userDataDir === it.userDataDir);
+        const clients = onlineById.get(it.id) || [];
+        return { ...it, processes: procs, clients };
+      });
+      res.json({ success: true, data: result });
+    }catch(e){ res.status(500).json({ success:false, error: e.message }); }
+  }
+
+  // POST /api/instances/launch-all 仅启动 autoStart=true 的实例
+  async launchAllAutoStart(req, res){
+    try{
+      const items = this.getConfiguredInstances().filter(x => x && x.autoStart);
+      const launched = [];
+      for (const it of items){
+        const port = await this.findAvailablePort();
+        const child = this.spawnInjector({
+          cursorPath: it.cursorPath || '',
+          port,
+          userDataDir: it.userDataDir || '',
+          openPath: it.openPath || '',
+          args: it.args || '',
+          exitAfterReady: false,
+          detach: true,
+          shouldSpawn: true,
+          pollMs: Number(it.pollMs) || 30000,
+          instanceId: it.id || ''
+        });
+        const pid = child.pid;
+        this.processes.set(pid, { pid, port, userDataDir: it.userDataDir || '', startedAt: Date.now(), instanceId: it.id || '' });
+        launched.push({ id: it.id, pid, port });
+      }
+      res.json({ success: true, data: launched });
+    }catch(e){ res.status(500).json({ success:false, error: e.message }); }
   }
 
   handleListProcesses(req, res) {
@@ -72,7 +140,7 @@ class InjectRoutes {
     throw new Error('没有可用的调试端口');
   }
 
-  spawnInjector({ cursorPath, port, userDataDir, args = '', exitAfterReady = false, detach = true, shouldSpawn = true, pollMs = 30000, instanceId = '' }) {
+  spawnInjector({ cursorPath, port, userDataDir, openPath = '', args = '', exitAfterReady = false, detach = true, shouldSpawn = true, pollMs = 30000, instanceId = '' }) {
     const nodeBin = process.execPath;
     const scriptPath = path.join(process.cwd(), 'scripts', 'auto-inject-cursor.js');
     const env = {
@@ -82,6 +150,7 @@ class InjectRoutes {
       // 默认不传 USER_DATA_DIR，让 Cursor 使用系统默认账号目录
       USER_DATA_DIR: userDataDir || '',
       CURSOR_ARGS: args,
+      OPEN_PATH: openPath || '',
       EXIT_AFTER_READY: exitAfterReady ? '1' : '',
       DETACH: detach ? '1' : '0',
       SHOULD_SPAWN: shouldSpawn ? '1' : '0',
@@ -119,13 +188,14 @@ class InjectRoutes {
       // 默认不设置 userDataDir，使用系统账号数据
       const userDataDir = body.userDataDir || '';
       const args = body.args || '';
+      const openPath = body.openPath || '';
       const exitAfterReady = !!body.exitAfterReady;
       const detach = body.detach !== false; // 默认 true
       const shouldSpawn = body.shouldSpawn !== false; // 默认 true
       const pollMs = Number(body.pollMs) || 30000;
       const instanceId = body.instanceId || '';
 
-      const child = this.spawnInjector({ cursorPath, port, userDataDir, args, exitAfterReady, detach, shouldSpawn, pollMs, instanceId });
+      const child = this.spawnInjector({ cursorPath, port, userDataDir, openPath, args, exitAfterReady, detach, shouldSpawn, pollMs, instanceId });
       const pid = child.pid;
       this.processes.set(pid, { pid, port, userDataDir, startedAt: Date.now() });
 
@@ -142,6 +212,7 @@ class InjectRoutes {
       const baseArgs = {
         cursorPath: body.cursorPath || process.env.CURSOR_PATH || '',
         args: body.args || '',
+        openPath: body.openPath || '',
         exitAfterReady: !!body.exitAfterReady,
         detach: body.detach !== false,
         shouldSpawn: body.shouldSpawn !== false,

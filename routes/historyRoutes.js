@@ -17,9 +17,8 @@ class HistoryRoutes {
         
         // 调试信息
         router.get('/history/debug', this.getDebugInfo.bind(this));
-        // 读取/设置 Cursor 数据根
+        // 读取 Cursor 数据根（只读，来源于自动探测或环境变量）
         router.get('/history/cursor-path', this.getCursorRoot.bind(this));
-        router.post('/history/cursor-path', this.setCursorRoot.bind(this));
         // 清空后端提取缓存
         router.get('/history/cache/clear', this.clearCache.bind(this));
         // 获取唯一项目列表（用于对齐 cursor-view-main 的项目视图）
@@ -433,23 +432,7 @@ class HistoryRoutes {
             res.status(500).json({success:false, error: err.message});
         }
     }
-    async setCursorRoot(req, res){
-        try{
-            const chunks=[]; req.on('data',c=>chunks.push(c)); req.on('end',()=>{
-                try{
-                    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}');
-                    const p = body && body.path;
-                    if(!p){ return res.status(400).json({success:false, error:'path required'}); }
-                    process.env.CURSOR_STORAGE_PATH = p; // 仅本进程生效
-                    if (this.historyManager && typeof this.historyManager.getCursorStoragePath === 'function'){
-                        this.historyManager.cursorStoragePath = this.historyManager.getCursorStoragePath();
-                        if (this.historyManager.clearCache) this.historyManager.clearCache();
-                    }
-                    res.json({success:true, data:{cursorPath:this.historyManager.cursorStoragePath}});
-                }catch(e){ res.status(400).json({success:false, error:e.message}); }
-            });
-        }catch(err){ res.status(500).json({success:false, error:err.message}); }
-    }
+    // 去掉设置能力
 
     getRouter() {
         return router;

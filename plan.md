@@ -1,3 +1,58 @@
+## 多实例整体工作流（更新版）
+
+### 目标
+- 在配置文件中声明多个实例（Instance），每个实例包含 Cursor 启动参数（打开目录、用户数据目录、额外参数等）。
+- Web 管理页统一查看各实例状态，执行注入/重启/发送消息/查看回复等操作。
+- 发送侧通过 WebSocket → 注入脚本写入 Cursor 输入并触发发送；返回侧通过 DOM HTML 广播 + SQLite 历史轮询组合以获取最新回复。
+
+### 实例配置（建议）
+- 新增 `config/instances.json`（示例）：
+  - id: 实例标识（如 `cursor-1`）
+  - cursorPath: 可执行路径（可留空自动查找）
+  - userDataDir: 独立配置目录（多实例隔离）
+  - openPath: 启动后打开的项目/工作区目录
+  - args: 额外启动参数（支持 JSON 数组或带引号字符串）
+  - autoStart: 服务器启动时是否自动拉起
+  - pollMs: 注入轮询时长
+
+### 后端 API（扩展）
+- 进程/注入
+  - POST `/api/inject/launch`：启动并注入；参数支持 `instanceId, cursorPath, userDataDir, openPath, args, pollMs`
+  - POST `/api/inject/restart`：强制重启并注入；同上参数
+  - POST `/api/inject/scan-inject`：扫描端口并注入；参数 `startPort, endPort, instanceId`
+  - POST `/api/inject/inject-port`：指定端口注入；参数 `port, pollMs, instanceId`
+  - POST `/api/inject/kill-all`：关闭所有 Cursor
+  - POST `/api/inject/launch-many`：批量启动；参数 `count, basePort, userDataDirTemplate, args, pollMs, instanceId`
+  - POST `/api/inject/stop`：按 PID 停止
+  - GET `/api/inject/processes`：列出已启动进程
+  - GET `/api/inject/clients`：列出当前 WebSocket 客户端（含 role/instanceId/是否已注入/URL）
+- 历史/内容
+  - GET `/api/chats`：聚合会话；支持 `includeUnmapped`；前端拉取回复前可先调用 `GET /api/history/cache/clear`
+  - GET `/api/history/cursor-path` 与 POST 同名端点：读取/设置历史根
+  - GET `/api/history/debug`：输出 SQLite 检测与采样信息
+  - GET `/api/history/projects`：唯一项目列表
+  - GET `/api/content`：最新 HTML 内容（由注入脚本通过 HTTP 广播）
+  - GET `/api/status`、GET `/api/health`：状态/健康检查
+
+### 注入脚本（关键点）
+- `openPath`：以单独参数追加在启动参数末尾（支持含空格路径）
+- `args`：支持 JSON 数组或带引号字符串解析，避免空格拆词
+- 持久注入：`Page.addScriptToEvaluateOnNewDocument` + 定时 `CDP.List()` 轮询/Target 监听
+- `ensureAiPanelOpen()`：注入后尽力点击 Activity Bar/侧栏的 Chat/AI 图标以打开聊天面板
+
+### 前端测试页（已集成，先用于全量验证）
+- 表单项：实例 ID、Cursor 路径、用户数据目录、打开目录、其他启动参数（`args`）、注入轮询时长（`pollMs`）、扫描范围、单端口注入、批量启动模板、停止指定 PID、历史根设置/读取、清缓存、服务器状态/健康检查、历史调试、项目列表、获取当前内容、发送/拉取最新回复。
+- 发送消息：定向到 `instanceId`；接收侧 DOM 广播与历史轮询同时可用。
+- 拉取回复：先清缓存，再 `GET /api/chats?includeUnmapped=true`，兼容 `assistant/assistant_bot`。
+
+### 优化方向
+- 多实例历史管理器：按实例维护独立的 `CursorHistoryManager` 与缓存，新增 `/api/instances/:id/chats`。
+- 会话精确定位：注入端回传当前会话线索（composerId 等），前端仅轮询该会话。
+- 安全：管理端口认证（Token/Bearer）、限制 CORS。
+- 监控：DB mtime 触发缓存失效；状态灯（WS/注入/内容/心跳）。
+
+---
+
 ## 发送同步 + 历史拉取方案（设计说明）
 
 ### 目标

@@ -17,25 +17,19 @@ const AppMiddleware = require('./middleware/appMiddleware');
 const { setupProcessHandlers, printServerInfo } = require('./utils/serverUtils');
 const config = require('./config/serverConfig');
 
-// 在初始化历史管理器之前，按照配置优先级设置 Cursor 根目录
-// 优先级：环境变量 CURSOR_STORAGE_PATH > config.cursor.storagePath > (debug.useTestCursorPath ? debug.testCursorPath : null)
+// 按用户要求：不再在启动时覆盖 Cursor 根目录，始终让历史管理器自动探测系统默认路径
+// 如需手动覆盖，仅支持通过显式设置环境变量 CURSOR_STORAGE_PATH 或配置 cursor.storagePath（不再使用 debug.testCursorPath）
 (() => {
     try {
-        let chosenPath = process.env.CURSOR_STORAGE_PATH || null;
-        if (!chosenPath && config?.cursor?.storagePath) {
-            chosenPath = config.cursor.storagePath;
-        }
-        if (!chosenPath && config?.debug?.useTestCursorPath && config?.debug?.testCursorPath) {
-            if (fs.existsSync(config.debug.testCursorPath)) {
-                chosenPath = config.debug.testCursorPath;
-                console.log(`🧪 Debug 模式启用，使用测试 Cursor 目录: ${chosenPath}`);
-            } else {
-                console.log(`⚠️ 配置的测试 Cursor 目录不存在: ${config.debug.testCursorPath}`);
-            }
-        }
-        if (chosenPath) {
-            process.env.CURSOR_STORAGE_PATH = chosenPath;
-            console.log(`🔧 已设置 CURSOR_STORAGE_PATH = ${chosenPath}`);
+        const envPath = process.env.CURSOR_STORAGE_PATH || null;
+        const cfgPath = config?.cursor?.storagePath || null;
+        if (envPath) {
+            console.log(`🔧 使用环境变量 CURSOR_STORAGE_PATH = ${envPath}`);
+        } else if (cfgPath) {
+            process.env.CURSOR_STORAGE_PATH = cfgPath;
+            console.log(`🔧 使用配置 cursor.storagePath = ${cfgPath}`);
+        } else {
+            console.log('🧭 历史根目录采用系统默认路径（不覆盖）');
         }
     } catch (e) {
         console.log('⚠️ 预设 Cursor 根目录失败：', e.message);

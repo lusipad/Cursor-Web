@@ -224,15 +224,19 @@ class CursorHistoryManager {
     }
 
     cvFormatChat(chat) {
-        // 与 cursor-view 的 format_chat_for_frontend 对齐的最小集合
+        // 与 cursor-view 的 format_chat_for_frontend 对齐：优先使用 lastUpdatedAt，其次 createdAt，最后当前时间
         const sessionId = chat?.session?.composerId || require('crypto').randomUUID();
-        let date = Math.floor(Date.now() / 1000);
-        if (chat?.session?.createdAt) date = Math.floor((chat.session.createdAt) / 1000);
+        let dateSec = Math.floor(Date.now() / 1000);
+        if (chat?.session?.lastUpdatedAt) {
+            dateSec = Math.floor((chat.session.lastUpdatedAt) / 1000);
+        } else if (chat?.session?.createdAt) {
+            dateSec = Math.floor((chat.session.createdAt) / 1000);
+        }
         const project = chat.project || { name: 'Unknown Project', rootPath: '/' };
         return {
             project,
             messages: Array.isArray(chat.messages) ? chat.messages : [],
-            date,
+            date: dateSec,
             session_id: sessionId,
             workspace_id: chat.workspace_id || 'unknown',
             db_path: chat.db_path || 'Unknown database path'

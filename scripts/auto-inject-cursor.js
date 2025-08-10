@@ -23,7 +23,49 @@ const DEBUG_PORT = Number(process.env.CDP_PORT || 9222);
 const EXIT_AFTER_READY = String(process.env.EXIT_AFTER_READY || '').trim() === '1';
 const DETACH = String(process.env.DETACH || '1').trim() === '1';
 const USER_DATA_DIR = process.env.USER_DATA_DIR || '';
+const OPEN_PATH = process.env.OPEN_PATH || '';
 const SHOULD_SPAWN = String(process.env.SHOULD_SPAWN || '1').trim() === '1';
+
+function parseArgsEnv(raw) {
+  try {
+    const s = (raw == null) ? '' : String(raw);
+    const trimmed = s.trim();
+    if (!trimmed) return [];
+    // JSON 数组优先（可避免空格路径被拆分）
+    if (trimmed.startsWith('[')) {
+      try {
+        const arr = JSON.parse(trimmed);
+        if (Array.isArray(arr)) return arr.map((x) => String(x));
+      } catch {}
+    }
+    // 简易引号感知分割（空格分割，支持 '...'/"..." 包裹）
+    const tokens = [];
+    let buf = '';
+    let quote = null;
+    for (let i = 0; i < trimmed.length; i++) {
+      const ch = trimmed[i];
+      if (quote) {
+        if ((quote === '"' && ch === '"') || (quote === '\'' && ch === '\'')) {
+          quote = null;
+        } else {
+          buf += ch;
+        }
+      } else {
+        if (ch === '"' || ch === '\'') {
+          quote = ch;
+        } else if (ch === ' ') {
+          if (buf) { tokens.push(buf); buf = ''; }
+        } else {
+          buf += ch;
+        }
+      }
+    }
+    if (buf) tokens.push(buf);
+    return tokens.filter(Boolean);
+  } catch {
+    return [];
+  }
+}
 
 function fileExists(p) {
   try { return !!(p && fs.existsSync(p)); } catch { return false; }
@@ -135,7 +177,7 @@ async function main() {
   console.log('🟡 Cursor 路径:', cursorExe);
 
   // 启动 Cursor（默认使用系统账号目录）
-  const extraArgsEnv = process.env.CURSOR_ARGS ? String(process.env.CURSOR_ARGS).split(' ') : [];
+  const extraArgsEnv = parseArgsEnv(process.env.CURSOR_ARGS);
   const launchArgs = [
     `--remote-debugging-port=${DEBUG_PORT}`,
     '--new-window',
@@ -146,6 +188,12 @@ async function main() {
     launchArgs.push(`--user-data-dir=${USER_DATA_DIR}`);
   } else {
     console.log('👤 使用系统默认 Cursor 账号目录（未指定 user-data-dir）');
+  }
+
+  // 打开指定路径/工作区（在所有开关参数后面追加，不与开关拼接，支持含空格路径）
+  if (OPEN_PATH) {
+    launchArgs.push(OPEN_PATH);
+    console.log('📂 启动时打开路径：', OPEN_PATH);
   }
 
   let child = null;

@@ -461,9 +461,52 @@ class CursorSync {
 
     init() {
         console.log('🎯 初始化 Cursor 同步器...');
+        // 尝试确保 AI 面板已打开（若未打开则尝试点击候选入口）
+        try { this.ensureAiPanelOpen(); } catch (e) { console.warn('ensureAiPanelOpen 失败：', e); }
         this.findChatContainer();
         this.startSync();
         this.initWebSocket();
+    }
+
+    // 确保 AI 面板已打开（尽力而为，不保证一定成功）
+    ensureAiPanelOpen() {
+        try {
+            const hasChat = !!(
+                document.querySelector('.conversations') ||
+                document.querySelector('.interactive-session .monaco-list-rows') ||
+                document.querySelector('.chat-view') ||
+                document.querySelector('[data-testid="chat-container"]')
+            );
+            if (hasChat) return true;
+
+            const candidates = [
+                // Activity Bar/侧边栏可能的入口
+                '.part.activitybar [title*="Chat" i]',
+                '.part.activitybar [aria-label*="Chat" i]',
+                '.part.activitybar [title*="AI" i]',
+                '.part.activitybar [aria-label*="AI" i]',
+                // 常见图标
+                '.codicon-chat',
+                '.codicon-robot',
+                '.codicon-sparkle',
+                // 其他可能的按钮/标签
+                '[title*="AI Panel" i]',
+                '[aria-label*="AI Panel" i]'
+            ];
+
+            for (const sel of candidates) {
+                const el = document.querySelector(sel);
+                if (el && el.offsetParent !== null) {
+                    try { el.click(); } catch {}
+                    // 稍等再重新捕获容器
+                    setTimeout(() => { try { this.findChatContainer(); } catch {} }, 600);
+                    return true;
+                }
+            }
+        } catch (e) {
+            console.warn('打开 AI 面板尝试失败：', e);
+        }
+        return false;
     }
 
     findChatContainer() {
