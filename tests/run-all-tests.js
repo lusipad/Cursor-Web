@@ -21,9 +21,6 @@ const CDP = require('chrome-remote-interface');
 
 const DEBUG_PORT = Number(process.env.CDP_PORT || 9222);
 const EXIT_AFTER_READY = String(process.env.EXIT_AFTER_READY || '').trim() === '1';
-const DETACH = String(process.env.DETACH || '1').trim() === '1';
-const USER_DATA_DIR = process.env.USER_DATA_DIR || '';
-const SHOULD_SPAWN = String(process.env.SHOULD_SPAWN || '1').trim() === '1';
 
 function fileExists(p) {
   try { return !!(p && fs.existsSync(p)); } catch { return false; }
@@ -79,13 +76,8 @@ function buildInjectionSource() {
     throw new Error(`未找到脚本：${scriptPath}`);
   }
   const raw = fs.readFileSync(scriptPath, 'utf8');
-  // 允许通过环境变量注入实例ID
-  const instanceId = process.env.INSTANCE_ID ? String(process.env.INSTANCE_ID) : '';
-  const header = instanceId
-    ? `try{ window.__cursorInstanceId = ${JSON.stringify(instanceId)} }catch(e){}`
-    : '';
   // 包一层 IIFE，避免与页面变量冲突；并在异常时打印错误
-  return `;(() => { try {\n${header}\n${raw}\n} catch (e) { console.error('cursor-browser.js injection error', e); } })();`;
+  return `;(() => { try {\n${raw}\n} catch (e) { console.error('cursor-browser.js injection error', e); } })();`;
 }
 
 async function injectIntoTarget(target, source, port) {
@@ -131,39 +123,25 @@ async function main() {
     process.exit(2);
   }
 
-  console.log('✅ 将启动 Cursor 并开启远程调试端口:', DEBUG_PORT);
-  console.log('🟡 Cursor 路径:', cursorExe);
+  console.log('✅ 将启动 Cursor 并开启远程调试端口：', DEBUG_PORT);
+  console.log('🟡 Cursor 路径：', cursorExe);
 
-  // 启动 Cursor（默认使用系统账号目录）
+  // 启动 Cursor
+  // 附加参数：为 VSCode/Cursor 单实例模型准备独立 profile，避免参数被转发丢失
+  const tmpProfile = path.join(os.tmpdir(), `cursor-inject-profile-${Date.now()}`);
   const extraArgsEnv = process.env.CURSOR_ARGS ? String(process.env.CURSOR_ARGS).split(' ') : [];
   const launchArgs = [
     `--remote-debugging-port=${DEBUG_PORT}`,
     '--new-window',
+    `--user-data-dir=${tmpProfile}`,
     ...extraArgsEnv
   ];
-  // 仅当明确提供 USER_DATA_DIR 时，才指定独立用户目录
-  if (USER_DATA_DIR) {
-    launchArgs.push(`--user-data-dir=${USER_DATA_DIR}`);
-  } else {
-    console.log('👤 使用系统默认 Cursor 账号目录（未指定 user-data-dir）');
-  }
 
-  let child = null;
-  if (SHOULD_SPAWN) {
-    child = spawn(cursorExe, launchArgs, {
-      detached: DETACH,
-      stdio: DETACH ? 'ignore' : 'inherit',
-    });
-    if (DETACH) child.unref();
-
-    // 退出时尽量清理子进程（当未 detach 时）
-    const tryKill = () => {
-      try { if (child && !DETACH) child.kill(); } catch {}
-    };
-    process.on('exit', tryKill);
-    process.on('SIGINT', () => { tryKill(); process.exit(0); });
-    process.on('SIGTERM', () => { tryKill(); process.exit(0); });
-  }
+  const child = spawn(cursorExe, launchArgs, {
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
 
   // 等待 CDP 可用
   await waitForCDP(DEBUG_PORT);
@@ -184,13 +162,13 @@ async function main() {
       for (const t of rel) {
         const key = t.id || t.targetId || t.webSocketDebuggerUrl || t.url;
         if (key && injected.has(key)) continue;
-        console.log('🚀 注入目标:', `${t.type} ${t.title || ''}`.trim(), '\n   URL:', t.url);
+        console.log('🚀 注入目标：', `${t.type} ${t.title || ''}`.trim(), '\n   URL:', t.url);
         await injectIntoTarget(t, source, DEBUG_PORT);
         if (key) injected.add(key);
       }
       return rel.length;
     } catch (e) {
-      console.warn('列表/注入失败:', e.message);
+      console.warn('列表/注入失败：', e.message);
       return 0;
     }
   }
@@ -223,11 +201,11 @@ async function main() {
     Target.targetCreated(async ({ targetInfo }) => {
       try {
         if (targetLooksRelevant(targetInfo)) {
-          console.log('🆕 发现新页面，尝试注入:', targetInfo.url);
+          console.log('🆕 发现新页面，尝试注入：', targetInfo.url);
           await injectIntoTarget(targetInfo, source, DEBUG_PORT);
         }
       } catch (e) {
-        console.warn('新目标注入失败:', e.message);
+        console.warn('新目标注入失败：', e.message);
       }
     });
 
@@ -242,5 +220,21 @@ main().catch((err) => {
   process.exit(1);
 });
 
+
+
+  console.log(`Total: ${results.length}, Passed: ${results.length - failed.length}, Failed: ${failed.length}`);
+
+  // Stop server if we started it
+  if (srv.started && srv.proc) {
+    try { srv.proc.kill(); } catch {}
+  }
+
+  process.exit(failed.length > 0 ? 1 : 0);
+}
+
+run().catch((e) => {
+  console.error('❌ Test runner error:', e);
+  process.exit(1);
+});
 
 

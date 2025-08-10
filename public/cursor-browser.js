@@ -26,6 +26,10 @@ class WebSocketManager {
                 console.log('✅ WebSocket 连接成功');
                 this.isConnecting = false;
                 this.retryCount = 0;
+                try {
+                    const instanceId = (window.__cursorInstanceId && String(window.__cursorInstanceId)) || null;
+                    this.ws.send(JSON.stringify({ type: 'register', role: 'cursor', injected: true, instanceId, url: window.location.href }));
+                } catch {}
             };
 
             this.ws.onmessage = (event) => {

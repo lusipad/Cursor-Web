@@ -50,8 +50,8 @@ class EventManager {
         });
 
         if (sendForm && sendInput) {
-            // 表单提交事件
-            const submitHandler = (e) => {
+            // 表单提交事件（方案1：发送 + 历史轮询）
+            const submitHandler = async (e) => {
                 e.preventDefault();
                 const msg = sendInput.value.trim();
                 console.log('📤 尝试发送消息:', msg);
@@ -71,12 +71,17 @@ class EventManager {
                     return;
                 }
 
-                const success = this.client.wsManager.send({ type: 'user_message', data: msg });
-                if (success) {
-                    console.log('✅ 消息发送成功');
-                    sendInput.value = '';
-                } else {
-                    console.error('❌ 消息发送失败');
+                // 使用统一的发送与轮询逻辑
+                try {
+                    const success = await this.client.sendAndPoll(msg);
+                    if (success) {
+                        console.log('✅ 消息发送成功');
+                        sendInput.value = '';
+                    } else {
+                        console.error('❌ 消息发送失败');
+                    }
+                } catch (err) {
+                    console.error('❌ 发送与轮询出错：', err);
                 }
             };
 

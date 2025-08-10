@@ -25,10 +25,22 @@ class WebSocketManager {
 
         this.connectedClients.add(ws);
 
+        // 记录客户端元数据（角色/实例/时间戳）
+        ws._meta = {
+            role: 'unknown',
+            instanceId: null,
+            ip: clientIP,
+            connectedAt: Date.now(),
+            lastPongAt: null,
+            injected: false,
+            url: null
+        };
+
         // 设置心跳机制
         ws.isAlive = true;
         ws.on('pong', () => {
             ws.isAlive = true;
+            if (ws._meta) ws._meta.lastPongAt = Date.now();
         });
 
         // 发送当前聊天内容（如果有）
@@ -76,6 +88,9 @@ class WebSocketManager {
             console.log(`📥 WebSocket 收到消息类型：${message.type}`);
 
             switch (message.type) {
+                case 'register':
+                    this.handleRegister(ws, message);
+                    break;
                 case 'html_content':
                     this.handleHtmlContent(ws, message);
                     break;
@@ -111,6 +126,21 @@ class WebSocketManager {
         } catch (error) {
             console.log('❌ WebSocket 消息解析错误：', error.message);
         }
+    }
+
+    // 处理客户端注册（标识角色与实例ID）
+    handleRegister(ws, message) {
+        const role = typeof message.role === 'string' ? message.role : 'unknown';
+        const instanceId = typeof message.instanceId === 'string' && message.instanceId.trim().length > 0
+            ? message.instanceId.trim()
+            : null;
+        const injected = Boolean(message.injected);
+        const url = typeof message.url === 'string' ? message.url : (ws._meta?.url || null);
+        ws._meta = { ...(ws._meta || {}), role, instanceId, injected, url };
+        console.log(`🆔 客户端注册：role=${role}, instanceId=${instanceId || 'n/a'}`);
+        try {
+            ws.send(JSON.stringify({ type: 'register_ack', ok: true, role, instanceId }));
+        } catch {}
     }
 
     // 处理 HTML 内容消息
@@ -155,11 +185,32 @@ class WebSocketManager {
     // 处理用户消息
     handleUserMessage(ws, message) {
         console.log('💬 Web 端用户消息转发：', message.data);
-        this.broadcastToClients({
+        const target = typeof message.targetInstanceId === 'string' && message.targetInstanceId.trim() ? message.targetInstanceId.trim() : null;
+        const payload = {
             type: 'user_message',
             data: message.data,
-            timestamp: Date.now()
-        }, ws);
+            timestamp: Date.now(),
+            targetInstanceId: target || undefined
+        };
+
+        if (!target) {
+            // 无目标实例，广播
+            this.broadcastToClients(payload, ws);
+            return;
+        }
+
+        // 定向转发：仅发给匹配实例ID的客户端
+        const messageStr = JSON.stringify(payload);
+        let count = 0;
+        this.connectedClients.forEach(client => {
+            if (client !== ws && client.readyState === client.OPEN) {
+                const cid = client._meta && client._meta.instanceId;
+                if (cid && cid === target) {
+                    try { client.send(messageStr); count++; } catch { this.connectedClients.delete(client); }
+                }
+            }
+        });
+        if (count > 0) console.log(`🎯 已定向发送到实例 ${target} 的 ${count} 个客户端`);
     }
 
     // 处理测试消息
@@ -259,6 +310,30 @@ class WebSocketManager {
     // 获取连接数
     getConnectedClientsCount() {
         return this.connectedClients.size;
+    }
+
+    // 概览当前连接（用于测试页展示）
+    getClientsOverview() {
+        const toState = (ws) => {
+            const map = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'];
+            try { return map[ws.readyState] || String(ws.readyState); } catch { return 'UNKNOWN'; }
+        };
+        const list = [];
+        this.connectedClients.forEach((ws) => {
+            const meta = ws._meta || {};
+            list.push({
+                role: meta.role || 'unknown',
+                instanceId: meta.instanceId || null,
+                ip: meta.ip || null,
+                connectedAt: meta.connectedAt || null,
+                lastPongAt: meta.lastPongAt || null,
+                injected: Boolean(meta.injected),
+                url: meta.url || null,
+                online: ws.readyState === ws.OPEN,
+                readyState: toState(ws)
+            });
+        });
+        return list;
     }
 
     // 通知所有客户端服务器关闭

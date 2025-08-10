@@ -15,6 +15,18 @@ class SimpleWebClient {
         this.homePageStatusManager = new HomePageStatusManager(this.wsManager, this.cursorStatusManager, this.uiManager);
         this.debugManager = new DebugManager(this);
 
+        // 方案1：发送后轮询历史的状态
+        this._lastMessageHash = null;       // 最近消息基线哈希
+        this._lastSessionId = null;         // 最近活跃会话（可选）
+        this._replyPollingTimer = null;     // 轮询计时器
+        this._replyPollingAbort = false;    // 轮询中断标志
+
+        // 多网页：从 URL 读取实例ID（?instance=cursor-1）
+        try {
+            const url = new URL(window.location.href);
+            this.instanceId = url.searchParams.get('instance') || null;
+        } catch { this.instanceId = null; }
+
         // 设置回调函数
         this.setupCallbacks();
 
@@ -40,6 +52,10 @@ class SimpleWebClient {
 
         this.wsManager.setConnectCallback(() => {
             this.handleWebSocketConnect();
+            // 连接成功后，若设置了实例ID，则发送 register
+            if (this.instanceId) {
+                this.wsManager.send({ type: 'register', role: 'web', instanceId: this.instanceId });
+            }
         });
 
         this.wsManager.setDisconnectCallback(() => {
@@ -114,6 +130,108 @@ class SimpleWebClient {
 
         // 广播初始化完成事件
         this.broadcastStatus();
+    }
+
+    // ========== 方案1：发送后轮询历史 ==========
+    _hashMessage(msg) {
+        try {
+            const s = typeof msg === 'string' ? msg : JSON.stringify(msg || {});
+            let h = 0;
+            for (let i = 0; i < s.length; i++) {
+                h = ((h << 5) - h) + s.charCodeAt(i);
+                h |= 0;
+            }
+            return String(h);
+        } catch { return String(Date.now()); }
+    }
+
+    async _fetchJson(url) {
+        const res = await fetch(url);
+        return res.json();
+    }
+
+    _pickLatestAssistant(chats) {
+        if (!Array.isArray(chats)) return { session: null, message: null };
+        let best = null;
+        let bestSession = null;
+        for (const s of chats) {
+            const msgs = Array.isArray(s.messages) ? s.messages : [];
+            for (let i = msgs.length - 1; i >= 0; i--) {
+                const m = msgs[i];
+                if (m && (m.role === 'assistant' || m.role === 'assistant_bot')) {
+                    const score = (s.lastUpdatedAt || s.updatedAt || 0);
+                    if (!best || score > best.score) {
+                        best = { msg: m, score };
+                        bestSession = s;
+                    }
+                    break;
+                }
+            }
+        }
+        return { session: bestSession, message: best ? best.msg : null };
+    }
+
+    _captureBaseline(chats) {
+        const { session, message } = this._pickLatestAssistant(chats);
+        this._lastSessionId = session?.sessionId || session?.session_id || null;
+        this._lastMessageHash = message ? this._hashMessage(message) : null;
+    }
+
+    async _pollReplyAfterSend(sentAt, options = {}) {
+        const delays = options.delays || [2000, 2000, 5000, 10000, 10000];
+        this._replyPollingAbort = false;
+        for (let i = 0; i < delays.length; i++) {
+            if (this._replyPollingAbort) return false;
+            await new Promise(r => this._replyPollingTimer = setTimeout(r, delays[i]));
+            try {
+                const chats = await this._fetchJson('/api/chats');
+                const { session, message } = this._pickLatestAssistant(chats || []);
+                if (message) {
+                    const h = this._hashMessage(message);
+                    const isNew = (!this._lastMessageHash || h !== this._lastMessageHash);
+                    const tsOk = message.timestamp ? (message.timestamp > sentAt) : true;
+                    if (isNew && tsOk) {
+                        // 在现有 UI 上，直接触发一次“内容刷新”即可（后端也在同步HTML）
+                        // 若需要可在此处追加一段简要提示
+                        this.uiManager.showNotification('已获取最新回复', 'info');
+                        // 更新基线，避免重复提示
+                        this._lastMessageHash = h;
+                        return true;
+                    }
+                }
+                // 第三次后尝试清理后端缓存
+                if (i === 2) {
+                    try { await this._fetchJson('/api/history/cache/clear'); } catch {}
+                }
+            } catch (e) {
+                // 静默失败，继续下一轮
+            }
+        }
+        this.uiManager.showNotification('等待回复超时，可稍后在历史里查看', 'warning');
+        return false;
+    }
+
+    async sendAndPoll(message) {
+        if (!this.wsManager.isConnected()) {
+            this.uiManager.showNotification('WebSocket 未连接，无法发送', 'error');
+            return false;
+        }
+        // 发送前抓取一次基线（最近助手消息）
+        try {
+            const chats = await this._fetchJson('/api/chats');
+            this._captureBaseline(chats || []);
+        } catch {}
+
+        const ok = this.wsManager.send({ type: 'user_message', data: message, targetInstanceId: this.instanceId || undefined });
+        if (!ok) {
+            this.uiManager.showNotification('发送失败', 'error');
+            return false;
+        }
+        const sentAt = Date.now();
+        this.uiManager.showNotification('已发送，等待回复…', 'info');
+        // 后台轮询，不阻塞 UI
+        this._pollReplyAfterSend(sentAt);
+        return true;
     }
 
     /**
