@@ -60,11 +60,15 @@ class GitRoutes {
             const fs = require('fs');
             const path = require('path');
             const cfg = require('../config');
-            const file = path.isAbsolute(cfg.instances?.file || '')
+            const primary = path.isAbsolute(cfg.instances?.file || '')
               ? cfg.instances.file
-              : path.join(process.cwd(), cfg.instances?.file || 'config/instances.json');
+              : path.join(process.cwd(), cfg.instances?.file || 'instances.json');
+            let file = primary;
+            if (!fs.existsSync(file)) {
+              const fallback = path.join(process.cwd(), 'config', 'instances.json');
+              if (fs.existsSync(fallback)) file = fallback; else return process.cwd();
+            }
             if (!instanceId) return process.cwd();
-            if (!fs.existsSync(p)) return process.cwd();
             const items = JSON.parse(fs.readFileSync(file,'utf8'));
             const arr = Array.isArray(items) ? items : [];
             const found = arr.find(x => String(x.id||'') === String(instanceId));

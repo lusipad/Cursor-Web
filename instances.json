@@ -1,0 +1,22 @@
+[
+  {
+    "id": "cursor-1",
+    "cursorPath": "",
+    "userDataDir": "",
+    "openPath": "D:\\Repos\\Cursor-Web-2",
+    "args": "",
+    "autoStart": false,
+    "pollMs": 30000
+  },
+  {
+    "id": "cursor-2",
+    "cursorPath": "",
+    "userDataDir": "",
+    "openPath": "D:\\Repos\\AITester",
+    "args": "",
+    "autoStart": false,
+    "pollMs": 30000
+  }
+]
+
+
