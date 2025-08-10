@@ -2041,7 +2041,7 @@ class CursorHistoryManager {
         if (options && options.mode === 'cv') {
             try {
                 const cvChats = this.getChatsCursorView();
-                const normalized = cvChats.map(c => ({
+                let normalized = cvChats.map(c => ({
                     sessionId: c.session_id,
                     project: c.project,
                     messages: Array.isArray(c.messages) ? c.messages : [],
@@ -2051,6 +2051,21 @@ class CursorHistoryManager {
                     isRealData: true,
                     dataSource: 'cursor-view'
                 }));
+                // 若指定 openPath 过滤，在 CV 模式同样生效
+                if (options && options.filterOpenPath) {
+                    const base = this.normalizePath(options.filterOpenPath).toLowerCase();
+                    const baseCv = this.encodeCursorViewPath(options.filterOpenPath).toLowerCase();
+                    const ensureSlash = (s) => (s.endsWith('/') ? s : s + '/');
+                    const isPrefix = (root) => {
+                        if (!root) return false;
+                        const r1 = this.normalizePath(root).toLowerCase();
+                        const r2 = this.encodeCursorViewPath(root).toLowerCase();
+                        const ok1 = r1 === base || r1.startsWith(ensureSlash(base)) || base.startsWith(ensureSlash(r1));
+                        const ok2 = r2 === baseCv || r2.startsWith(ensureSlash(baseCv)) || baseCv.startsWith(ensureSlash(r2));
+                        return ok1 || ok2;
+                    };
+                    normalized = normalized.filter(c => isPrefix(c?.project?.rootPath || ''));
+                }
                 console.log(`📊 返回 ${normalized.length} 个聊天会话`);
                 return normalized;
             } catch (e) {

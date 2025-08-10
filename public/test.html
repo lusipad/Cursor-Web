@@ -262,7 +262,8 @@
     };
 
     $('chatsBtn').onclick = async () => {
-      const r = await api('/api/chats');
+      const inst = $('instanceId').value.trim();
+      const r = await api(`/api/chats${inst?`?instance=${encodeURIComponent(inst)}`:''}`);
       log('会话：' + JSON.stringify(r).slice(0, 800));
     };
 
@@ -301,13 +302,14 @@
       };
 
       // 先尝试 cursor-view 等价模式（更贴近实际界面）
-      let r = await api('/api/chats?includeUnmapped=true&mode=cv');
+      const inst = $('instanceId').value.trim();
+      let r = await api(`/api/chats?includeUnmapped=true&mode=cv${inst?`&instance=${encodeURIComponent(inst)}`:''}`);
       let chats = Array.isArray(r) ? r : (r.data || r.value || []);
       let { sid, assi } = pickAssistant(chats);
 
       // 兜底再用默认模式
       if (!assi) {
-        r = await api('/api/chats?includeUnmapped=true');
+        r = await api(`/api/chats?includeUnmapped=true${inst?`&instance=${encodeURIComponent(inst)}`:''}`);
         chats = Array.isArray(r) ? r : (r.data || r.value || []);
         ({ sid, assi } = pickAssistant(chats));
       }
@@ -380,7 +382,8 @@
     };
 
     $('projectsBtn').onclick = async () => {
-      const r = await api('/api/history/projects');
+      const inst = $('instanceId').value.trim();
+      const r = await api(`/api/history/projects${inst?`?instance=${encodeURIComponent(inst)}`:''}`);
       log('项目列表：' + JSON.stringify(r));
     };
 

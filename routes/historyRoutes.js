@@ -103,7 +103,23 @@ class HistoryRoutes {
                 if (openPath) options.filterOpenPath = openPath;
             }
 
-            const result = await this.historyManager.getHistory(options);
+            let result = await this.historyManager.getHistory(options);
+            // 再次兜底按 openPath 过滤，确保 CV 模式与非 CV 模式统一
+            if (options.filterOpenPath && result && Array.isArray(result.items)) {
+                const norm = (p)=>{ try{ return String(p||'').replace(/\\/g,'/'); }catch{ return ''; } };
+                const base = norm(options.filterOpenPath).toLowerCase();
+                const baseCv = ('/' + base.replace(/^([A-Za-z]):\//, (m,d)=>d.toLowerCase()+':/')).toLowerCase().replace(/^([a-z]):\//, '/$1%3a/');
+                const ensureSlash = (s)=> s.endsWith('/')?s:(s+'/');
+                const isPrefix = (root)=>{
+                    if (!root) return false;
+                    const r1 = norm(root).toLowerCase();
+                    const r2 = r1.startsWith('/')?r1.replace(/^\/([A-Za-z]):\//, '/$1%3a/'):('/'+r1.replace(/^([A-Za-z]):\//, (m,d)=>d.toLowerCase()+':/')).replace(/^([a-z]):\//, '/$1%3a/');
+                    const ok1 = r1 === base || r1.startsWith(ensureSlash(base)) || base.startsWith(ensureSlash(r1));
+                    const ok2 = r2 === baseCv || r2.startsWith(ensureSlash(baseCv)) || baseCv.startsWith(ensureSlash(r2));
+                    return ok1 || ok2;
+                };
+                result = { ...result, items: result.items.filter(it => isPrefix(it?.project?.rootPath||'')) };
+            }
 
             // 还原缓存超时
             if (options.maxAgeMs) this.historyManager.cacheTimeout = originalCacheTimeout;
