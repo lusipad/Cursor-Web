@@ -8,6 +8,31 @@ class HistoryRoutes {
         this.setupRoutes();
     }
 
+    // 解析实例 openPath（支持根目录或 config/instances.json）
+    resolveInstanceOpenPath(instanceId){
+        try{
+            if (!instanceId) return null;
+            const fs = require('fs');
+            const path = require('path');
+            const cfg = require('../config');
+            const primary = path.isAbsolute(cfg.instances?.file || '')
+              ? cfg.instances.file
+              : path.join(process.cwd(), cfg.instances?.file || 'instances.json');
+            let file = primary;
+            if (!fs.existsSync(file)) {
+              const fallback = path.join(process.cwd(), 'config', 'instances.json');
+              if (fs.existsSync(fallback)) file = fallback; else return null;
+            }
+            const items = JSON.parse(fs.readFileSync(file,'utf8'));
+            const arr = Array.isArray(items) ? items : [];
+            const found = arr.find(x => String(x.id||'') === String(instanceId));
+            const openPath = (found && typeof found.openPath === 'string' && found.openPath.trim()) ? found.openPath.trim() : null;
+            return openPath || null;
+        }catch{
+            return null;
+        }
+    }
+
     setupRoutes() {
         // 获取历史记录列表
         router.get('/history', this.getHistory.bind(this));
@@ -56,10 +81,32 @@ class HistoryRoutes {
                 sortBy: req.query.sortBy || 'timestamp',
                 sortOrder: req.query.sortOrder || 'desc',
                 includeUnmapped: req.query.includeUnmapped,
-                mode: req.query.mode
+                mode: req.query.mode,
+                instanceId: req.query.instance || null,
+                nocache: req.query.nocache || null,
+                maxAgeMs: req.query.maxAgeMs || null
             };
 
+            // 缓存控制：支持 nocache/maxAgeMs
+            if (options.nocache) {
+                try { this.historyManager.clearCache?.(); } catch {}
+            }
+            const originalCacheTimeout = this.historyManager.cacheTimeout;
+            if (options.maxAgeMs) {
+                const n = Math.max(0, Math.min(Number(options.maxAgeMs) || 0, 10000));
+                if (n > 0) this.historyManager.cacheTimeout = n;
+            }
+
+            // 实例 openPath 过滤
+            if (options.instanceId) {
+                const openPath = this.resolveInstanceOpenPath(options.instanceId);
+                if (openPath) options.filterOpenPath = openPath;
+            }
+
             const result = await this.historyManager.getHistory(options);
+
+            // 还原缓存超时
+            if (options.maxAgeMs) this.historyManager.cacheTimeout = originalCacheTimeout;
             
             res.json({
                 success: true,
@@ -78,7 +125,11 @@ class HistoryRoutes {
     async getHistoryItem(req, res) {
         try {
             const { id } = req.params;
-            const options = { mode: req.query.mode, includeUnmapped: req.query.includeUnmapped, segmentMinutes: req.query.segmentMinutes };
+            const options = { mode: req.query.mode, includeUnmapped: req.query.includeUnmapped, segmentMinutes: req.query.segmentMinutes, instanceId: req.query.instance || null };
+            if (options.instanceId) {
+                const openPath = this.resolveInstanceOpenPath(options.instanceId);
+                if (openPath) options.filterOpenPath = openPath;
+            }
             const item = await this.historyManager.getHistoryItem(id, options);
             
             if (!item) {
@@ -209,8 +260,13 @@ class HistoryRoutes {
         try {
             const options = {
                 includeUnmapped: req.query.includeUnmapped,
-                segmentMinutes: req.query.segmentMinutes
+                segmentMinutes: req.query.segmentMinutes,
+                instanceId: req.query.instance || null
             };
+            if (options.instanceId) {
+                const openPath = this.resolveInstanceOpenPath(options.instanceId);
+                if (openPath) options.filterOpenPath = openPath;
+            }
             const stats = await this.historyManager.getStatistics(options);
             
             res.json({
@@ -233,8 +289,13 @@ class HistoryRoutes {
                 format: req.query.format || 'json',
                 type: req.query.type,
                 startDate: req.query.startDate ? new Date(req.query.startDate) : undefined,
-                endDate: req.query.endDate ? new Date(req.query.endDate) : undefined
+                endDate: req.query.endDate ? new Date(req.query.endDate) : undefined,
+                instanceId: req.query.instance || null
             };
+            if (options.instanceId) {
+                const openPath = this.resolveInstanceOpenPath(options.instanceId);
+                if (openPath) options.filterOpenPath = openPath;
+            }
             
             const exportData = await this.historyManager.exportHistory(options);
             
@@ -272,7 +333,12 @@ class HistoryRoutes {
     // 获取项目汇总
     async getProjects(req, res) {
         try {
-            const projects = await this.historyManager.getProjectsSummary();
+            const opts = { instanceId: req.query.instance || null };
+            if (opts.instanceId) {
+                const openPath = this.resolveInstanceOpenPath(opts.instanceId);
+                if (openPath) opts.filterOpenPath = openPath;
+            }
+            const projects = await this.historyManager.getProjectsSummary(opts);
             res.json({ success: true, data: projects });
         } catch (error) {
             console.error('获取项目列表失败:', error);

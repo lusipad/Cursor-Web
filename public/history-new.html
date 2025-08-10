@@ -116,7 +116,9 @@
     let activeWorkspaceCvPath = '';
     let activeWorkspaceLoaded = false;
 
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', async () => {
+        // 先读取实例 openPath，再加载历史，避免首次渲染使用了 /api/health 的工作区
+        try { await ensureInstanceOpenPathLoaded(); } catch {}
         setViewMode('active');
         loadHistory();
         document.getElementById('searchInput').addEventListener('input', debounce(loadHistory, 500));
@@ -134,12 +136,14 @@
     async function loadHistory(){
         const q = document.getElementById('searchInput').value;
         const params = new URLSearchParams({ limit: 20000, includeUnmapped: 'true', mode: 'cv' });
+        const inst = detectInstanceId();
+        if (inst) params.append('instance', inst);
         if (q) params.append('search', q);
         showLoading();
         try{
             const [hRes, pRes] = await Promise.all([
                 fetch(`/api/history?${params}`),
-                fetch('/api/history/projects')
+                fetch(`/api/history/projects${inst?`?instance=${encodeURIComponent(inst)}`:''}`)
             ]);
             const result = await hRes.json();
             const projects = await pRes.json();
@@ -183,6 +187,14 @@
     async function ensureActiveWorkspaceLoaded(){
         if (activeWorkspaceLoaded && activeWorkspacePath && activeWorkspaceCvPath) return;
         try{
+            const inst = detectInstanceId();
+            if (inst && !instanceOpenPath) { try { await ensureInstanceOpenPathLoaded(); } catch {} }
+            if (inst && instanceOpenPath){
+                activeWorkspacePath = instanceOpenPath;
+                activeWorkspaceCvPath = normalizeCvPathLower(activeWorkspacePath);
+                activeWorkspaceLoaded = true;
+                return;
+            }
             const res = await fetch('/api/health');
             const json = await res.json();
             const ws = json && (json.workspace || (json.data && json.data.workspace)) || '';
@@ -194,6 +206,20 @@
             activeWorkspaceCvPath = '';
             activeWorkspaceLoaded = true;
         }
+    }
+
+    // ========== 实例 openPath 支持 ==========
+    let instanceOpenPath = '';
+    function detectInstanceId(){ try{ const u=new URL(window.location.href); return u.searchParams.get('instance')||''; }catch{ return ''; } }
+    async function ensureInstanceOpenPathLoaded(){
+        const inst = detectInstanceId();
+        if (!inst) { instanceOpenPath=''; return; }
+        try{
+            const r = await fetch(`/api/instances/${encodeURIComponent(inst)}`);
+            const j = await r.json();
+            const it = j && j.success && j.data ? j.data : null;
+            instanceOpenPath = (it && typeof it.openPath === 'string') ? it.openPath : '';
+        }catch{ instanceOpenPath=''; }
     }
 
     function matchActiveDirectory(projectRoot){
@@ -355,7 +381,11 @@
         }
         return s;
     }
-    function showChatDetail(id){ window.open(`/chat-detail.html?sessionId=${encodeURIComponent(id)}&mode=cv`, '_blank'); }
+    function showChatDetail(id){
+        let url = `/chat-detail.html?sessionId=${encodeURIComponent(id)}&mode=cv`;
+        try{ const u=new URL(window.location.href); const inst=u.searchParams.get('instance'); if(inst){ url += `&instance=${encodeURIComponent(inst)}`; } }catch{}
+        window.open(url, '_blank');
+    }
 
     // 保障每条记录具备 primary 时间戳字段（timestamp 或 date），方便统一展示
     function ensurePrimaryTimestamp(item){

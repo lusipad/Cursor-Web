@@ -128,7 +128,7 @@ class GitRoutes {
                 allBranches: allBranches.all,
                 localBranches: localBranches,
                 remoteBranches: remoteBranches,
-                gitPath: process.cwd(),
+                gitPath: this.currentGitPath || process.cwd(),
                 timestamp: Date.now()
             });
         } catch (error) {

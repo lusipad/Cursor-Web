@@ -269,6 +269,18 @@
 
     // 页面加载完成后初始化
     window.addEventListener('load', function() {
+        // 如果 URL 带有 ?instance=，同步给历史 iframe
+        try{
+            const u = new URL(window.location.href);
+            const inst = u.searchParams.get('instance');
+            if (inst) {
+                const iframe = document.getElementById('historyFrame');
+                if (iframe) {
+                    const base = '/history-new.html';
+                    iframe.src = `${base}?instance=${encodeURIComponent(inst)}`;
+                }
+            }
+        }catch{}
         // 如果当前在诊断tab，更新状态
         if (document.querySelector('.tab-btn[data-tab="diagnostic-tab"]').classList.contains('active')) {
             updateQuickStatus();

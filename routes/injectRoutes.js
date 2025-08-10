@@ -1,376 +1,244 @@
-// Git 相关路由
+// 注入/进程管理路由
 const express = require('express');
+const http = require('http');
+const path = require('path');
+const fs = require('fs');
+const { spawn } = require('child_process');
+const CDP = require('chrome-remote-interface');
+
 const router = express.Router();
-const { simpleGit } = require('simple-git');
 
-class GitRoutes {
-    constructor() {
-        this.git = null;
-        this.currentGitPath = null;
-        this.setupRoutes();
+class InjectRoutes {
+  constructor(websocketManager) {
+    this.websocketManager = websocketManager;
+    this.processes = [];
+    this.setupRoutes();
+  }
+
+  setupRoutes() {
+    router.get('/inject/processes', this.handleList.bind(this));
+    router.get('/inject/clients', this.handleClients.bind(this));
+    router.post('/inject/launch', this.handleLaunch.bind(this));
+    router.post('/inject/restart', this.handleRestart.bind(this));
+    router.post('/inject/kill-all', this.handleKillAll.bind(this));
+    router.post('/inject/stop', this.handleStop.bind(this));
+    router.post('/inject/scan-inject', this.handleScanInject.bind(this));
+    router.post('/inject/inject-port', this.handleInjectPort.bind(this));
+    router.post('/inject/launch-many', this.handleLaunchMany.bind(this));
+  }
+
+  // ---- helpers ----
+  resolveInstancesFilePath() {
+    try {
+      const cfg = require('../config');
+      const primary = path.isAbsolute(cfg.instances?.file || '')
+        ? cfg.instances.file
+        : path.join(process.cwd(), cfg.instances?.file || 'instances.json');
+      if (fs.existsSync(primary)) return primary;
+      const fallback = path.join(process.cwd(), 'config', 'instances.json');
+      if (fs.existsSync(fallback)) return fallback;
+      return null;
+    } catch { return null; }
+  }
+
+  readInstance(instanceId) {
+    try {
+      if (!instanceId) return null;
+      const file = this.resolveInstancesFilePath();
+      if (!file) return null;
+      const arr = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const list = Array.isArray(arr) ? arr : [];
+      return list.find(x => String(x.id||'') === String(instanceId)) || null;
+    } catch { return null; }
+  }
+
+  resolveCursorPath(hint) {
+    if (hint && fs.existsSync(hint)) return hint;
+    const envPath = process.env.CURSOR_PATH;
+    if (envPath && fs.existsSync(envPath)) return envPath;
+    const os = require('os');
+    const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    const candidates = [
+      path.join(localAppData, 'Programs', 'Cursor', 'Cursor.exe'),
+      path.join(localAppData, 'Cursor', 'Cursor.exe'),
+    ];
+    for (const p of candidates) { try { if (fs.existsSync(p)) return p; } catch {} }
+    return null;
+  }
+
+  async waitForCDP(port, timeoutMs = 60000) {
+    const start = Date.now();
+    return new Promise((resolve, reject) => {
+      const tryOnce = () => {
+        const req = http.get({ host: '127.0.0.1', port, path: '/json/version', timeout: 1500 }, (res) => {
+          if (res.statusCode === 200) { res.resume(); resolve(); }
+          else { res.resume(); if (Date.now() - start > timeoutMs) reject(new Error('CDP 等待超时')); else setTimeout(tryOnce, 500); }
+        });
+        req.on('error', () => { if (Date.now() - start > timeoutMs) reject(new Error('CDP 等待超时')); else setTimeout(tryOnce, 500); });
+        req.on('timeout', () => { req.destroy(); if (Date.now() - start > timeoutMs) reject(new Error('CDP 等待超时')); else setTimeout(tryOnce, 500); });
+      };
+      tryOnce();
+    });
+  }
+
+  async findFreePort(start = 9222, end = 9400) {
+    for (let p = start; p <= end; p++) {
+      const ok = await new Promise((resolve) => {
+        const req = http.get({ host: '127.0.0.1', port: p, path: '/json/version', timeout: 500 }, (res) => { res.resume(); resolve(false); });
+        req.on('error', () => resolve(true));
+        req.on('timeout', () => { req.destroy(); resolve(true); });
+      });
+      if (ok) return p;
     }
+    return start;
+  }
 
-    setupRoutes() {
-        // 获取分支信息
-        router.get('/git/branches', this.handleGetBranches.bind(this));
-
-        // 切换分支
-        router.post('/git/checkout', this.handleCheckout.bind(this));
-
-        // 拉取最新代码
-        router.post('/git/pull', this.handlePull.bind(this));
-
-        // 获取状态
-        router.get('/git/status', this.handleGetStatus.bind(this));
-
-        // 添加文件到暂存区
-        router.post('/git/add', this.handleAdd.bind(this));
-
-        // 提交代码
-        router.post('/git/commit', this.handleCommit.bind(this));
-
-        // 推送代码
-        router.post('/git/push', this.handlePush.bind(this));
+  async injectIntoAllTargets(cdpPort, instanceId) {
+    const scriptPath = path.join(__dirname, '..', 'public', 'cursor-browser.js');
+    const raw = fs.readFileSync(scriptPath, 'utf8');
+    const header = instanceId ? `try{ window.__cursorInstanceId = ${JSON.stringify(instanceId)} }catch(e){}` : '';
+    const source = `;(() => { try {\n${header}\n${raw}\n} catch (e) { console.error('cursor-browser.js injection error', e); } })();`;
+    const targets = await CDP.List({ host: '127.0.0.1', port: cdpPort });
+    const rel = targets.filter(t => ['page','webview','other'].includes(t.type));
+    for (const t of rel) {
+      let client;
+      try {
+        client = await CDP({ host: '127.0.0.1', port: cdpPort, target: t });
+        const { Page, Runtime } = client;
+        await Promise.all([Page.enable(), Runtime.enable()]);
+        await Page.addScriptToEvaluateOnNewDocument({ source });
+        await Runtime.evaluate({ expression: source, includeCommandLineAPI: true, replMode: true });
+      } catch (e) {
+        // ignore one
+      } finally {
+        try { await client?.close(); } catch {}
+      }
     }
+    return rel.length;
+  }
 
-    // 初始化 Git 实例
-    initGit(gitPath = process.cwd()) {
-        try {
-            const testGit = simpleGit(gitPath);
-            return testGit;
-        } catch (error) {
-            console.log('❌ 无效的 Git 路径：', gitPath);
-            return null;
-        }
+  buildLaunchArgs({ cdpPort, userDataDir, extraArgs, openPath }) {
+    const args = [ `--remote-debugging-port=${cdpPort}`, '--new-window' ];
+    if (userDataDir) args.push(`--user-data-dir=${userDataDir}`);
+    if (Array.isArray(extraArgs)) args.push(...extraArgs);
+    if (openPath) args.push(openPath);
+    return args;
+  }
+
+  parseArgs(raw) {
+    if (raw == null) return [];
+    const s = String(raw).trim();
+    if (!s) return [];
+    if (s.startsWith('[')) { try { const arr = JSON.parse(s); return Array.isArray(arr) ? arr.map(String) : []; } catch { return []; } }
+    const out = []; let buf = ''; let quote = null;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (quote) { if ((quote==='"' && ch==='"') || (quote==='\'' && ch==='\'')) quote=null; else buf+=ch; continue; }
+      if (ch==='"' || ch==='\'') { quote = ch; continue; }
+      if (ch===' ') { if (buf) { out.push(buf); buf=''; } continue; }
+      buf += ch;
     }
+    if (buf) out.push(buf);
+    return out;
+  }
 
-    // 获取 Git 实例（自动检测仓库）
-    getGitInstance() {
-        if (!this.git) {
-            this.git = this.initGit();
-            this.currentGitPath = process.cwd();
-        }
-        return this.git;
+  // ---- handlers ----
+  async handleLaunch(req, res) {
+    try {
+      const { instanceId, cursorPath, userDataDir, openPath, args, pollMs, detach = true } = req.body || {};
+      const inst = this.readInstance(instanceId) || {};
+      const exe = this.resolveCursorPath(cursorPath || inst.cursorPath);
+      if (!exe) return res.status(400).json({ success:false, error:'未找到 Cursor.exe，请在 body.cursorPath 或环境变量 CURSOR_PATH 指定路径' });
+
+      const cdpPort = await this.findFreePort();
+      const extraArgs = Array.isArray(args) ? args : this.parseArgs(args || inst.args);
+      const argv = this.buildLaunchArgs({ cdpPort, userDataDir: userDataDir || inst.userDataDir, extraArgs, openPath: openPath || inst.openPath });
+
+      const child = spawn(exe, argv, { detached: !!detach, stdio: detach ? 'ignore' : 'inherit' });
+      if (detach) child.unref();
+
+      const procInfo = { pid: child.pid, instanceId: instanceId || null, cdpPort, argv, exe, startedAt: Date.now() };
+      this.processes.push(procInfo);
+
+      try { await this.waitForCDP(cdpPort, 60000); await this.injectIntoAllTargets(cdpPort, instanceId || null); } catch {}
+
+      res.json({ success:true, data: { pid: child.pid, cdpPort, argv, instanceId: instanceId || null } });
+    } catch (e) {
+      res.status(500).json({ success:false, error: e?.message || 'launch failed' });
     }
+  }
 
-    // 检查并更新 Git 路径
-    // 根据 instanceId（可选）解析工作区根目录。当前先用进程工作目录，后续可与实例配置绑定工作区。
-    resolveGitRoot(instanceId){
-        try{
-            const fs = require('fs');
-            const path = require('path');
-            const cfg = require('../config');
-            const primary = path.isAbsolute(cfg.instances?.file || '')
-              ? cfg.instances.file
-              : path.join(process.cwd(), cfg.instances?.file || 'instances.json');
-            let file = primary;
-            if (!fs.existsSync(file)) {
-              const fallback = path.join(process.cwd(), 'config', 'instances.json');
-              if (fs.existsSync(fallback)) file = fallback; else return process.cwd();
-            }
-            if (!instanceId) return process.cwd();
-            const items = JSON.parse(fs.readFileSync(file,'utf8'));
-            const arr = Array.isArray(items) ? items : [];
-            const found = arr.find(x => String(x.id||'') === String(instanceId));
-            if (found && typeof found.openPath === 'string' && found.openPath.trim()) {
-                return found.openPath.trim();
-            }
-            return process.cwd();
-        }catch{
-            return process.cwd();
-        }
-    }
+  async handleRestart(req, res) { return this.handleLaunch(req, res); }
 
-    checkAndUpdateGitPath(instanceId) {
-        const targetPath = this.resolveGitRoot(instanceId);
-        if (targetPath !== this.currentGitPath) {
-            console.log(`🔄 Git 路径变更：${this.currentGitPath} -> ${targetPath}`);
-            this.git = this.initGit(targetPath);
-            this.currentGitPath = targetPath;
-        }
-        return this.git;
-    }
+  async handleKillAll(req, res) {
+    const list = this.processes.slice();
+    for (const p of list) { try { process.kill(p.pid); } catch {} }
+    this.processes = [];
+    res.json({ success:true, data:{ killed: list.map(p=>p.pid) } });
+  }
 
-    // 获取分支信息
-    async handleGetBranches(req, res) {
-        try {
-            const gitInstance = this.checkAndUpdateGitPath(req.query.instance);
-            if (!gitInstance) {
-                return res.status(500).json({
-                    success: false,
-                    message: '当前目录不是有效的 Git 仓库',
-                    currentPath: process.cwd()
-                });
-            }
+  async handleStop(req, res) {
+    try { const pid = Number(req.body?.pid || 0); if (!pid) return res.status(400).json({ success:false, error:'pid required' });
+      try { process.kill(pid); } catch {}
+      this.processes = this.processes.filter(p => p.pid !== pid);
+      res.json({ success:true, data:{ pid } });
+    } catch (e) { res.status(500).json({ success:false, error: e?.message || 'stop failed' }); }
+  }
 
-            // 先执行 git fetch --prune 来更新远程分支信息并清理已删除的分支引用
-            try {
-                await gitInstance.fetch(['--all', '--prune']);
-                console.log('✅ 远程分支信息已更新，已删除的分支引用已清理');
-            } catch (fetchError) {
-                console.log('⚠️  远程分支更新失败，使用本地缓存的分支信息：', fetchError.message);
-            }
+  async handleList(req, res) { res.json({ success:true, data: this.processes }); }
 
-            const [currentBranch, allBranches] = await Promise.all([
-                gitInstance.branchLocal(),
-                gitInstance.branch(['-a'])
-            ]);
+  async handleClients(req, res) {
+    try { const clients = this.websocketManager?.getClientsOverview?.() || []; res.json({ success:true, data: clients }); }
+    catch (e) { res.status(500).json({ success:false, error: e?.message || 'list clients failed' }); }
+  }
 
-            // 分离本地分支和远程分支
-            const localBranches = currentBranch.all;
-            const remoteBranches = allBranches.all.filter(branch =>
-                branch.startsWith('remotes/') && !branch.endsWith('/HEAD')
-            ).map(branch => branch.replace('remotes/', ''));
+  async handleScanInject(req, res) {
+    try {
+      const startPort = Number(req.body?.startPort || 9222);
+      const endPort = Number(req.body?.endPort || 9250);
+      const instanceId = req.body?.instanceId || null;
+      let injected = 0; const hits = [];
+      for (let p = startPort; p <= endPort; p++) {
+        const alive = await new Promise((resolve) => {
+          const reqh = http.get({ host:'127.0.0.1', port:p, path:'/json/version', timeout:500 }, (r) => { r.resume(); resolve(true); });
+          reqh.on('error', () => resolve(false));
+          reqh.on('timeout', () => { reqh.destroy(); resolve(false); });
+        });
+        if (!alive) continue;
+        try { const n = await this.injectIntoAllTargets(p, instanceId); if (n>0) { injected += n; hits.push(p); } } catch {}
+      }
+      res.json({ success:true, data:{ injectedTargets: injected, ports: hits } });
+    } catch (e) { res.status(500).json({ success:false, error: e?.message || 'scan-inject failed' }); }
+  }
 
-            res.json({
-                success: true,
-                currentBranch: currentBranch.current,
-                allBranches: allBranches.all,
-                localBranches: localBranches,
-                remoteBranches: remoteBranches,
-                gitPath: process.cwd(),
-                timestamp: Date.now()
-            });
-        } catch (error) {
-            console.log('❌ Git 获取分支失败：', error.message);
-            res.status(500).json({
-                success: false,
-                message: '获取分支信息失败',
-                error: error.message
-            });
-        }
-    }
+  async handleInjectPort(req, res) {
+    try {
+      const port = Number(req.body?.port || 0); if (!port) return res.status(400).json({ success:false, error:'port required' });
+      const instanceId = req.body?.instanceId || null;
+      const n = await this.injectIntoAllTargets(port, instanceId);
+      res.json({ success:true, data:{ injectedTargets: n, port } });
+    } catch (e) { res.status(500).json({ success:false, error: e?.message || 'inject-port failed' }); }
+  }
 
-    // 切换分支
-    async handleCheckout(req, res) {
-        try {
-            const gitInstance = this.checkAndUpdateGitPath(req.query.instance);
-            if (!gitInstance) {
-                return res.status(500).json({
-                    success: false,
-                    message: '当前目录不是有效的 Git 仓库',
-                    currentPath: process.cwd()
-                });
-            }
+  async handleLaunchMany(req, res) {
+    try {
+      const { count = 1, instanceId, basePort, userDataDirTemplate, args } = req.body || {};
+      const results = [];
+      for (let i = 0; i < Number(count||1); i++) {
+        const body = { instanceId, userDataDir: userDataDirTemplate ? String(userDataDirTemplate).replace('{i}', String(i+1)) : undefined, args };
+        const fakeReq = { body };
+        const fakeRes = { json: (data) => results.push(data), status: (c)=>({ json: (d)=>results.push({ code:c, ...d }) }) };
+        // eslint-disable-next-line no-await-in-loop
+        await this.handleLaunch(fakeReq, fakeRes);
+      }
+      res.json({ success:true, data: results });
+    } catch (e) { res.status(500).json({ success:false, error: e?.message || 'launch-many failed' }); }
+  }
 
-            const { branch, createNew } = req.body;
-            if (!branch) {
-                return res.status(400).json({
-                    success: false,
-                    message: '分支名称不能为空'
-                });
-            }
-
-            // 检查是否为远程分支
-            const isRemoteBranch = branch.startsWith('origin/');
-            let targetBranch = branch;
-
-            if (isRemoteBranch && createNew) {
-                // 从远程分支创建新的本地分支
-                const localBranchName = branch.replace('origin/', '');
-                await gitInstance.checkoutBranch(localBranchName, branch);
-                targetBranch = localBranchName;
-            } else if (isRemoteBranch && !createNew) {
-                // 直接切换到远程分支（需要本地已存在同名分支）
-                const localBranchName = branch.replace('origin/', '');
-
-                // 检查本地分支是否存在
-                const localBranches = await gitInstance.branchLocal();
-                if (localBranches.all.includes(localBranchName)) {
-                    await gitInstance.checkout(localBranchName);
-                    targetBranch = localBranchName;
-                } else {
-                    // 本地分支不存在，创建新的本地分支
-                    await gitInstance.checkoutBranch(localBranchName, branch);
-                    targetBranch = localBranchName;
-                }
-            } else {
-                // 本地分支切换
-                await gitInstance.checkout(branch);
-            }
-
-            const newBranch = await gitInstance.branchLocal();
-
-            res.json({
-                success: true,
-                message: `已切换到分支：${targetBranch}`,
-                currentBranch: newBranch.current,
-                timestamp: Date.now()
-            });
-        } catch (error) {
-            console.log('❌ Git 切换分支失败：', error.message);
-            res.status(500).json({
-                success: false,
-                message: '切换分支失败',
-                error: error.message
-            });
-        }
-    }
-
-    // 拉取最新代码
-    async handlePull(req, res) {
-        try {
-            const gitInstance = this.checkAndUpdateGitPath(req.query.instance);
-            if (!gitInstance) {
-                return res.status(500).json({
-                    success: false,
-                    message: '当前目录不是有效的 Git 仓库',
-                    currentPath: process.cwd()
-                });
-            }
-
-            const result = await gitInstance.pull();
-
-            res.json({
-                success: true,
-                message: '代码更新成功',
-                result: result,
-                timestamp: Date.now()
-            });
-        } catch (error) {
-            console.log('❌ Git 拉取失败：', error.message);
-            res.status(500).json({
-                success: false,
-                message: '代码更新失败',
-                error: error.message
-            });
-        }
-    }
-
-    // 获取状态
-    async handleGetStatus(req, res) {
-        try {
-            const gitInstance = this.checkAndUpdateGitPath(req.query.instance);
-            if (!gitInstance) {
-                return res.status(500).json({
-                    success: false,
-                    message: '当前目录不是有效的 Git 仓库',
-                    currentPath: process.cwd()
-                });
-            }
-
-            const status = await gitInstance.status();
-
-            res.json({
-                success: true,
-                status: status,
-                timestamp: Date.now()
-            });
-        } catch (error) {
-            console.log('❌ Git 状态获取失败：', error.message);
-            res.status(500).json({
-                success: false,
-                message: '获取 Git 状态失败',
-                error: error.message
-            });
-        }
-    }
-
-    // 添加文件到暂存区
-    async handleAdd(req, res) {
-        try {
-            const gitInstance = this.checkAndUpdateGitPath(req.query.instance);
-            if (!gitInstance) {
-                return res.status(500).json({
-                    success: false,
-                    message: '当前目录不是有效的 Git 仓库',
-                    currentPath: process.cwd()
-                });
-            }
-
-            const { files } = req.body;
-            const filesToAdd = files || '.';
-
-            await gitInstance.add(filesToAdd);
-
-            res.json({
-                success: true,
-                message: '文件已添加到暂存区',
-                files: filesToAdd,
-                timestamp: Date.now()
-            });
-        } catch (error) {
-            console.log('❌ Git 添加文件失败：', error.message);
-            res.status(500).json({
-                success: false,
-                message: '添加文件失败',
-                error: error.message
-            });
-        }
-    }
-
-    // 提交代码
-    async handleCommit(req, res) {
-        try {
-            const gitInstance = this.checkAndUpdateGitPath(req.query.instance);
-            if (!gitInstance) {
-                return res.status(500).json({
-                    success: false,
-                    message: '当前目录不是有效的 Git 仓库',
-                    currentPath: process.cwd()
-                });
-            }
-
-            const { message } = req.body;
-            if (!message) {
-                return res.status(400).json({
-                    success: false,
-                    message: '提交信息不能为空'
-                });
-            }
-
-            const result = await gitInstance.commit(message);
-
-            res.json({
-                success: true,
-                message: '代码提交成功',
-                result: result,
-                timestamp: Date.now()
-            });
-        } catch (error) {
-            console.log('❌ Git 提交失败：', error.message);
-            res.status(500).json({
-                success: false,
-                message: '代码提交失败',
-                error: error.message
-            });
-        }
-    }
-
-    // 推送代码
-    async handlePush(req, res) {
-        try {
-            const gitInstance = this.checkAndUpdateGitPath();
-            if (!gitInstance) {
-                return res.status(500).json({
-                    success: false,
-                    message: '当前目录不是有效的 Git 仓库',
-                    currentPath: process.cwd()
-                });
-            }
-
-            const result = await gitInstance.push();
-
-            res.json({
-                success: true,
-                message: '代码推送成功',
-                result: result,
-                timestamp: Date.now()
-            });
-        } catch (error) {
-            console.log('❌ Git 推送失败：', error.message);
-            res.status(500).json({
-                success: false,
-                message: '代码推送失败',
-                error: error.message
-            });
-        }
-    }
-
-    // 获取路由
-    getRouter() {
-        return router;
-    }
+  getRouter() { return router; }
 }
 
-module.exports = GitRoutes;
+module.exports = InjectRoutes;
+
+
+

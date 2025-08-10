@@ -333,3 +333,77 @@ router.get('/history', async (req, res) => {
 - 视体验决定是否接入“方案 2”的 `nocache` 与会话线索。
 
 
+---
+
+## 以实例 openPath 为核心（共享账号）方案（新增）
+
+### 目标
+- 在不启用 `userDataDir`（共享同一账号历史数据库）的前提下，统一用实例的 `openPath` 驱动：
+  - 聊天发送定向（已具备）、
+  - Git 根目录解析（已具备）、
+  - 历史记录范围过滤（新增最小改造）。
+
+### 原则
+- 不改变 Cursor 账号与 SQLite 根路径，仅对读取结果集进行“基于 `openPath` 的服务器端过滤”。
+- 前端全站透传 URL 参数 `?instance=` 以实现实例上下文的统一。
+
+### 后端改造（最小）
+- 新增接口
+  - `GET /api/instances`：读取根目录或 `config/instances.json` 并返回数组（`id/cursorPath/userDataDir/openPath/args/pollMs`）。
+- 历史接口扩展（保持兼容）
+  - `GET /api/history?instance={id}&limit=...&mode=cv`
+  - `GET /api/chats?instance={id}`
+  - `GET /api/history/projects?instance={id}`
+  - 支持 `nocache=1` 或 `maxAgeMs=2000` 以绕过/降低 30s 缓存时效。
+- 过滤逻辑
+  - 解析 `instanceId → openPath`（与 `routes/gitRoutes.js` 相同的查找策略，支持根目录与 `config/instances.json` 两位置）。
+  - 若解析到 `openPath`：
+    - 对 `getChats()/getHistory()` 结果进行路径过滤：仅保留“会话项目根路径与 `openPath` 相等或位于其子路径”的会话；
+    - `projects` 汇总同理按项目根过滤。
+  - 若未解析到或 `openPath` 为空：跳过过滤，行为与当前保持一致。
+- 路径归一（保证 Windows 与 Cursor 风格可比较）
+  - 统一分隔符：`\` → `/`；
+  - 盘符规范化：`D:/...`、`d:\...` 标准化为 `D:\...`；
+  - Cursor 风格与本地风格互通：`/d%3A/Repos/...` ↔ `D:\Repos\...`；
+  - 移除多余前导斜杠与大小写归一；比较采用“相等或前缀（子路径）”。
+- 缓存
+  - 默认保留 30s 缓存；当传入 `nocache/maxAgeMs` 时，清理缓存或临时调低缓存时长，仅对本次请求生效。
+
+### 前端改造
+- 统一透传 `?instance=`：主页、历史页、Git 页均从 URL 读取并在发起请求时附带。
+- 历史页请求：
+  - `/api/history?instance=...`、`/api/history/projects?instance=...`
+- “当前活动目录”视图：
+  - 若存在 `instance`，直接使用该实例的 `openPath` 作为活动目录基准显示与过滤；
+  - 否则回退至 `/api/health` 返回的 `workspace`。
+- Git 与聊天发送：已支持实例（`public/git-manager.js`、WS `targetInstanceId`）；仅确保页面 URL 携带 `?instance=`。
+
+### 兼容与回退
+- 未传 `instance`：维持当前全量历史行为。
+- `instance` 无效或 `openPath` 不存在：跳过过滤并在前端做轻提示（可选）。
+- 不涉账号切换，确保历史数据仍来自同一套 SQLite。
+
+### 风险与缓解
+- 个别会话项目根推断失败：采用“相等或包含”的宽松匹配，并保留 `includeUnmapped` 作为兜底开关。
+- 大结果集过滤的性能消耗：优先使用缓存，在缓存结果上进行过滤；前端使用 `limit` 限制条目数。
+
+### 验收清单
+- 切换不同实例：
+  - Git 根指向对应 `openPath`，分支/状态/拉取正常；
+  - 历史页仅展示该 `openPath` 范围内的项目与会话，项目聚合与详情一致；
+  - 聊天发送定向到该实例（WS `targetInstanceId`）。
+- 未带 `instance`：各页行为与现状一致。
+
+### 实施顺序（建议）
+1. 新增 `GET /api/instances`；
+2. 为 `history/chats/projects` 增加 `?instance=` 与 `nocache/maxAgeMs` 支持，并接入统一路径过滤；
+3. 历史页透传 `?instance=`，并用实例 `openPath` 渲染“当前活动目录”；
+4. 联调 Git 与聊天（仅校验 URL 透传）。
+
+### 可选增强（后续）
+- 响应头加入“已按 openPath 过滤”的标记，前端展示上下文提示；
+- 历史页提供“显示未映射/全量”的切换按钮，便于调试过滤效果。
+
+### 结论
+- 在共享账号前提下，以实例 `openPath` 统一 Git/聊天/历史可行、改造面小，便于快速上线与后续渐进增强。
+

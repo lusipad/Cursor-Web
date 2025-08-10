@@ -159,7 +159,47 @@ class ContentRoutes {
     async handleGetChats(req, res) {
         try {
             console.log('📚 获取聊天记录请求');
-            const chats = await this.historyManager.getChats();
+            const options = {
+                mode: req.query.mode,
+                includeUnmapped: req.query.includeUnmapped,
+                segmentMinutes: req.query.segmentMinutes,
+                instanceId: req.query.instance || null
+            };
+            // 支持 nocache/maxAgeMs
+            if (req.query.nocache) {
+                try { this.historyManager.clearCache?.(); } catch {}
+            }
+            const originalCacheTimeout = this.historyManager.cacheTimeout;
+            if (req.query.maxAgeMs) {
+                const n = Math.max(0, Math.min(Number(req.query.maxAgeMs) || 0, 10000));
+                if (n > 0) this.historyManager.cacheTimeout = n;
+            }
+
+            // 解析实例 openPath 作为过滤条件
+            if (options.instanceId) {
+                try{
+                    const fs = require('fs');
+                    const path = require('path');
+                    const cfg = require('../config');
+                    const primary = path.isAbsolute(cfg.instances?.file || '') ? cfg.instances.file : path.join(process.cwd(), cfg.instances?.file || 'instances.json');
+                    let file = primary;
+                    if (!fs.existsSync(file)) {
+                        const fallback = path.join(process.cwd(), 'config', 'instances.json');
+                        if (fs.existsSync(fallback)) file = fallback; else file = null;
+                    }
+                    if (file) {
+                        const arr = JSON.parse(fs.readFileSync(file,'utf8'));
+                        const list = Array.isArray(arr) ? arr : [];
+                        const found = list.find(x => String(x.id||'') === String(options.instanceId));
+                        if (found && typeof found.openPath === 'string' && found.openPath.trim()) {
+                            options.filterOpenPath = found.openPath.trim();
+                        }
+                    }
+                }catch{}
+            }
+
+            const chats = await this.historyManager.getChats(options);
+            if (req.query.maxAgeMs) this.historyManager.cacheTimeout = originalCacheTimeout;
             res.json(chats);
         } catch (error) {
             console.error('获取聊天记录失败:', error);

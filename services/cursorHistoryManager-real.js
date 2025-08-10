@@ -2245,8 +2245,30 @@ class CursorHistoryManager {
             // 按日期排序
             deduped.sort((a, b) => new Date(b.date) - new Date(a.date));
             
-            console.log(`📊 返回 ${deduped.length} 个聊天会话`);
-            return deduped;
+            // 若指定了 openPath 过滤（不改变账号根，仅过滤结果集）
+            let filtered = deduped;
+            if (options && options.filterOpenPath) {
+                const base = this.normalizePath(options.filterOpenPath).toLowerCase();
+                const baseCv = this.encodeCursorViewPath(options.filterOpenPath).toLowerCase();
+                const ensureSlash = (s) => (s.endsWith('/') ? s : s + '/');
+                const isPrefix = (root) => {
+                    if (!root) return false;
+                    const r1 = this.normalizePath(root).toLowerCase();
+                    const r2 = this.encodeCursorViewPath(root).toLowerCase();
+                    const b1 = base; const b2 = baseCv;
+                    // 前缀或相等（双向，防止 openPath 更深或更浅时误判）
+                    const ok1 = r1 === b1 || r1.startsWith(ensureSlash(b1)) || b1.startsWith(ensureSlash(r1));
+                    const ok2 = r2 === b2 || r2.startsWith(ensureSlash(b2)) || b2.startsWith(ensureSlash(r2));
+                    return ok1 || ok2;
+                };
+                filtered = deduped.filter(c => {
+                    const pr = c?.project?.rootPath || '';
+                    return isPrefix(pr);
+                });
+            }
+
+            console.log(`📊 返回 ${filtered.length} 个聊天会话`);
+            return filtered;
             
         } catch (error) {
             console.error('❌ 获取聊天失败:', error.message);
@@ -2379,7 +2401,7 @@ class CursorHistoryManager {
     }
 
     // 汇总唯一项目列表，便于与 cursor-view-main 对比
-    async getProjectsSummary() {
+    async getProjectsSummary(options = {}) {
         // 与 cursor-view-main 一致：直接依据 workspace 派生的项目根列表
         const projectsArray = await this.extractWorkspaceProjects();
         // 去重保持稳定顺序
@@ -2390,6 +2412,21 @@ class CursorHistoryManager {
             if (seen.has(key)) continue;
             seen.add(key);
             unique.push({ name: p.name, rootPath: p.rootPath, chatCount: 0 });
+        }
+        // 若指定 openPath 过滤，保留命中的项目根
+        if (options && options.filterOpenPath) {
+            const base = this.normalizePath(options.filterOpenPath).toLowerCase();
+            const baseCv = this.encodeCursorViewPath(options.filterOpenPath).toLowerCase();
+            const ensureSlash = (s) => (s.endsWith('/') ? s : s + '/');
+            const isPrefix = (root) => {
+                if (!root) return false;
+                const r1 = this.normalizePath(root).toLowerCase();
+                const r2 = this.encodeCursorViewPath(root).toLowerCase();
+                const ok1 = r1 === base || r1.startsWith(ensureSlash(base)) || base.startsWith(ensureSlash(r1));
+                const ok2 = r2 === baseCv || r2.startsWith(ensureSlash(baseCv)) || baseCv.startsWith(ensureSlash(r2));
+                return ok1 || ok2;
+            };
+            return unique.filter(p => isPrefix(p.rootPath));
         }
         return unique;
     }

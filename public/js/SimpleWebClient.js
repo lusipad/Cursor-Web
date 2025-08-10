@@ -184,7 +184,8 @@ class SimpleWebClient {
             if (this._replyPollingAbort) return false;
             await new Promise(r => this._replyPollingTimer = setTimeout(r, delays[i]));
             try {
-                const chats = await this._fetchJson('/api/chats');
+                const url = this.instanceId ? `/api/chats?instance=${encodeURIComponent(this.instanceId)}` : '/api/chats';
+                const chats = await this._fetchJson(url);
                 const { session, message } = this._pickLatestAssistant(chats || []);
                 if (message) {
                     const h = this._hashMessage(message);
@@ -218,7 +219,8 @@ class SimpleWebClient {
         }
         // 发送前抓取一次基线（最近助手消息）
         try {
-            const chats = await this._fetchJson('/api/chats');
+            const url0 = this.instanceId ? `/api/chats?instance=${encodeURIComponent(this.instanceId)}` : '/api/chats';
+            const chats = await this._fetchJson(url0);
             this._captureBaseline(chats || []);
         } catch {}
 

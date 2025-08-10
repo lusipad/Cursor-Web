@@ -512,7 +512,13 @@
         // 加载聊天详情
         async function loadChatDetail(sessionId, mode) {
             try {
-                const response = await fetch(`/api/history/${encodeURIComponent(sessionId)}${mode ? `?mode=${encodeURIComponent(mode)}` : ''}`);
+                const url = new URL(window.location.href);
+                const inst = url.searchParams.get('instance') || '';
+                const query = new URLSearchParams();
+                if (mode) query.set('mode', mode);
+                if (inst) query.set('instance', inst);
+                const qs = query.toString();
+                const response = await fetch(`/api/history/${encodeURIComponent(sessionId)}${qs ? `?${qs}` : ''}`);
                 const result = await response.json();
 
                 if (result.success && result.data) {
