@@ -38,7 +38,10 @@ class InjectRoutes {
     try {
       const fs = require('fs');
       const path = require('path');
-      const p = path.join(process.cwd(), 'config', 'instances.json');
+      const cfg = require('../config');
+      const p = path.isAbsolute(cfg.instances?.file || '')
+        ? cfg.instances.file
+        : path.join(process.cwd(), cfg.instances?.file || 'config/instances.json');
       if (!fs.existsSync(p)) return [];
       const raw = fs.readFileSync(p, 'utf8');
       const arr = JSON.parse(raw);

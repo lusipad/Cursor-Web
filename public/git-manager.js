@@ -5,7 +5,16 @@ class GitManager {
         this.allBranches = [];
         this.localBranches = [];
         this.remoteBranches = [];
+        // 多实例支持：允许选择实例ID（通过 URL ?instance= 或页面下拉）
+        this.instanceId = this.detectInstanceId();
         this.init();
+    }
+
+    detectInstanceId(){
+        try{
+            const url = new URL(window.location.href);
+            return url.searchParams.get('instance') || '';
+        }catch{ return ''; }
     }
 
     async init() {
@@ -62,6 +71,43 @@ class GitManager {
                 this.commitCode();
             }
         });
+
+        // 实例选择（如果页面提供 #git-instance-select）
+        const instSel = document.getElementById('git-instance-select');
+        if (instSel){
+            // 初始化下拉数据
+            this.populateInstanceOptions(instSel).then(()=>{
+                // 若 URL 查询参数里有 instance，用它作为初始值
+                if (this.instanceId){ instSel.value = this.instanceId; }
+            });
+            instSel.addEventListener('change', ()=>{
+                this.instanceId = instSel.value || '';
+                this.log(`已切换实例: ${this.instanceId||'(默认)'}`, 'info');
+                this.loadBranches();
+            });
+        }
+    }
+
+    async populateInstanceOptions(selectEl){
+        try{
+            const res = await fetch('/api/instances');
+            const data = await res.json();
+            const list = Array.isArray(data?.data) ? data.data : [];
+            // 清空并插入“默认(当前目录)”
+            selectEl.innerHTML = '';
+            const optDefault = document.createElement('option');
+            optDefault.value = '';
+            optDefault.textContent = '默认(当前目录)';
+            selectEl.appendChild(optDefault);
+            for (const it of list){
+                const opt = document.createElement('option');
+                opt.value = it.id || '';
+                const name = it.id || '(unnamed)';
+                const path = it.openPath || '';
+                opt.textContent = path ? `${name}  —  ${path}` : name;
+                selectEl.appendChild(opt);
+            }
+        }catch(e){ this.log('实例列表获取失败: '+ (e?.message||e), 'error'); }
     }
 
     // 加载分支信息
@@ -70,7 +116,8 @@ class GitManager {
             this.log('正在刷新分支信息...', 'info');
             this.log('正在从远程仓库获取最新分支信息并清理已删除的分支...', 'info');
 
-            const response = await fetch('/api/git/branches');
+            const url = this.instanceId ? `/api/git/branches?instance=${encodeURIComponent(this.instanceId)}` : '/api/git/branches';
+            const response = await fetch(url);
             const data = await response.json();
 
             if (data.success) {
@@ -185,7 +232,8 @@ class GitManager {
 
             this.log(message, 'info');
 
-            const response = await fetch('/api/git/checkout', {
+            const url = this.instanceId ? `/api/git/checkout?instance=${encodeURIComponent(this.instanceId)}` : '/api/git/checkout';
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -216,7 +264,8 @@ class GitManager {
         try {
             this.log('正在更新代码...', 'info');
 
-            const response = await fetch('/api/git/pull', {
+            const url = this.instanceId ? `/api/git/pull?instance=${encodeURIComponent(this.instanceId)}` : '/api/git/pull';
+            const response = await fetch(url, {
                 method: 'POST'
             });
 
@@ -240,7 +289,8 @@ class GitManager {
         try {
             this.log('正在获取Git状态...', 'info');
 
-            const response = await fetch('/api/git/status');
+            const url = this.instanceId ? `/api/git/status?instance=${encodeURIComponent(this.instanceId)}` : '/api/git/status';
+            const response = await fetch(url);
             const data = await response.json();
 
             if (data.success) {
@@ -286,7 +336,8 @@ class GitManager {
         try {
             this.log('正在添加文件到暂存区...', 'info');
 
-            const response = await fetch('/api/git/add', {
+            const url = this.instanceId ? `/api/git/add?instance=${encodeURIComponent(this.instanceId)}` : '/api/git/add';
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -320,7 +371,8 @@ class GitManager {
         try {
             this.log('正在提交代码...', 'info');
 
-            const response = await fetch('/api/git/commit', {
+            const url = this.instanceId ? `/api/git/commit?instance=${encodeURIComponent(this.instanceId)}` : '/api/git/commit';
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -349,7 +401,8 @@ class GitManager {
         try {
             this.log('正在推送代码...', 'info');
 
-            const response = await fetch('/api/git/push', {
+            const url = this.instanceId ? `/api/git/push?instance=${encodeURIComponent(this.instanceId)}` : '/api/git/push';
+            const response = await fetch(url, {
                 method: 'POST'
             });
 

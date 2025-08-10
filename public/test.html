@@ -30,6 +30,13 @@
           <input id="userDataDir" style="min-width:280px;" placeholder="可选，隔离配置 Profile" />
         </div>
         <div class="row">
+          <label style="min-width:120px;">从配置选择</label>
+          <select id="configInstanceSelect" style="min-width:480px;">
+            <option value="">选择实例...</option>
+          </select>
+          <span style="color:#888;font-size:12px;">选择后将自动填充上方表单</span>
+        </div>
+        <div class="row">
           <label style="min-width:120px;">打开目录</label>
           <input id="openPath" style="min-width:380px;" placeholder="启动后打开的项目/工作区目录，可含空格" />
           <label style="min-width:120px;">其他启动参数</label>
@@ -107,6 +114,47 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const log = (msg) => { const el = $('log'); el.textContent = [msg, '', el.textContent].join('\n').trim(); };
+    // 从 /api/instances 加载配置并填充下拉与默认值
+    async function loadInstancesAndBindDefaults(){
+      try{
+        const r = await api('/api/instances');
+        const list = Array.isArray(r?.data) ? r.data : [];
+        const sel = $('configInstanceSelect');
+        if (sel){
+          sel.innerHTML = '<option value="">选择实例...</option>';
+          list.forEach(it => {
+            const opt = document.createElement('option');
+            opt.value = it.id || '';
+            const name = it.id || '(unnamed)';
+            const openPath = it.openPath || it.open_path || '';
+            opt.textContent = openPath ? `${name} — ${openPath}` : name;
+            opt.dataset.cursorPath = it.cursorPath || '';
+            opt.dataset.userDataDir = it.userDataDir || '';
+            opt.dataset.openPath = openPath;
+            opt.dataset.args = it.args || '';
+            opt.dataset.pollMs = String(it.pollMs || '');
+            sel.appendChild(opt);
+          });
+          sel.addEventListener('change', ()=>{
+            const v = sel.value;
+            const opt = v ? sel.querySelector(`option[value="${CSS.escape(v)}"]`) : null;
+            if (!opt) return;
+            // 将选中实例的配置回填到上方表单
+            $('instanceId').value = v;
+            $('cursorPath').value = opt.dataset.cursorPath || '';
+            $('userDataDir').value = opt.dataset.userDataDir || '';
+            $('openPath').value = opt.dataset.openPath || '';
+            if ($('extraArgs')) $('extraArgs').value = opt.dataset.args || '';
+            if ($('pollMs')) $('pollMs').value = opt.dataset.pollMs || '';
+            log('已从配置填充：' + JSON.stringify({ id:v, cursorPath: opt.dataset.cursorPath, userDataDir: opt.dataset.userDataDir, openPath: opt.dataset.openPath }));
+          });
+        }
+      }catch(e){ log('加载实例配置失败：' + (e?.message||e)); }
+    }
+
+    // 页面加载后先拉取一次配置
+    loadInstancesAndBindDefaults();
+
 
     async function api(path, method='GET', body=null){
       const res = await fetch(path, { method, headers: body?{ 'Content-Type':'application/json' }:undefined, body: body?JSON.stringify(body):undefined });
@@ -138,19 +186,20 @@
     }
 
     $('launchBtn').onclick = async () => {
-      const instanceId = $('instanceId').value.trim() || 'cursor-1';
+      const instanceId = $('instanceId').value.trim();
       const cursorPath = $('cursorPath').value.trim();
       const userDataDir = $('userDataDir').value.trim();
       const openPath = $('openPath').value.trim();
       // 通过接口启动并注入（后台）
-      const body = { detach: true, exitAfterReady: false, instanceId };
+      const body = { detach: true, exitAfterReady: false };
+      if (instanceId) body.instanceId = instanceId;
       if (cursorPath) body.cursorPath = cursorPath; // 留空=服务器自动查找
       if (userDataDir) body.userDataDir = userDataDir;
       if (openPath) body.openPath = openPath;
       const r = await api('/api/inject/launch', 'POST', body);
       log('启动注入：' + JSON.stringify(r));
       // 打开绑定实例的页面窗口（新标签页）
-      window.open('/?instance=' + encodeURIComponent(instanceId), '_blank');
+      if (instanceId) window.open('/?instance=' + encodeURIComponent(instanceId), '_blank');
     };
 
     $('listBtn').onclick = async () => {
@@ -169,8 +218,10 @@
     };
 
     $('scanInjectBtn').onclick = async () => {
-      const instanceId = $('instanceId').value.trim() || 'cursor-1';
-      const r = await api('/api/inject/scan-inject', 'POST', { startPort: 9222, endPort: 9250, instanceId });
+      const instanceId = $('instanceId').value.trim();
+      const body = { startPort: 9222, endPort: 9250 };
+      if (instanceId) body.instanceId = instanceId;
+      const r = await api('/api/inject/scan-inject', 'POST', body);
       log('扫描并注入：' + JSON.stringify(r));
     };
 
@@ -180,17 +231,18 @@
     };
 
     $('restartBtn').onclick = async () => {
-      const instanceId = $('instanceId').value.trim() || 'cursor-1';
+      const instanceId = $('instanceId').value.trim();
       const cursorPath = $('cursorPath').value.trim();
       const userDataDir = $('userDataDir').value.trim();
       const openPath = $('openPath').value.trim();
-      const body = { instanceId };
+      const body = {};
+      if (instanceId) body.instanceId = instanceId;
       if (cursorPath) body.cursorPath = cursorPath;
       if (userDataDir) body.userDataDir = userDataDir;
       if (openPath) body.openPath = openPath;
       const r = await api('/api/inject/restart', 'POST', body);
       log('重启并注入：' + JSON.stringify(r));
-      if (r && r.success) {
+      if (r && r.success && instanceId) {
         window.open('/?instance=' + encodeURIComponent(instanceId), '_blank');
       }
     };
@@ -217,11 +269,13 @@
     $('sendBtn').onclick = async () => {
       const msg = $('message').value.trim();
       if(!msg) return;
-      const instanceId = $('instanceId').value.trim() || 'cursor-1';
+      const instanceId = $('instanceId').value.trim();
       try{
         await connectWs(instanceId);
-        ws.send(JSON.stringify({ type:'user_message', data: msg, targetInstanceId: instanceId }));
-        log('已发送到实例 '+instanceId+'：'+msg);
+        const payload = { type:'user_message', data: msg };
+        if (instanceId) payload.targetInstanceId = instanceId;
+        ws.send(JSON.stringify(payload));
+        log('已发送'+(instanceId?`到实例 ${instanceId}`:'(广播)')+'：'+msg);
       }catch(e){
         log('发送失败：'+e.message);
       }

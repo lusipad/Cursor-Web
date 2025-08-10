@@ -25,6 +25,14 @@ module.exports = {
         fetchOptions: ['--all', '--prune']
     },
 
+    // 多实例（Git/Git面板与注入面板可共用此配置）
+    instances: {
+        // 当为 true 时，后端会在 /api/instances 返回配置文件内容
+        enable: true,
+        // 配置文件路径（相对于项目根）
+        file: 'config/instances.json'
+    },
+
     // 路径配置
     paths: {
         public: path.join(__dirname, '..', 'public'),

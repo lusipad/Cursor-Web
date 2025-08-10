@@ -10,7 +10,10 @@
     <div class="container">
         <header class="header">
             <h1>Cursor Web</h1>
-            <div id="status" class="status disconnected">等待连接...</div>
+            <div style="display:flex;align-items:center;gap:12px;">
+                <a href="/test.html" class="btn btn-secondary" target="_blank" title="配置与注入测试">⚙ 设置</a>
+                <div id="status" class="status disconnected">等待连接...</div>
+            </div>
         </header>
 
         <!-- Tab 导航 -->
@@ -57,6 +60,12 @@
                 <div class="git-panel">
                     <h2>Git 分支管理</h2>
                     <div class="git-controls">
+                        <div class="status-row">
+                            <span>实例：</span>
+                            <select id="git-instance-select" class="branch-select">
+                                <option value="">默认(当前目录)</option>
+                            </select>
+                        </div>
                         <div class="git-status">
                             <div class="status-row">
                                 <span>当前分支：</span>
