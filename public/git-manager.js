@@ -72,19 +72,20 @@ class GitManager {
             }
         });
 
-        // 实例选择（如果页面提供 #git-instance-select）
-        const instSel = document.getElementById('git-instance-select');
-        if (instSel){
-            // 初始化下拉数据
-            this.populateInstanceOptions(instSel).then(()=>{
-                // 若 URL 查询参数里有 instance，用它作为初始值
-                if (this.instanceId){ instSel.value = this.instanceId; }
-            });
-            instSel.addEventListener('change', ()=>{
-                this.instanceId = instSel.value || '';
-                this.log(`已切换实例: ${this.instanceId||'(默认)'}`, 'info');
-                this.loadBranches();
-            });
+        // 仅显示当前实例，不提供切换
+        const instLabel = document.getElementById('git-instance-label');
+        if (instLabel){
+            const text = this.instanceId ? this.instanceId : '默认(当前目录)';
+            // 若能从 /api/instances 查询到 openPath，追加展示“— 路径”
+            try{
+                if (this.instanceId){
+                    fetch('/api/instances').then(r=>r.json()).then(j=>{
+                        const arr = Array.isArray(j?.data)?j.data:[];
+                        const found = arr.find(it => String(it.id||'')===String(this.instanceId));
+                        if (found && found.openPath) instLabel.textContent = `${this.instanceId} — ${found.openPath}`; else instLabel.textContent = text;
+                    }).catch(()=>{ instLabel.textContent = text; });
+                } else { instLabel.textContent = text; }
+            }catch{ instLabel.textContent = text; }
         }
     }
 
