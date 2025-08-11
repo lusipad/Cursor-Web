@@ -117,9 +117,10 @@
     let activeWorkspaceLoaded = false;
 
     document.addEventListener('DOMContentLoaded', async () => {
-        // 先读取实例 openPath，再加载历史，避免首次渲染使用了 /api/health 的工作区
+        // 先读取实例 openPath，再加载历史
         try { await ensureInstanceOpenPathLoaded(); } catch {}
-        setViewMode('active');
+        // 若带 instance，默认使用“当前活动目录”；否则默认“全部会话”
+        setViewMode(detectInstanceId() ? 'active' : 'list');
         loadHistory();
         document.getElementById('searchInput').addEventListener('input', debounce(loadHistory, 500));
     });
@@ -135,15 +136,16 @@
 
     async function loadHistory(){
         const q = document.getElementById('searchInput').value;
-        const params = new URLSearchParams({ limit: 20000, includeUnmapped: 'true', mode: 'cv' });
+        // 全部会话/按项目聚合：不受 instance 过滤；仅“当前活动目录”才按 openPath 过滤
+        const params = new URLSearchParams({ limit: 20000, includeUnmapped: 'true' });
         const inst = detectInstanceId();
-        if (inst) params.append('instance', inst);
+        if (currentViewMode === 'active' && inst) params.append('instance', inst);
         if (q) params.append('search', q);
         showLoading();
         try{
             const [hRes, pRes] = await Promise.all([
                 fetch(`/api/history?${params}`),
-                fetch(`/api/history/projects${inst?`?instance=${encodeURIComponent(inst)}`:''}`)
+                fetch(`/api/history/projects${(currentViewMode==='active' && inst)?`?instance=${encodeURIComponent(inst)}`:''}`)
             ]);
             const result = await hRes.json();
             const projects = await pRes.json();
@@ -243,9 +245,11 @@
             return;
         }
         const filtered = (currentHistory||[]).filter(item => matchActiveDirectory(item?.project?.rootPath || ''));
+        const instanceId = detectInstanceId();
         const heading = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
             <div style="font-weight:600;">当前活动目录：
                 <span style="opacity:.8">${escapeHtml(toPrettyDisplayPath(activeWorkspacePath || activeWorkspaceCvPath))}</span>（${filtered.length}）
+                ${instanceId ? `<span style="margin-left:8px;color:#aaa;">实例：${escapeHtml(instanceId)}</span>` : ''}
             </div>
         </div>`;
         if (filtered.length === 0){
@@ -324,7 +328,7 @@
         const projectPath = chat?.project?.rootPath || '';
         const pathDisplay = projectPath ? toPrettyDisplayPath(projectPath) : '';
         const dateDisplay = formatTimestamp(baseTimestamp);
-        const previewMessages = (chat?.messages || []).slice(-3); // 取最近3条
+        const previewMessages = (chat?.messages || []).slice(-3); // 取最近 3 条
         return `
         <div class="chat-card" onclick="showChatDetail('${id}')">
             <div class="chat-header">
