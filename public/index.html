@@ -43,7 +43,7 @@
                 </div>
                 <footer class="footer">
                     <form id="send-form" autocomplete="off" onsubmit="return false">
-                        <input id="send-input" type="text" placeholder="输入消息..." autocomplete="off" />
+                        <textarea id="send-input" placeholder="输入消息... (支持 Markdown 及代码块)" rows="1" autocomplete="off" style="resize:vertical"></textarea>
                         <button id="send-btn" type="button">发送</button>
                         <button id="clear-btn" type="button">清除</button>
                     </form>
@@ -161,8 +161,22 @@
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-java.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-cpp.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/keep-markup/prism-keep-markup.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markdown.min.js"></script>
+    <!-- Marked: 严格的 Markdown 解析，避免代码块截断问题 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="js/modules/module-loader.js"></script>
+    <script>
+      // 确保公共渲染工具加载
+      if (window.ModuleLoader){
+        // MarkdownRenderer 只有 ErrorHandler 依赖，若未自动加载则手动加载一次
+        if (!window.MarkdownRenderer){
+          const s = document.createElement('script');
+          s.src = 'js/modules/MarkdownRenderer.js';
+          document.head.appendChild(s);
+        }
+      }
+    </script>
     <script src="git-manager.js"></script>
     <script>
     // Tab 切换逻辑

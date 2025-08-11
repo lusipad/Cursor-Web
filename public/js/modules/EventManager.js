@@ -112,8 +112,8 @@ class EventManager {
 
             // 回车键事件
             const keydownHandler = (e) => {
+                // textarea: Enter 发送，Shift+Enter 换行
                 if (e.key === 'Enter' && !e.shiftKey) {
-                    // 统一走 submit 流程，避免重复触发
                     try { e.preventDefault(); } catch {}
                     try { e.stopPropagation(); } catch {}
                     try { sendForm.requestSubmit(); } catch { submitHandler(e); }

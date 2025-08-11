@@ -262,9 +262,11 @@
 
         .message-content pre {
             background-color: rgba(0, 0, 0, 0.3);
-            padding: 4px 6px;
+            padding: 6px 8px;
             border-radius: 6px;
-            overflow-x: auto;
+            overflow: auto;
+            white-space: pre;
+            max-height: 60vh;
             margin: 1px 0;
             font-family: 'Fira Code', 'Monaco', 'Courier New', monospace;
             font-size: 0.83em;
@@ -384,9 +386,18 @@
         }
     </style>
     <!-- Markdown 与代码高亮样式/脚本 -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markup.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-typescript.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-java.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-cpp.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -581,27 +592,7 @@
             })).filter(m => String(m.content || '').trim());
             const merged = mergeSameRole ? mergeConsecutiveByRole(preprocessed) : preprocessed;
 
-            // 配置 marked 渲染与代码高亮
-            if (window.marked) {
-                marked.setOptions({
-                    gfm: true,
-                    // 可选：保留单换行（<br>）
-                    breaks: !!preserveLineBreaks,
-                    mangle: false,
-                    headerIds: false,
-                    highlight: function(code, lang) {
-                        try {
-                            if (lang && window.hljs && hljs.getLanguage(lang)) {
-                                return hljs.highlight(code, { language: lang }).value;
-                            }
-                        } catch (e) {}
-                        if (window.hljs) {
-                            return hljs.highlightAuto(code).value;
-                        }
-                        return code;
-                    }
-                });
-            }
+            // 统一用 MarkdownRenderer
 
             const messagesHtml = `
                 <div class="messages-header">
@@ -623,7 +614,7 @@
             `;
 
             container.innerHTML = messagesHtml;
-            if (window.hljs) { hljs.highlightAll(); }
+            try { window.MarkdownRenderer && window.MarkdownRenderer.highlight(container); } catch {}
         }
 
         // 格式化消息内容
@@ -633,9 +624,7 @@
                 // 允许一个“空白行”：3 个及以上换行折叠为两个换行
                 .replace(/\n{3,}/g, '\n\n')
                 .trim();
-            if (window.marked) {
-                return marked.parse(src);
-            }
+            if (window.MarkdownRenderer) { return window.MarkdownRenderer.renderMarkdown(src, { breaks: !!preserveLineBreaks }); }
             // 回退：最简渲染
             const div = document.createElement('div');
             div.textContent = src;

@@ -38,24 +38,35 @@ class ChatTimeline {
     }
   }
 
+  highlightCodeIn(element){
+    try{
+      if (!element) return;
+      const nodes = element.querySelectorAll('pre code');
+      nodes.forEach(node => {
+        try {
+          // 规范化 language-xxx（兼容 ```cpp:test.cpp 这类带附加信息的围栏）
+          const classes = String(node.className || '').split(/\s+/).filter(Boolean);
+          const langClass = classes.find(c => c.startsWith('language-')) || '';
+          let lang = langClass ? langClass.replace(/^language-/, '') : '';
+          if (lang && /[:/]/.test(lang)) { lang = lang.split(/[:/]/)[0]; }
+          if (!lang) lang = 'none';
+          const rest = classes.filter(c => !c.startsWith('language-'));
+          node.className = `language-${lang}` + (rest.length ? ` ${rest.join(' ')}` : '');
+        } catch {}
+      });
+      try { window.Prism && window.Prism.highlightAllUnder && window.Prism.highlightAllUnder(element); } catch {}
+    }catch{}
+  }
+
   sanitize(text) {
     try {
-      let s = String(text || '');
-      // 移除我们用于关联的隐藏标记
-      s = s.replace(/<!--\s*#msg:[^>]*-->/gi, '');
-      // 将 Markdown 代码块 ```lang\n...``` 转成 <pre><code data-lang="lang">...</code></pre>
-      s = s.replace(/```([a-zA-Z0-9\-_]*)\n([\s\S]*?)```/g, (m, lang, code) => {
-        const safe = String(code).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        const language = (lang||'').toLowerCase();
-        return `<pre><code class=\"language-${language}\">${safe}</code></pre>`;
-      });
-      // 行内 `code`
-      s = s.replace(/`([^`]+)`/g, (m, code)=>`<code>${code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</code>`);
-      // 粗体/斜体（简单处理）
-      s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*]+)\*/g, '<em>$1</em>');
-      // 段落换行
-      s = s.replace(/\n/g, '<br/>');
-      return s;
+      if (window.MarkdownRenderer) {
+        return window.MarkdownRenderer.renderMarkdown(String(text || ''), { breaks: false });
+      }
+      // 回退
+      const div = document.createElement('div');
+      div.textContent = String(text || '');
+      return div.innerHTML;
     } catch { return ''; }
   }
 
@@ -73,6 +84,19 @@ class ChatTimeline {
       </div>
     `;
     this.timeline.appendChild(item);
+    // 渲染后尝试触发 Prism 高亮（针对新增节点）
+    if (window.MarkdownRenderer) {
+      window.MarkdownRenderer.highlight(item);
+      try { requestAnimationFrame(()=> window.MarkdownRenderer.highlight(item)); } catch {}
+    } else {
+      this.highlightCodeIn(item);
+      try { requestAnimationFrame(()=> this.highlightCodeIn(item)); } catch {}
+    }
+    // 保持视图尽量在底部（若用户未上滑）
+    try{
+      const nearBottom = (this.container.scrollTop + this.container.clientHeight) >= (this.container.scrollHeight - 30);
+      if (nearBottom) this.container.scrollTop = this.container.scrollHeight;
+    }catch{}
     // 滚动到底部（延迟确保渲染完成）
     const doScroll = () => {
       if (!this.container) return;
@@ -149,7 +173,7 @@ class ChatTimeline {
       if (!el) return false;
       const contentEl = el.querySelector('.content');
       if (contentEl) contentEl.innerHTML = this.sanitize(String(text||''));
-      try { Prism && Prism.highlightAllUnder && this.timeline && Prism.highlightAllUnder(this.timeline); } catch {}
+      this.highlightCodeIn(el);
       const metaEl = el.querySelector('.meta');
       if (metaEl && timestamp) metaEl.textContent = `🤖 助手 · ${new Date(timestamp).toLocaleTimeString()}`;
       // 取消 typing 样式
