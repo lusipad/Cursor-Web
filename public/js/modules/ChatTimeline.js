@@ -41,10 +41,21 @@ class ChatTimeline {
   sanitize(text) {
     try {
       let s = String(text || '');
-      // 移除我们用于关联的隐藏标记，避免在UI显示
+      // 移除我们用于关联的隐藏标记
       s = s.replace(/<!--\s*#msg:[^>]*-->/gi, '');
-      return s.replace(/[<>]/g, ch => ({'<':'&lt;','>':'&gt;'}[ch]))
-              .replace(/\n/g, '<br/>');
+      // 将 Markdown 代码块 ```lang\n...``` 转成 <pre><code data-lang="lang">...</code></pre>
+      s = s.replace(/```([a-zA-Z0-9\-_]*)\n([\s\S]*?)```/g, (m, lang, code) => {
+        const safe = String(code).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const language = (lang||'').toLowerCase();
+        return `<pre><code class=\"language-${language}\">${safe}</code></pre>`;
+      });
+      // 行内 `code`
+      s = s.replace(/`([^`]+)`/g, (m, code)=>`<code>${code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</code>`);
+      // 粗体/斜体（简单处理）
+      s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*]+)\*/g, '<em>$1</em>');
+      // 段落换行
+      s = s.replace(/\n/g, '<br/>');
+      return s;
     } catch { return ''; }
   }
 
@@ -65,7 +76,7 @@ class ChatTimeline {
     // 滚动到底部（延迟确保渲染完成）
     const doScroll = () => {
       if (!this.container) return;
-      if (!this.stickToBottom) return;
+      // 强制向下滚动以显示最新消息（即使用户滚动至底部以外区域）
       try { this.container.scrollTop = this.container.scrollHeight; } catch {}
     };
     doScroll();
@@ -104,6 +115,7 @@ class ChatTimeline {
     // 有新的助手回复时，移除任何遗留的占位，避免错乱
     this.clearTypingPlaceholders();
     this.appendMessage('assistant', text, Date.now());
+    try { Prism && Prism.highlightAllUnder && this.timeline && Prism.highlightAllUnder(this.timeline); } catch {}
   }
 
   // 显示“正在生成”占位气泡（与 msgId 关联）
@@ -137,6 +149,7 @@ class ChatTimeline {
       if (!el) return false;
       const contentEl = el.querySelector('.content');
       if (contentEl) contentEl.innerHTML = this.sanitize(String(text||''));
+      try { Prism && Prism.highlightAllUnder && this.timeline && Prism.highlightAllUnder(this.timeline); } catch {}
       const metaEl = el.querySelector('.meta');
       if (metaEl && timestamp) metaEl.textContent = `🤖 助手 · ${new Date(timestamp).toLocaleTimeString()}`;
       // 取消 typing 样式

@@ -33,6 +33,8 @@ class ContentRoutes {
         router.get('/chats/latest', this.handleGetLatestAssistant.bind(this));
         // 根据 msgId 精确查找其后的第一条助手回复
         router.get('/chats/reply-for-msg', this.handleGetReplyForMsg.bind(this));
+        // 强制立即扫描并返回 msgId 对应的助手回复（跳过缓存）
+        router.get('/chats/force-reply', this.handleForceReply.bind(this));
         // 诊断：读取/切换 html_content 广播开关（仅用于调试页面）
         router.get('/debug/html-broadcast', this.handleToggleHtmlBroadcast.bind(this));
         
@@ -394,6 +396,55 @@ class ContentRoutes {
         } catch (error) {
             console.error('根据 msgId 查找助手回复失败:', error);
             res.status(500).json({ error: 'reply-for-msg failed', message: error.message });
+        }
+    }
+
+    // 强制扫描数据库，直接返回与 msgId 对应的助手回复（完全跳过缓存）
+    async handleForceReply(req, res){
+        try{
+            const msgId = String(req.query.msgId || '').trim();
+            if (!msgId){ return res.json({ success:true, data: null }); }
+            const options = { instanceId: req.query.instance || null };
+            if (req.query.instance){
+                try{
+                    const fs = require('fs');
+                    const path = require('path');
+                    const cfg = require('../config');
+                    let file = path.isAbsolute(cfg.instances?.file || '') ? cfg.instances.file : path.join(process.cwd(), cfg.instances?.file || 'instances.json');
+                    if (!fs.existsSync(file)){
+                        const fb = path.join(process.cwd(), 'config', 'instances.json');
+                        if (fs.existsSync(fb)) file = fb; else file = null;
+                    }
+                    if (file){
+                        const arr = JSON.parse(fs.readFileSync(file,'utf8'));
+                        const found = (Array.isArray(arr)?arr:[]).find(x=> String(x.id||'')===String(options.instanceId));
+                        if (found && found.openPath) options.filterOpenPath = found.openPath.trim();
+                    }
+                }catch{}
+            }
+            // 跳过缓存：直接将 cacheTimeout 设为 0 并清缓存
+            try{ this.historyManager.clearCache?.(); }catch{}
+            const originalCacheTimeout = this.historyManager.cacheTimeout;
+            this.historyManager.cacheTimeout = 0;
+            const chats = await this.historyManager.getChats(options);
+            this.historyManager.cacheTimeout = originalCacheTimeout;
+            const marker = `<!--#msg:${msgId}-->`;
+            const okRoles = new Set(['assistant','assistant_bot']);
+            for (const s of (Array.isArray(chats)?chats:[])){
+                const msgs = Array.isArray(s.messages)?s.messages:[];
+                const idx = msgs.findIndex(m => typeof (m?.content||m?.text||'') === 'string' && (m.content||m.text||'').includes(marker));
+                if (idx === -1) continue;
+                for (let i = idx+1; i < msgs.length; i++){
+                    const m = msgs[i];
+                    if (m && okRoles.has(String(m.role))){
+                        return res.json({ success:true, data:{ sessionId: s.sessionId || s.session_id || null, message: m }});
+                    }
+                }
+            }
+            return res.json({ success:true, data: null });
+        }catch(err){
+            console.error('force-reply failed:', err);
+            res.status(500).json({ success:false, error: err.message });
         }
     }
 

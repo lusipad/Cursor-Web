@@ -166,11 +166,11 @@ class SimpleWebClient {
             await new Promise(r => this._replyPollingTimer = setTimeout(r, delays[i]));
             try {
         const ts = Date.now();
-        // 0) 精确接口：优先按 msgId 直接查询对应的助手回复
+        // 0) 精确接口：优先按 msgId 直接查询对应的助手回复（强制）
         if (options.msgId) {
           const urlR = this.instanceId
-            ? `/api/chats/reply-for-msg?msgId=${encodeURIComponent(options.msgId)}&instance=${encodeURIComponent(this.instanceId)}&maxAgeMs=0&nocache=1&_=${ts}`
-            : `/api/chats/reply-for-msg?msgId=${encodeURIComponent(options.msgId)}&maxAgeMs=0&nocache=1&_=${ts}`;
+            ? `/api/chats/force-reply?msgId=${encodeURIComponent(options.msgId)}&instance=${encodeURIComponent(this.instanceId)}&_=${ts}`
+            : `/api/chats/force-reply?msgId=${encodeURIComponent(options.msgId)}&_=${ts}`;
           const r = await this._fetchJson(urlR);
           const m0 = r && r.data && r.data.message;
           if (m0) {
