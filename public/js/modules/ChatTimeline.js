@@ -25,6 +25,7 @@ class ChatTimeline {
     this.msgIdToEl = new Map();
     this.renderedHashSet = new Set();
     this.stickToBottom = true; // 用户未上滑时保持吸底
+    this.typingMsgIdToEl = new Map();
 
     // 监听用户滚动，若上滑则暂时关闭吸底
     if (this.container) {
@@ -38,7 +39,13 @@ class ChatTimeline {
   }
 
   sanitize(text) {
-    try { return String(text || '').replace(/[<>]/g, s => ({'<':'&lt;','>':'&gt;'}[s])).replace(/\n/g, '<br/>'); } catch { return ''; }
+    try {
+      let s = String(text || '');
+      // 移除我们用于关联的隐藏标记，避免在UI显示
+      s = s.replace(/<!--\s*#msg:[^>]*-->/gi, '');
+      return s.replace(/[<>]/g, ch => ({'<':'&lt;','>':'&gt;'}[ch]))
+              .replace(/\n/g, '<br/>');
+    } catch { return ''; }
   }
 
   appendMessage(role, content, timestamp) {
@@ -65,9 +72,10 @@ class ChatTimeline {
     try { requestAnimationFrame(() => setTimeout(doScroll, 0)); } catch {}
   }
 
+  // 基于 角色 + 文本 的去重，避免同一条回复因不同时间戳重复渲染
   hashMessage(role, content, timestamp) {
     try {
-      const s = `${role}|${String(content||'')}|${String(timestamp||'')}`;
+      const s = `${role}|${String(content||'')}`;
       let h = 0;
       for (let i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0; }
       return String(h);
@@ -93,7 +101,64 @@ class ChatTimeline {
   }
 
   appendAssistantMessage(text) {
+    // 有新的助手回复时，移除任何遗留的占位，避免错乱
+    this.clearTypingPlaceholders();
     this.appendMessage('assistant', text, Date.now());
+  }
+
+  // 显示“正在生成”占位气泡（与 msgId 关联）
+  showTyping(msgId) {
+    try {
+      if (!msgId || !this.timeline) return;
+      // 清理任何遗留的占位，避免多条“正在生成”导致错乱
+      this.clearTypingPlaceholders();
+      // 若已存在占位，跳过
+      if (this.typingMsgIdToEl.has(msgId)) return;
+      const ts = Date.now();
+      const item = document.createElement('div');
+      item.className = 'chat-message assistant-message';
+      item.innerHTML = `
+        <div class="bubble typing">
+          <div class="meta">🤖 助手 · ${new Date(ts).toLocaleTimeString()}</div>
+          <div class="content">正在生成…</div>
+        </div>`;
+      this.timeline.appendChild(item);
+      this.typingMsgIdToEl.set(msgId, item);
+      // 滚到底部
+      try { this.container.scrollTop = this.container.scrollHeight; } catch {}
+      try { requestAnimationFrame(()=>{ try{ this.container.scrollTop = this.container.scrollHeight; }catch{} }); } catch {}
+    } catch {}
+  }
+
+  // 用真实文本替换占位，并将真实消息哈希登记到去重集合
+  replaceTyping(msgId, text, timestamp) {
+    try {
+      const el = this.typingMsgIdToEl.get(msgId);
+      if (!el) return false;
+      const contentEl = el.querySelector('.content');
+      if (contentEl) contentEl.innerHTML = this.sanitize(String(text||''));
+      const metaEl = el.querySelector('.meta');
+      if (metaEl && timestamp) metaEl.textContent = `🤖 助手 · ${new Date(timestamp).toLocaleTimeString()}`;
+      // 取消 typing 样式
+      try { el.querySelector('.bubble')?.classList?.remove('typing'); } catch {}
+      // 登记去重哈希
+      const realHash = this.hashMessage('assistant', String(text||''));
+      this.renderedHashSet.add(realHash);
+      // 滚到底部
+      try { this.container.scrollTop = this.container.scrollHeight; } catch {}
+      this.typingMsgIdToEl.delete(msgId);
+      return true;
+    } catch { return false; }
+  }
+
+  // 移除所有“正在生成”占位气泡
+  clearTypingPlaceholders(){
+    try{
+      for (const [id, el] of this.typingMsgIdToEl.entries()){
+        try { el.remove(); } catch {}
+        this.typingMsgIdToEl.delete(id);
+      }
+    }catch{}
   }
 
   markRouted(msgId){

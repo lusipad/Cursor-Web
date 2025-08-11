@@ -6,6 +6,10 @@ class EventManager {
     constructor(client) {
         this.client = client;
         this.boundEvents = new Map();
+    // 发送防抖/并发保护
+    this.isSending = false;
+    this.lastSendAt = 0;
+    this.sendCooldownMs = 1200; // 1.2s 内忽略重复触发
     }
 
     /**
@@ -52,22 +56,37 @@ class EventManager {
         if (sendForm && sendInput) {
             // 表单提交事件（方案1：发送 + 历史轮询）
             const submitHandler = async (e) => {
-                e.preventDefault();
-                const msg = sendInput.value.trim();
+                try { e.preventDefault(); } catch {}
+                const msg = (sendInput.value || '').trim();
                 console.log('📤 尝试发送消息:', msg);
 
                 if (!msg) {
                     console.log('❌ 消息为空，跳过发送');
+                    try { this.client.uiManager?.showNotification('请输入消息', 'warning'); } catch {}
                     return;
                 }
 
+                // 并发保护与短时防抖
+                const nowTs = Date.now();
+                if (this.isSending && (nowTs - this.lastSendAt) < this.sendCooldownMs) {
+                    try { this.client.uiManager?.showNotification('正在发送，请稍候…', 'info'); } catch {}
+                    return;
+                }
+                this.isSending = true;
+                this.lastSendAt = nowTs;
+
                 if (!this.client || !this.client.wsManager) {
                     console.error('❌ WebSocket管理器未初始化');
+                    try { this.client.uiManager?.showNotification('发送通道未初始化', 'error'); } catch {}
+                    this.isSending = false;
                     return;
                 }
 
                 if (!this.client.wsManager.isConnected()) {
                     console.error('❌ WebSocket未连接，无法发送消息');
+                    try { this.client.uiManager?.showNotification('网络未连接，正在重连…', 'warning'); } catch {}
+                    try { this.client.wsManager.manualReconnect(); } catch {}
+                    this.isSending = false;
                     return;
                 }
 
@@ -76,21 +95,28 @@ class EventManager {
                     const success = await this.client.sendAndPoll(msg);
                     if (success) {
                         console.log('✅ 消息发送成功');
+                        try { this.client.uiManager?.showNotification('消息已发送', 'success'); } catch {}
                         sendInput.value = '';
                     } else {
                         console.error('❌ 消息发送失败');
+                        try { this.client.uiManager?.showNotification('发送失败', 'error'); } catch {}
                     }
                 } catch (err) {
                     console.error('❌ 发送与轮询出错：', err);
+                    try { this.client.uiManager?.showNotification('发送异常：' + (err?.message || 'unknown'), 'error'); } catch {}
+                } finally {
+                    // 轻量冷却，避免连点
+                    setTimeout(() => { this.isSending = false; }, this.sendCooldownMs);
                 }
             };
 
             // 回车键事件
             const keydownHandler = (e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    // 直接调用提交处理函数，而不是触发事件
-                    submitHandler(e);
+                    // 统一走 submit 流程，避免重复触发
+                    try { e.preventDefault(); } catch {}
+                    try { e.stopPropagation(); } catch {}
+                    try { sendForm.requestSubmit(); } catch { submitHandler(e); }
                 }
             };
 

@@ -74,7 +74,8 @@ class WebSocketManager {
         });
         this.updateStatus('正在连接网络...', 'connecting');
 
-        this.ws = new WebSocket(wsUrl);
+        const finalUrl = (window.__cursorWS && typeof window.__cursorWS==='string') ? window.__cursorWS : wsUrl;
+        this.ws = new WebSocket(finalUrl);
 
         // 连接超时处理
         const connectionTimeout = setTimeout(() => {
@@ -143,6 +144,7 @@ class WebSocketManager {
                 url: wsUrl
             });
             this.updateStatus('网络连接错误', 'error');
+            try { console.warn('WebSocket 连接地址:', finalUrl); } catch {}
         };
     }
 
