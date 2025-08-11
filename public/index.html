@@ -30,13 +30,13 @@
                 <div id="messages-container" class="messages-container">
                     <div class="welcome-message">
                         <h2>欢迎使用 Cursor Web</h2>
-                        <p>状态说明：</p>
-                        <p>🟡 <strong>已连接 - 等待 Cursor 内容</strong>：需要在 Cursor 中运行注入脚本</p>
-                        <p>🟢 <strong>已连接 - 同步正常</strong>：内容同步工作正常</p>
+                        <p>展示机制：</p>
+                        <p>🔁 <strong>基于历史拉取显示</strong>：发送消息后，客户端会短期快速轮询，并在后台以固定频率拉取 <code>/api/chats</code>/<code>/api/chats/latest</code> 显示最新回复。</p>
+                        <p>⚙️ 可选：如需实时 HTML 回显，可在诊断页临时开启 WebSocket <code>html_content</code> 广播（默认关闭，仅调试使用）。</p>
                         <br>
-                        <p class="instruction">使用方法：在 Cursor 开发者工具中运行同步脚本</p>
-                        <a href="/script.html" class="btn btn-primary" style="display:inline-block;margin:10px 0;">前往一键复制同步脚本 &gt;&gt;</a>
-                        <p class="instruction">脚本会同步整个 Cursor 页面内容到此页面</p>
+                        <p class="instruction">使用方法：在 Cursor 运行注入脚本（用于消息发送与控制），界面显示由历史拉取完成。</p>
+                        <a href="/script.html" class="btn btn-primary" style="display:inline-block;margin:10px 0;">前往一键复制注入脚本 &gt;&gt;</a>
+                        <p class="instruction">注入脚本负责投递消息与辅助控制；不再强制依赖 HTML 回显。</p>
                     </div>
                 </div>
                 <footer class="footer">

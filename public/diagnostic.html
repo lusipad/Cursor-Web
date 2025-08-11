@@ -251,6 +251,20 @@
             </div>
         </div>
 
+        <!-- WebSocket 回显控制（html_content 广播开关） -->
+        <div class="module-card" id="ws-broadcast-card">
+            <div class="module-title">
+                <span class="status-indicator" id="ws-broadcast-status"></span>
+                WebSocket 回显控制
+            </div>
+            <div class="module-details" id="ws-broadcast-details">用于开启/关闭服务端 html_content 广播（默认关闭，仅调试使用）。</div>
+            <div class="module-actions">
+                <button class="btn btn-info" onclick="refreshWsBroadcast()">读取状态</button>
+                <button class="btn btn-success" onclick="enableWsBroadcast()">开启广播</button>
+                <button class="btn btn-danger" onclick="disableWsBroadcast()">关闭广播</button>
+            </div>
+        </div>
+
         <!-- 错误处理器 -->
         <div class="module-card" id="error-handler-card">
             <div class="module-title">
@@ -432,6 +446,31 @@
 
     <script src="js/modules/module-loader.js"></script>
     <script>
+        // ---- WS 回显控制（调用临时端点 /api/debug/html-broadcast）----
+        async function fetchJson(url, options){ const r = await fetch(url, options); const t = await r.text(); try{return JSON.parse(t)}catch{return { raw:t }} }
+        async function refreshWsBroadcast(){
+            try{
+                const j = await fetchJson('/api/debug/html-broadcast');
+                const on = !!(j && (j.enabled === true || j.data === true));
+                const cardId = 'ws-broadcast';
+                updateModuleCard(cardId, on ? 'success' : 'warning', on ? '已开启（建议仅调试使用）' : '已关闭（推荐）', on ? 'success' : 'warning');
+                log(`WS 广播状态：${on?'开启':'关闭'}`, on?'success':'info');
+            }catch(e){ updateModuleCard('ws-broadcast','error','读取失败','error'); log('❌ 读取 WS 广播状态失败: '+e.message,'error'); }
+        }
+        async function enableWsBroadcast(){
+            try{
+                const j = await fetchJson('/api/debug/html-broadcast?enable=1');
+                log('✅ 已开启 WS 广播', 'success');
+                refreshWsBroadcast();
+            }catch(e){ log('❌ 开启失败: '+e.message, 'error'); }
+        }
+        async function disableWsBroadcast(){
+            try{
+                const j = await fetchJson('/api/debug/html-broadcast?enable=0');
+                log('✅ 已关闭 WS 广播', 'success');
+                refreshWsBroadcast();
+            }catch(e){ log('❌ 关闭失败: '+e.message, 'error'); }
+        }
         // 日志功能
         function log(message, type = 'info') {
             const logDiv = document.getElementById('log');

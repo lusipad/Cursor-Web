@@ -21,8 +21,20 @@ class ChatTimeline {
       this.timeline.className = 'chat-timeline';
       this.container.appendChild(this.timeline);
     }
-    // 维护消息索引：msgId -> element
+    // 维护消息索引：msgId -> element；已渲染去重：hash -> true
     this.msgIdToEl = new Map();
+    this.renderedHashSet = new Set();
+    this.stickToBottom = true; // 用户未上滑时保持吸底
+
+    // 监听用户滚动，若上滑则暂时关闭吸底
+    if (this.container) {
+      this.container.addEventListener('scroll', () => {
+        try {
+          const nearBottom = (this.container.scrollTop + this.container.clientHeight) >= (this.container.scrollHeight - 30);
+          this.stickToBottom = nearBottom;
+        } catch {}
+      });
+    }
   }
 
   sanitize(text) {
@@ -31,6 +43,9 @@ class ChatTimeline {
 
   appendMessage(role, content, timestamp) {
     if (!this.timeline) return;
+    const key = this.hashMessage(role, content, timestamp);
+    if (this.renderedHashSet.has(key)) return;
+    this.renderedHashSet.add(key);
     const item = document.createElement('div');
     item.className = `chat-message ${role === 'user' ? 'user-message' : 'assistant-message'}`;
     item.innerHTML = `
@@ -40,8 +55,23 @@ class ChatTimeline {
       </div>
     `;
     this.timeline.appendChild(item);
-    // 滚动到底部
-    try { this.container.scrollTop = this.container.scrollHeight; } catch {}
+    // 滚动到底部（延迟确保渲染完成）
+    const doScroll = () => {
+      if (!this.container) return;
+      if (!this.stickToBottom) return;
+      try { this.container.scrollTop = this.container.scrollHeight; } catch {}
+    };
+    doScroll();
+    try { requestAnimationFrame(() => setTimeout(doScroll, 0)); } catch {}
+  }
+
+  hashMessage(role, content, timestamp) {
+    try {
+      const s = `${role}|${String(content||'')}|${String(timestamp||'')}`;
+      let h = 0;
+      for (let i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0; }
+      return String(h);
+    } catch { return String(Date.now()); }
   }
 
   appendUserMessage(text, msgId) {

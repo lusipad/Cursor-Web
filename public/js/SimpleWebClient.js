@@ -84,15 +84,27 @@ class SimpleWebClient {
             this.uiManager.updateStatus(message, type);
         });
 
-        this.statusManager.setContentPollingCallback((data) => {
-            if (data.html !== this.contentManager.getCurrentContent()) {
-                console.log('📡 HTTP轮询获取到新内容');
-                this.contentManager.handleContentUpdate(data);
-            }
+        this.statusManager.setContentPollingCallback((payload) => {
+            try {
+                const latest = payload && payload.latest;
+                const message = latest && latest.message;
+                if (!message) return;
+                const hash = this._hashMessage(message);
+                if (!this._lastMessageHash || hash !== this._lastMessageHash) {
+                    this._lastMessageHash = hash;
+                    const text = message.content || message.text || message.value || '';
+                    if (text && this.timeline) {
+                        this.timeline.appendAssistantMessage(String(text));
+                    }
+                    const ts = message.timestamp || Date.now();
+                    try { this.cursorStatusManager.recordContentUpdate(ts); } catch {}
+                }
+            } catch {}
         });
 
         this.statusManager.setStatusCheckCallback(() => {
-            this.statusManager.checkCursorStatus(this.wsManager, this.contentManager);
+            // 改为使用首页状态管理器统一判断展示状态
+            this.homePageStatusManager.updateHomePageStatus();
         });
 
         this.statusManager.setConnectionCheckCallback(() => {
@@ -186,18 +198,35 @@ class SimpleWebClient {
             if (this._replyPollingAbort) return false;
             await new Promise(r => this._replyPollingTimer = setTimeout(r, delays[i]));
             try {
-                const url = this.instanceId ? `/api/chats?instance=${encodeURIComponent(this.instanceId)}` : '/api/chats';
-                const chats = await this._fetchJson(url);
-                const { session, message } = this._pickLatestAssistant(chats || []);
+                // 1) 先尝试轻量接口 latest（绕过缓存）
+                const ts = Date.now();
+                const urlLatest = this.instanceId
+                    ? `/api/chats/latest?instance=${encodeURIComponent(this.instanceId)}&maxAgeMs=0&nocache=1&_=${ts}`
+                    : `/api/chats/latest?maxAgeMs=0&nocache=1&_=${ts}`;
+                const rLatest = await this._fetchJson(urlLatest);
+                const latest = rLatest && rLatest.data && rLatest.data.message;
+                if (latest) {
+                    const h0 = this._hashMessage(latest);
+                    const isNew0 = (!this._lastMessageHash || h0 !== this._lastMessageHash);
+                    const tsOk0 = latest.timestamp ? (latest.timestamp > sentAt) : true;
+                    if (isNew0 && tsOk0) {
+                        this.uiManager.showNotification('已获取最新回复', 'info');
+                        this._lastMessageHash = h0;
+                        try { const text0 = latest && (latest.content || latest.text || latest.value || ''); if (text0 && options.onAssistant) options.onAssistant(text0); } catch {}
+                        return true;
+                    }
+                }
+
+                // 2) 回退到完整 /api/chats（可靠但更重）
+                const urlChats = this.instanceId ? `/api/chats?instance=${encodeURIComponent(this.instanceId)}` : '/api/chats';
+                const chats = await this._fetchJson(urlChats);
+                const { message } = this._pickLatestAssistant(chats || []);
                 if (message) {
                     const h = this._hashMessage(message);
                     const isNew = (!this._lastMessageHash || h !== this._lastMessageHash);
                     const tsOk = message.timestamp ? (message.timestamp > sentAt) : true;
                     if (isNew && tsOk) {
-                        // 在现有 UI 上，直接触发一次“内容刷新”即可（后端也在同步HTML）
-                        // 若需要可在此处追加一段简要提示
                         this.uiManager.showNotification('已获取最新回复', 'info');
-                        // 更新基线，避免重复提示
                         this._lastMessageHash = h;
                         try { const text = message && (message.content || message.text || message.value || ''); if (text && options.onAssistant) options.onAssistant(text); } catch {}
                         return true;
@@ -265,10 +294,11 @@ class SimpleWebClient {
     handleWebSocketMessage(data) {
         switch (data.type) {
             case 'html_content':
-                this.contentManager.handleContentUpdate(data.data);
-                // 记录Cursor内容更新活动
-                const timestamp = data.data.timestamp || data.timestamp || Date.now();
-                this.cursorStatusManager.recordContentUpdate(timestamp);
+                // 不再用于回显，仅记录一次活动时间（可选）
+                try {
+                    const timestamp = (data && data.data && data.data.timestamp) || data.timestamp || Date.now();
+                    this.cursorStatusManager.recordContentUpdate(timestamp);
+                } catch {}
                 break;
             case 'clear_content':
                 this.contentManager.handleClearContent(data);
@@ -276,7 +306,10 @@ class SimpleWebClient {
                 this.cursorStatusManager.recordCursorActivity('clear_content');
                 break;
             case 'delivery_ack':
-                try{ if(this.timeline && data.msgId){ this.timeline.markDelivered(data.msgId); } }catch{}
+                try{
+                  if(this.timeline && data.msgId){ this.timeline.markDelivered(data.msgId); }
+                  this.uiManager.showNotification('已提交给 Cursor（网络回执）', 'success');
+                }catch{}
                 break;
             case 'delivery_error':
                 try{ this.uiManager.showNotification('注入失败：'+(data.reason||'unknown'),'warning'); }catch{}
@@ -285,6 +318,11 @@ class SimpleWebClient {
                 console.log('💓 收到心跳响应');
                 // 记录Cursor心跳活动
                 this.cursorStatusManager.recordCursorActivity('pong');
+                break;
+            case 'assistant_hint':
+                try{
+                  this.uiManager.showNotification('模型已接收，等待回复…', 'info');
+                }catch{}
                 break;
             default:
                 console.log('📥 收到未知消息类型:', data.type);

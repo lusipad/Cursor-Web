@@ -74,21 +74,23 @@ class StatusManager {
     }
 
     /**
-     * 开始内容轮询（备用方案）
+     * 开始内容轮询（新版：通过 /api/chats 展示数据，不再依赖 /api/content）
      */
     startContentPolling() {
         this.contentPollingInterval = setInterval(async () => {
             try {
-                const response = await fetch('/api/content');
-                const result = await response.json();
-
-                if (result.success && result.data && this.onContentPollingCallback) {
-                    this.onContentPollingCallback(result.data);
+                const base = (window.simpleClient && window.simpleClient.instanceId)
+                    ? `/api/chats/latest?instance=${encodeURIComponent(window.simpleClient.instanceId)}&maxAgeMs=0`
+                    : '/api/chats/latest?maxAgeMs=0';
+                const result = await (await fetch(base)).json();
+                if (this.onContentPollingCallback) {
+                    // 轻量接口：传递 latest 结果结构（data: { sessionId, message }）
+                    this.onContentPollingCallback({ latest: (result && result.data) || null });
                 }
             } catch (error) {
                 // 静默处理错误，避免控制台噪音
             }
-        }, 10000); // 每10秒检查一次
+        }, 12000); // 默认每12秒拉取一次
     }
 
     /**

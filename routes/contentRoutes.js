@@ -1,5 +1,6 @@
 // 内容相关路由
 const express = require('express');
+const serverConfig = require('../config/serverConfig');
 const router = express.Router();
 
 class ContentRoutes {
@@ -28,12 +29,27 @@ class ContentRoutes {
 
         // 获取聊天记录
         router.get('/chats', this.handleGetChats.bind(this));
+        // 获取最新一条助手消息（轻量接口）
+        router.get('/chats/latest', this.handleGetLatestAssistant.bind(this));
+        // 诊断：读取/切换 html_content 广播开关（仅用于调试页面）
+        router.get('/debug/html-broadcast', this.handleToggleHtmlBroadcast.bind(this));
         
         // 获取单个聊天记录
         router.get('/chat/:sessionId', this.handleGetChat.bind(this));
         
         // 导出聊天记录
         router.get('/chat/:sessionId/export', this.handleExportChat.bind(this));
+    }
+
+    // 诊断：读取/切换 html_content 广播开关（仅用于调试页面）
+    handleToggleHtmlBroadcast(req, res){
+        try{
+            const cfg = require('../config/serverConfig');
+            const q = String(req.query.enable || '').trim();
+            if (q === '1' || q === 'true') cfg.websocket.broadcastHtmlEnabled = true;
+            else if (q === '0' || q === 'false') cfg.websocket.broadcastHtmlEnabled = false;
+            res.json({ success:true, enabled: !!cfg.websocket.broadcastHtmlEnabled });
+        }catch(e){ res.status(500).json({ success:false, error: e?.message||'toggle failed' }); }
     }
 
     // 测试连接
@@ -68,11 +84,13 @@ class ContentRoutes {
                         });
                     }
 
-                    // 广播给所有 WebSocket 客户端
-                    this.websocketManager.broadcastToClients({
-                        type: 'html_content',
-                        data: data
-                    });
+            // 可选：广播给所有 WebSocket 客户端（默认关闭，仅调试用）
+            if (serverConfig?.websocket?.broadcastHtmlEnabled) {
+                this.websocketManager.broadcastToClients({
+                    type: 'html_content',
+                    data: data
+                });
+            }
 
                     res.json({
                         success: true,
@@ -230,6 +248,83 @@ class ContentRoutes {
                 error: '获取聊天记录详情失败',
                 message: error.message
             });
+        }
+    }
+
+    // 获取最新一条助手消息（可按实例过滤）
+    async handleGetLatestAssistant(req, res) {
+        try {
+            const options = {
+                mode: req.query.mode,
+                includeUnmapped: req.query.includeUnmapped,
+                segmentMinutes: req.query.segmentMinutes,
+                instanceId: req.query.instance || null
+            };
+            if (req.query.nocache) {
+                try { this.historyManager.clearCache?.(); } catch {}
+            }
+            const originalCacheTimeout = this.historyManager.cacheTimeout;
+            if (req.query.maxAgeMs) {
+                const n = Math.max(0, Math.min(Number(req.query.maxAgeMs) || 0, 10000));
+                this.historyManager.cacheTimeout = n; // 允许设为0
+            }
+
+            // 若传入实例，解析 openPath 作为过滤条件（与 /chats 保持一致）
+            if (options.instanceId) {
+                try{
+                    const fs = require('fs');
+                    const path = require('path');
+                    const cfg = require('../config');
+                    const primary = path.isAbsolute(cfg.instances?.file || '') ? cfg.instances.file : path.join(process.cwd(), cfg.instances?.file || 'instances.json');
+                    let file = primary;
+                    if (!fs.existsSync(file)) {
+                        const fallback = path.join(process.cwd(), 'config', 'instances.json');
+                        if (fs.existsSync(fallback)) file = fallback; else file = null;
+                    }
+                    if (file) {
+                        const arr = JSON.parse(fs.readFileSync(file,'utf8'));
+                        const list = Array.isArray(arr) ? arr : [];
+                        const found = list.find(x => String(x.id||'') === String(options.instanceId));
+                        if (found && typeof found.openPath === 'string' && found.openPath.trim()) {
+                            options.filterOpenPath = found.openPath.trim();
+                        }
+                    }
+                }catch{}
+            }
+
+            const chats = await this.historyManager.getChats(options);
+            if (req.query.maxAgeMs) this.historyManager.cacheTimeout = originalCacheTimeout;
+
+            const okRoles = new Set(['assistant','assistant_bot']);
+            let latest = null;
+            let latestSession = null;
+            for (const s of (Array.isArray(chats) ? chats : [])) {
+                const msgs = Array.isArray(s.messages) ? s.messages : [];
+                for (let i = msgs.length - 1; i >= 0; i--) {
+                    const m = msgs[i];
+                    if (m && okRoles.has(String(m.role))) {
+                        const score = Number(m.timestamp || s.lastUpdatedAt || s.updatedAt || 0);
+                        if (!latest || score > latest.score) {
+                            latest = { msg: m, score };
+                            latestSession = s;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            if (!latest) {
+                return res.json({ success: true, data: null });
+            }
+
+            const payload = {
+                sessionId: latestSession?.sessionId || latestSession?.session_id || null,
+                message: latest.msg
+            };
+            res.json({ success: true, data: payload });
+        } catch (error) {
+            console.error('获取最新助手消息失败:', error);
+            res.status(500).json({ error: '获取最新助手消息失败', message: error.message });
         }
     }
 

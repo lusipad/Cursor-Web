@@ -3,7 +3,30 @@
 ### 目标
 - 在配置文件中声明多个实例（Instance），每个实例包含 Cursor 启动参数（打开目录、用户数据目录、额外参数等）。
 - Web 管理页统一查看各实例状态，执行注入/重启/发送消息/查看回复等操作。
-- 发送侧通过 WebSocket → 注入脚本写入 Cursor 输入并触发发送；返回侧通过 DOM HTML 广播 + SQLite 历史轮询组合以获取最新回复。
+- 发送侧通过 WebSocket → 注入脚本写入 Cursor 输入并触发发送；返回侧不再依赖 WebSocket 回显，统一通过 HTTP 拉取历史展示（轮询）。
+
+### 通信架构重构（WebSocket 控制面 + HTTP 展示面）
+
+- WebSocket（控制面）
+  - 仅用于控制/指令：`register`、`user_message`、`delivery_ack|delivery_error`、`assistant_hint`、`clear_content`、`ping/pong`。
+  - 关闭 `html_content` 回显广播（默认禁用，保留调试开关 `config.websocket.broadcastHtmlEnabled=false`）。
+- HTTP（数据面）
+  - UI 展示统一使用 `/api/chats` 读取聚合会话；支持 `?instance=`、`maxAgeMs`、`nocache`。
+  - 可选增强：新增轻量 `/api/chats/latest?instance=` 与 `ETag/If-None-Match` 增量以降带宽。
+- 前端
+  - 保留“发送消息”和“按钮动作”（注入/重启/仅注入等）。
+  - 不再基于 WebSocket `html_content` 做 UI 回显；展示改为：
+    - 常驻轮询：默认每 12s 拉取一次 `/api/chats`，仅在基线变化时更新。
+    - 发送后快轮询：间隔 [2000, 2000, 5000, 10000, 10000] ms，命中即渲染并结束快轮询。
+  - 仅使用 WS 回执更新状态（已路由/已投递/失败等），不直接驱动内容展示。
+- 时序（发送后）
+  - 本地先插入用户消息 → 通过 WS 投递 → 启动快轮询 `/api/chats` → 命中新助手消息后渲染 → 回到常驻轮询。
+- 兼容与回退
+  - 先在前端停用回显路径；确认稳定后在服务端关闭 `html_content` 广播。
+  - 如需回退，仅恢复前端 `html_content` 监听即可。
+- 验收要点
+  - 单页/多页在 1~5s 内通常能看到助手回复（取决于写入延迟）。
+  - 断网与重连期间，按钮可见、发送失败有提示、轮询自动恢复。
 
 ### 实例配置（建议）
 - 新增 `config/instances.json`（示例）：
@@ -31,7 +54,7 @@
   - GET `/api/history/cursor-path` 与 POST 同名端点：读取/设置历史根
   - GET `/api/history/debug`：输出 SQLite 检测与采样信息
   - GET `/api/history/projects`：唯一项目列表
-  - GET `/api/content`：最新 HTML 内容（由注入脚本通过 HTTP 广播）
+  - GET `/api/content`：最新 HTML 内容（可选调试用途；展示不再依赖该接口）
   - GET `/api/status`、GET `/api/health`：状态/健康检查
 
 ### 注入脚本（关键点）
@@ -227,7 +250,7 @@ startContentPolling() {
 
 ## 方案 1：最小改动（推荐先上）
 
-不改后端结构，发送侧沿用现有 WS → 注入脚本逻辑；返回侧通过“短周期轮询历史”拿到最新助手回复。
+不改后端结构，发送侧沿用现有 WS → 注入脚本逻辑；返回侧统一采用“短周期轮询历史 + 常驻轮询”展示，不再使用 WS 回显。
 
 1) 前端发送后的轮询策略
 - 发送成功后记录 `sentAt = Date.now()`；

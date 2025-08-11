@@ -1,5 +1,6 @@
 // WebSocket 管理器（精简稳定版）
 const { WebSocketServer } = require('ws');
+const serverConfig = require('../config/serverConfig');
 
 class WebSocketManager {
   constructor(server, chatManager, historyManager){
@@ -45,7 +46,10 @@ class WebSocketManager {
   handleHtmlContent(ws, message){
     // 更新当前会话 HTML（仅用于演示，实际项目可移除）
     try{ this.chatManager.updateContent?.(message.data?.html||'', message.data?.timestamp||Date.now()); }catch{}
-    this.broadcastToClients(message, ws);
+    // 根据配置决定是否广播到所有客户端（默认关闭，仅调试用）
+    if (serverConfig?.websocket?.broadcastHtmlEnabled) {
+      this.broadcastToClients(message, ws);
+    }
   }
 
   broadcastToClients(message, sender){
@@ -106,6 +110,12 @@ class WebSocketManager {
     const map = ['CONNECTING','OPEN','CLOSING','CLOSED'];
     const out=[]; this.connectedClients.forEach(ws=>{ const m=ws._meta||{}; out.push({ role:m.role||'unknown', instanceId:m.instanceId||null, ip:m.ip||null, connectedAt:m.connectedAt||null, lastPongAt:m.lastPongAt||null, injected:Boolean(m.injected), url:m.url||null, online: ws.readyState===ws.OPEN, readyState: map[ws.readyState]||String(ws.readyState) }); });
     return out;
+  }
+
+  getConnectedClientsCount(){
+    let count = 0;
+    this.connectedClients.forEach(ws=>{ if (ws && ws.readyState===ws.OPEN) count++; });
+    return count;
   }
 
   close(){ try{ this.wss.close(); }catch{} }

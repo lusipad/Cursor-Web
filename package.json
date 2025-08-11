@@ -9,7 +9,7 @@
     "dev": "nodemon app.js",
     "legacy": "node server.js",
     "inject": "node scripts/auto-inject-cursor.js",
-    "test": "node tests/run-all-tests.js",
+    "test": "node tests/ws-routing-test.js",
     "test:unit": "node tests/run-all-tests.js --unit",
     "test:integration": "node tests/run-all-tests.js --integration",
     "lint": "echo \"No linter yet\" && exit 0",
