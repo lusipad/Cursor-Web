@@ -5,6 +5,37 @@
  *  - 统一触发 Prism 高亮，并对带有附加信息的语言类名做规范化
  */
 (function(){
+  // 统一的语言规范化，兼容 Prism 的语法名称
+  function normalizeLanguageName(raw){
+    try{
+      let lang = String(raw || '').trim().toLowerCase();
+      if (!lang) return '';
+      // 去掉类似 csharp:test.cs / ts/app.ts 这类附加信息
+      if (/[:/]/.test(lang)) lang = lang.split(/[:/]/)[0];
+      // 常见别名映射到 Prism 的标准名称
+      const aliasMap = {
+        'c#': 'csharp',
+        'cs': 'csharp',
+        'csharp': 'csharp',
+        'c++': 'cpp',
+        'cpp': 'cpp',
+        'c': 'c',
+        'ts': 'typescript',
+        'tsx': 'typescript',
+        'js': 'javascript',
+        'jsx': 'javascript',
+        'py': 'python',
+        'shell': 'bash',
+        'sh': 'bash',
+        'bash': 'bash',
+        'md': 'markdown',
+        'html': 'markup',
+        'xml': 'markup'
+      };
+      return aliasMap[lang] || lang;
+    }catch{ return String(raw||''); }
+  }
+
   const MarkdownRenderer = {
     /**
      * 将 Markdown 文本转换为 HTML 字符串
@@ -44,17 +75,17 @@
             const classes = String(node.className || '').split(/\s+/).filter(Boolean);
             const langClass = classes.find(c => c.startsWith('language-')) || '';
             let lang = langClass ? langClass.replace(/^language-/, '') : '';
-            if (lang && /[:/]/.test(lang)) { lang = lang.split(/[:/]/)[0]; }
+            lang = normalizeLanguageName(lang);
             if (!lang) lang = 'none';
             const rest = classes.filter(c => !c.startsWith('language-'));
             node.className = `language-${lang}` + (rest.length ? ` ${rest.join(' ')}` : '');
           }catch{}
         });
-        if (window.Prism && typeof window.Prism.highlightAllUnder === 'function'){
-          window.Prism.highlightAllUnder(container);
-        }
+        // 不使用 Prism：仅规范化类名，交由浏览器默认样式渲染
       }catch{}
-    }
+    },
+
+    normalizeLanguage: normalizeLanguageName
   };
 
   if (typeof module !== 'undefined' && module.exports) {

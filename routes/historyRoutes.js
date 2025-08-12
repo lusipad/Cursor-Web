@@ -151,12 +151,21 @@ class HistoryRoutes {
     async getHistoryItem(req, res) {
         try {
             const { id } = req.params;
-            const options = { mode: req.query.mode, includeUnmapped: req.query.includeUnmapped, segmentMinutes: req.query.segmentMinutes, instanceId: req.query.instance || null };
+            const debugOn = (String(req.query.debug||'').toLowerCase()==='1'||String(req.query.debug||'').toLowerCase()==='true');
+            const t0 = Date.now();
+            const options = { mode: req.query.mode, includeUnmapped: req.query.includeUnmapped, segmentMinutes: req.query.segmentMinutes, instanceId: req.query.instance || null, maxAgeMs: req.query.maxAgeMs || null, debug: debugOn };
+            let t1 = Date.now(); let t2 = null; let t3 = null;
             if (options.instanceId) {
                 const openPath = this.resolveInstanceOpenPath(options.instanceId);
                 if (openPath) options.filterOpenPath = openPath;
             }
+            t2 = Date.now();
             const item = await this.historyManager.getHistoryItem(id, options);
+            if (!item) {
+                // 避免阻塞：不要触发全量兜底，直接返回 404
+                if (debugOn) console.warn('detail not found (fast path miss):', id);
+            }
+            t3 = Date.now();
             
             if (!item) {
                 return res.status(404).json({
@@ -165,10 +174,22 @@ class HistoryRoutes {
                 });
             }
             
-            res.json({
-                success: true,
-                data: item
-            });
+            const resp = { success: true, data: item };
+            if (debugOn) {
+                resp.debug = {
+                    timings: {
+                        receivedMs: t0,
+                        afterParseMs: t1 - t0,
+                        afterOpenPathMs: t2 - t0,
+                        managerCallMs: t3 - t2,
+                        totalMs: t3 - t0
+                    },
+                    messageCount: Array.isArray(item?.messages) ? item.messages.length : 0,
+                    projectRoot: item?.project?.rootPath || null,
+                    dataSource: item?.dataSource || null
+                };
+            }
+            res.json(resp);
         } catch (error) {
             console.error('获取历史记录详情失败:', error);
             res.status(500).json({

@@ -193,15 +193,8 @@ body {
     white-space: pre !important;
 }
 
-/* 让 Prism 的 token 颜色生效 */
+/* 去除 Prism 依赖：维持基础代码块可读性 */
 .sync-content pre code { white-space: inherit !important; display: block; }
-.sync-content .token { color: initial !important; }
-.sync-content .token.comment { color: #6a9955 !important; }
-.sync-content .token.string { color: #ce9178 !important; }
-.sync-content .token.number { color: #b5cea8 !important; }
-.sync-content .token.keyword { color: #569cd6 !important; }
-.sync-content .token.function { color: #dcdcaa !important; }
-.sync-content .token.operator { color: #c586c0 !important; }
 
 .sync-content a {
     color: #00bfff !important;

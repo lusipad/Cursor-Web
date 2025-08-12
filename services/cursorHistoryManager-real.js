@@ -10,6 +10,9 @@ class CursorHistoryManager {
         this.lastCacheTime = 0;
         this.cacheTimeout = 3000; // 默认 3 秒缓存，前端可通过 maxAgeMs 调整
         this.sqliteEngine = null;
+        this._historyCache = new Map();
+        this._historyItemCache = new Map(); // sessionId -> { ts, item }
+        this._sessionDbIndex = new Map();   // sessionId -> { dbPath, project, ts }
         // 对齐 cursor-view-main 的项目提取与分组表现：
         // - 不做 Git 根提升
         // - 不做容器目录细化
@@ -18,6 +21,8 @@ class CursorHistoryManager {
         
         console.log(`📁 Cursor数据路径: ${this.cursorStoragePath}`);
         this.initializeSQLiteEngine();
+        // 启动后延迟构建一次索引，并每 60s 增量刷新，降低首次详情耗时
+        try { this.scheduleSessionIndexRebuild(); } catch {}
     }
 
     // ====== cursor-view 等价实现（提取口径完全对齐） ======
@@ -512,6 +517,89 @@ class CursorHistoryManager {
 
         console.log('⚠️ 所有SQLite引擎都不可用，使用备用模式');
         this.sqliteEngine = { type: 'fallback' };
+    }
+
+    // ========== 轻量会话索引（分钟级刷新） ==========
+    scheduleSessionIndexRebuild(){
+        this._indexEnabled = String(process.env.CW_ENABLE_SESSION_INDEX || '').toLowerCase() === '1';
+        this._indexIntervalMs = 60 * 1000;
+        this._indexBuilding = false;
+        this._lastIndexBuild = 0;
+        setTimeout(()=>{ try{ this.rebuildSessionIndex(); }catch{} }, 2500);
+        setInterval(()=>{
+            try{
+                if (!this._indexEnabled) return;
+                if (this._indexBuilding) return;
+                if (Date.now() - (this._lastIndexBuild||0) < this._indexIntervalMs) return;
+                this.rebuildSessionIndex();
+            }catch{}
+        }, this._indexIntervalMs);
+    }
+
+    rebuildSessionIndex(){
+        if (!this._indexEnabled) return;
+        if (this._indexBuilding) return;
+        if (this.sqliteEngine?.type !== 'better-sqlite3') return;
+        this._indexBuilding = true;
+        const Database = require('better-sqlite3');
+        const path = require('path');
+        const fs = require('fs');
+        const put = (sid, dbPath, project)=>{
+            try{
+                const k = String(sid);
+                const prev = this._sessionDbIndex.get(k);
+                if (!prev || prev.dbPath !== dbPath) this._sessionDbIndex.set(k, { dbPath, project: project||null, ts: Date.now() });
+            }catch{}
+        };
+        const CHUNK = 1000;
+        const MAX_TOTAL = 50000;
+        const tasks = [];
+        const globalDb = path.join(this.cursorStoragePath, 'User', 'globalStorage', 'state.vscdb');
+        if (fs.existsSync(globalDb)) tasks.push({ dbPath: globalDb, project: null });
+        const workspaces = this.findWorkspaceDatabases();
+        for (const ws of workspaces){
+            const dbPath = ws.workspaceDb || ws.dbPath || ws; if (!dbPath || !fs.existsSync(dbPath)) continue; tasks.push({ dbPath, project: null });
+        }
+        let totalKeys = 0;
+        const started = Date.now();
+        const runTask = (idx)=>{
+            if (idx >= tasks.length || totalKeys >= MAX_TOTAL){ finish(); return; }
+            const { dbPath, project } = tasks[idx];
+            const db = new Database(dbPath, { readonly: true });
+            let offset = 0; let stopped = false;
+            const step = ()=>{
+                if (stopped || totalKeys >= MAX_TOTAL){ try{ db.close(); }catch{}; runTask(idx+1); return; }
+                try{
+                    const rows1 = db.prepare("SELECT key FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' LIMIT ? OFFSET ?").all(CHUNK, offset);
+                    offset += rows1.length;
+                    for (const r of rows1){ const k=String(r.key||''); const p=k.split(':'); if (p.length>=3 && p[0]==='bubbleId'){ put(p[1], dbPath, project); totalKeys++; } }
+                    if (rows1.length < CHUNK){
+                        // 再扫 composerData，同样分批
+                        let off2 = 0;
+                        const step2 = ()=>{
+                            if (stopped || totalKeys >= MAX_TOTAL){ try{ db.close(); }catch{}; runTask(idx+1); return; }
+                            try{
+                                const rows2 = db.prepare("SELECT key FROM cursorDiskKV WHERE key LIKE 'composerData:%' LIMIT ? OFFSET ?").all(CHUNK, off2);
+                                off2 += rows2.length;
+                                for (const r of rows2){ const k=String(r.key||''); if (k.startsWith('composerData:')){ put(k.slice('composerData:'.length), dbPath, project); totalKeys++; } }
+                                if (rows2.length < CHUNK){ try{ db.close(); }catch{}; runTask(idx+1); return; }
+                                setTimeout(step2, 0);
+                            }catch{ try{ db.close(); }catch{}; runTask(idx+1); }
+                        };
+                        setTimeout(step2, 0);
+                        return;
+                    }
+                    setTimeout(step, 0);
+                }catch{ try{ db.close(); }catch{}; runTask(idx+1); }
+            };
+            setTimeout(step, 0);
+        };
+        const finish = ()=>{
+            this._lastIndexBuild = Date.now();
+            console.log(`🔎 会话索引刷新：${totalKeys} keys, ${(Date.now()-started)}ms, indexSize=${this._sessionDbIndex.size}`);
+            this._indexBuilding = false;
+        };
+        runTask(0);
     }
 
     // 获取Cursor存储路径（支持 ENV 覆盖 + Windows 下自动在 Roaming/Local 之间择优）
@@ -2389,9 +2477,197 @@ class CursorHistoryManager {
 
     // 获取单个聊天记录（支持透传 options，例如 mode=cv）
     async getHistoryItem(sessionId, options = {}) {
-        const chats = await this.getChats(options);
-        const chat = chats.find(chat => (chat.sessionId === sessionId || chat.session_id === sessionId));
-        return chat;
+        try{
+            const maxAge = Math.max(0, Math.min(Number(options.maxAgeMs||0) || 0, 10000));
+            const now = Date.now();
+            const key = String(sessionId);
+            const cached = this._historyItemCache.get(key);
+            if (cached && (!maxAge || (now - cached.ts) <= maxAge)) return cached.item;
+
+            // 仅走精准提取，避免全库扫描导致阻塞；未命中直接返回 null
+            const fast = await this.getHistoryItemFast(sessionId, options);
+            if (fast) {
+                this._historyItemCache.set(key, { ts: now, item: fast });
+                return fast;
+            }
+            return null;
+        }catch(e){ return null; }
+    }
+
+    /**
+     * 精准提取单会话（仅访问包含该会话ID的相关键）
+     * 仅实现 better-sqlite3 路径，其它引擎回退全量
+     */
+    async getHistoryItemFast(sessionId, options = {}){
+        try{
+            if (!sessionId) return null;
+            if (this.sqliteEngine?.type !== 'better-sqlite3') return null;
+            const Database = require('better-sqlite3');
+            const messages = [];
+            let project = null;
+            let lastTs = null;
+            let sourceDbPath = null;
+            const MAX_MSGS = 2000; // 防止极端超长会话阻塞解析
+
+            const push = (role, content, ts) => {
+                const text = (content||'').toString(); if (!text.trim()) return;
+                if (messages.length >= MAX_MSGS) return;
+                messages.push({ role, content: text, timestamp: ts || null });
+                if (ts) lastTs = lastTs ? Math.max(lastTs, new Date(ts).getTime()) : new Date(ts).getTime();
+            };
+
+            // 工具：从 DB 快速收集此 session 的消息
+            const collectFromDb = (dbPath) => {
+                const db = new Database(dbPath, { readonly: true });
+                try {
+                    const t0 = Date.now(); let readRows = 0;
+                    const before = messages.length;
+                    // bubbleId:sessionId:* 优先，用区间查询便于命中索引
+                    let hadBubble = false;
+                    try{
+                        const lower = `bubbleId:${sessionId}:`;
+                        const upper = lower + String.fromCharCode(0xffff);
+                        const stmt = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key >= ? AND key < ?");
+                        const rows = stmt.all(lower, upper);
+                        readRows += rows.length;
+                        for (const row of rows){
+                            try{
+                                const v = row.value ? JSON.parse(row.value) : null; if (!v) continue;
+                                const { text, role } = this.extractBubbleTextAndRole(v);
+                                const ts = v?.cTime || v?.timestamp || v?.time || v?.createdAt || v?.lastUpdatedAt || null;
+                                if (text) push(role||'assistant', text, ts);
+                            }catch{}
+                        }
+                        hadBubble = rows.length > 0;
+                    }catch{}
+                    // composerData:sessionId
+                    try{
+                        const r = db.prepare("SELECT value FROM cursorDiskKV WHERE key=?").get(`composerData:${sessionId}`);
+                        if (!hadBubble && r && r.value){
+                            try{
+                                const data = JSON.parse(r.value);
+                                const arrs = [data?.conversation, data?.messages, data?.history, data?.logs, data?.generations];
+                                const toTs = (o)=> o?.timestamp || o?.time || o?.createdAt || o?.lastUpdatedAt || null;
+                                for (const arr of arrs){
+                                    if (!Array.isArray(arr)) continue;
+                                    for (const m of arr){
+                                        const role = (m?.role==='user'||m?.type===1) ? 'user' : 'assistant';
+                                        const t = m?.content || m?.text || m?.output || '';
+                                        if (t) push(role, t, toTs(m));
+                                    }
+                                }
+                                if (typeof data?.prompt === 'string') push('user', data.prompt, data?.createdAt);
+                                if (typeof data?.response === 'string') push('assistant', data.response, data?.lastUpdatedAt||data?.createdAt);
+                            }catch{}
+                        }
+                    }catch{}
+                    // 面板 chatdata.tabs 里查找该 tabId
+                    try{
+                        const r = db.prepare("SELECT value FROM ItemTable WHERE key='workbench.panel.aichat.view.aichat.chatdata'").get();
+                        const pane = r && r.value ? JSON.parse(r.value) : null;
+                        const tabs = Array.isArray(pane?.tabs) ? pane.tabs : [];
+                        for (const tab of tabs){
+                            if (String(tab?.tabId) !== String(sessionId)) continue;
+                            for (const b of (tab?.bubbles||[])){
+                                const { text, role } = this.extractBubbleTextAndRole(b);
+                                const ts = b?.cTime || b?.timestamp || b?.time || b?.createdAt || b?.lastUpdatedAt || tab?.lastUpdatedAt || tab?.createdAt || null;
+                                if (text) push(role||'assistant', text, ts);
+                            }
+                        }
+                    }catch{}
+                    if (options.debug){
+                        const ms = Date.now()-t0;
+                        console.log(`⏱️  getHistoryItemFast scan ${dbPath} rows≈${readRows} in ${ms}ms`);
+                    }
+                    return messages.length - before;
+                } finally { try{ db.close(); }catch{} }
+            };
+
+            // 若有历史索引，先尝试命中的 DB，命中则直接返回
+            try{
+                const hit = this._sessionDbIndex.get(String(sessionId));
+                if (hit && require('fs').existsSync(hit.dbPath)){
+                    const addedHit = collectFromDb(hit.dbPath);
+                    if (addedHit > 0){
+                        sourceDbPath = hit.dbPath;
+                        if (!project && hit.project) project = hit.project;
+                    }
+                }
+            }catch{}
+
+            // 查询全局 DB
+            const path = require('path');
+            const fs = require('fs');
+            const globalDb = path.join(this.cursorStoragePath, 'User', 'globalStorage', 'state.vscdb');
+            if (!messages.length && fs.existsSync(globalDb)){
+                const added = collectFromDb(globalDb);
+                if (added > 0){ sourceDbPath = globalDb; /* project 可能仍为空，后续在 workspace 命中时补 */ }
+            }
+
+            // 查询各 workspace DB，顺便确定 project 根
+            const workspaces = this.findWorkspaceDatabases();
+            for (const ws of workspaces){
+                try{
+                    const dbPath = ws.workspaceDb || ws.dbPath || ws;
+                    if (!dbPath || !fs.existsSync(dbPath)) continue;
+                    if (messages.length && project){ break; }
+                    const added = collectFromDb(dbPath);
+                    if (added > 0 && !project){
+                        // 仅当此 workspace 命中该会话时，读取一次项目根（单条 ItemTable）
+                        const Database2 = new Database(dbPath, { readonly: true });
+                        try{
+                            let proj = { name: '(unknown)', rootPath: '(unknown)' };
+                            try{
+                                const row = Database2.prepare("SELECT value FROM ItemTable WHERE key='history.entries'").get();
+                                const entries = row && row.value ? JSON.parse(row.value) : [];
+                                const paths = [];
+                                for (const e of entries){ const r = e?.editor?.resource || ''; if (typeof r==='string' && r.startsWith('file:///')) paths.push(r.slice('file:///'.length)); }
+                                if (paths.length>0){
+                                    const pref = this.cvLongestCommonPrefix(paths);
+                                    const last = pref.lastIndexOf('/');
+                                    const root = last>0 ? pref.slice(0,last) : pref;
+                                    const name = this.cvExtractProjectNameFromPath(root);
+                                    proj = { name: name || '(unknown)', rootPath: '/' + String(root).replace(/^\/+/,'') };
+                                }
+                            }catch{}
+                            // 兜底 debug.selectedroot
+                            if (!proj || !proj.rootPath || proj.rootPath==='(unknown)' || proj.rootPath==='/'){
+                                try{
+                                    const r2 = Database2.prepare("SELECT value FROM ItemTable WHERE key='debug.selectedroot'").get();
+                                    const sel = r2 && r2.value ? JSON.parse(r2.value) : null;
+                                    if (typeof sel==='string' && sel.startsWith('file:///')){
+                                        const root = sel.slice('file:///'.length);
+                                        const name = this.cvExtractProjectNameFromPath(root);
+                                        proj = { name: name || '(unknown)', rootPath: '/' + String(root).replace(/^\/+/,'') };
+                                    }
+                                }catch{}
+                            }
+                            project = proj;
+                        } finally { try{ Database2.close(); }catch{} }
+                        sourceDbPath = dbPath;
+                        // 已找到消息且拿到项目后，提前结束扫描（避免遍历所有 workspace）
+                        break;
+                    }
+                }catch{}
+            }
+
+            if (messages.length === 0) return null;
+            const date = lastTs ? new Date(lastTs).toISOString() : (messages[0]?.timestamp || new Date().toISOString());
+            if (!project) project = { name: 'Unknown Project', rootPath: '/' };
+            const item = {
+                sessionId: String(sessionId),
+                project,
+                messages,
+                date,
+                workspaceId: 'fast',
+                dbPath: 'fast',
+                isRealData: true,
+                dataSource: 'better-sqlite3'
+            };
+            // 写入 session -> dbPath 索引，便于后续快速命中
+            try{ if (sourceDbPath) this._sessionDbIndex.set(String(sessionId), { dbPath: sourceDbPath, project, ts: Date.now() }); }catch{}
+            return item;
+        }catch(e){ return null; }
     }
 
     // 获取统计信息

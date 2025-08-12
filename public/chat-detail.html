@@ -386,18 +386,8 @@
         }
     </style>
     <!-- Markdown 与代码高亮样式/脚本 -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
+    <!-- 仅保留 marked，用于 Markdown 渲染 -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markup.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-typescript.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-java.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-cpp.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -483,6 +473,12 @@
     <script src="/js/instance-utils.js"></script>
     <script src="/js/instance-banner.js"></script>
     <script>
+        // 防重复初始化（避免某些外部脚本或错误恢复机制导致多次执行）
+        if (window.__CHAT_DETAIL_INIT_DONE) {
+            console.debug('[chat-detail] init skipped (already done)');
+        } else {
+            window.__CHAT_DETAIL_INIT_DONE = true;
+        }
         let currentChat = null;
         // 与 cursor-view 保持一致：默认不过度合并
         let mergeSameRole = false;
@@ -493,9 +489,19 @@
             const urlParams = new URLSearchParams(window.location.search);
             const sessionId = urlParams.get('sessionId');
             const mode = urlParams.get('mode') || 'cv';
-            // 若 URL 未带 instance，尝试从本地读取
+            // 若 URL 未带 instance，尝试从本地读取；仅在本会话内执行一次，避免反复写URL引起刷新的观感
             if (!urlParams.get('instance')){
-                try{ const inst = (window.InstanceUtils && InstanceUtils.get()) || ''; if (inst){ const u=new URL(window.location.href); u.searchParams.set('instance', inst); history.replaceState(null,'',u.toString()); } }catch{}
+                try{
+                    if (!sessionStorage.getItem('cd.instPatched')){
+                        const inst = (window.InstanceUtils && InstanceUtils.get()) || '';
+                        if (inst){
+                            const u=new URL(window.location.href);
+                            u.searchParams.set('instance', inst);
+                            history.replaceState(null,'',u.toString());
+                            sessionStorage.setItem('cd.instPatched','1');
+                        }
+                    }
+                }catch{}
             }
             
             if (sessionId) {
@@ -527,6 +533,29 @@
         });
 
         // 加载聊天详情
+        // 带超时与重试的请求
+        async function fetchWithRetry(url, opts={}){
+            const retries = Number(opts.retries ?? 2);
+            const backoff = Array.isArray(opts.backoff) ? opts.backoff : [300, 700];
+            const timeoutMs = Number(opts.timeoutMs ?? 10000);
+            for (let i=0;i<=retries;i++){
+                try{
+                    const ctl = new AbortController();
+                    const id = setTimeout(()=>ctl.abort(), timeoutMs);
+                    const res = await fetch(url, { signal: ctl.signal });
+                    clearTimeout(id);
+                    if (!res.ok) throw new Error('HTTP '+res.status);
+                    return await res.json();
+                }catch(e){
+                    if (i===retries) throw e;
+                    // 若是主动取消/离开页面，直接中止不再重试
+                    if (e && (e.name==='AbortError')) throw e;
+                    const wait = backoff[Math.min(i, backoff.length-1)] || 400;
+                    await new Promise(r=>setTimeout(r, wait));
+                }
+            }
+        }
+
         async function loadChatDetail(sessionId, mode) {
             try {
                 const url = new URL(window.location.href);
@@ -534,9 +563,10 @@
                 const query = new URLSearchParams();
                 if (mode) query.set('mode', mode);
                 if (inst) query.set('instance', inst);
+                // 放宽缓存窗口，减少重复全量提取
+                query.set('maxAgeMs', '9000');
                 const qs = query.toString();
-                const response = await fetch(`/api/history/${encodeURIComponent(sessionId)}${qs ? `?${qs}` : ''}`);
-                const result = await response.json();
+                const result = await fetchWithRetry(`/api/history/${encodeURIComponent(sessionId)}${qs ? `?${qs}` : ''}`, { retries: 2, backoff: [300, 700], timeoutMs: 12000 });
 
                 if (result.success && result.data) {
                     currentChat = result.data;
@@ -598,29 +628,54 @@
             })).filter(m => String(m.content || '').trim());
             const merged = mergeSameRole ? mergeConsecutiveByRole(preprocessed) : preprocessed;
 
-            // 统一用 MarkdownRenderer
-
-            const messagesHtml = `
+            // 头部
+            container.innerHTML = `
                 <div class="messages-header">
                     <div class="messages-title">💬 对话消息</div>
                     <div class="messages-count">${merged.length} 条消息</div>
-                </div>
-                ${merged.map((message, index) => `
+                </div>`;
+
+            // 小数据量直接一次性渲染
+            if (merged.length <= 120){
+                const html = merged.map((message, index) => `
                     <div class="message ${message.role}">
                         <div class="message-header">
-                            <div class="message-icon">
-                                ${message.role === 'user' ? '👤' : '🤖'}
-                            </div>
+                            <div class="message-icon">${message.role === 'user' ? '👤' : '🤖'}</div>
                             <span>${message.role === 'user' ? '用户' : 'AI 助手'}</span>
                             <span class="message-number">#${index + 1}</span>
                         </div>
                         <div class="message-content">${formatMessageContent(message.content)}</div>
-                    </div>
-                `).join('')}
-            `;
+                    </div>`).join('');
+                const div = document.createElement('div');
+                div.innerHTML = html;
+                container.appendChild(div);
+                try { window.MarkdownRenderer && window.MarkdownRenderer.highlight(container); } catch {}
+                return;
+            }
 
-            container.innerHTML = messagesHtml;
-            try { window.MarkdownRenderer && window.MarkdownRenderer.highlight(container); } catch {}
+            // 大数据量分批渲染，避免主线程长时间阻塞
+            const chunkSize = 60;
+            let index = 0;
+            const renderChunk = () => {
+                const frag = document.createDocumentFragment();
+                for (let i=0;i<chunkSize && index<merged.length;i++, index++){
+                    const message = merged[index];
+                    const wrap = document.createElement('div');
+                    wrap.className = `message ${message.role}`;
+                    wrap.innerHTML = `
+                        <div class="message-header">
+                            <div class="message-icon">${message.role === 'user' ? '👤' : '🤖'}</div>
+                            <span>${message.role === 'user' ? '用户' : 'AI 助手'}</span>
+                            <span class="message-number">#${index + 1}</span>
+                        </div>
+                        <div class="message-content">${formatMessageContent(message.content)}</div>`;
+                    frag.appendChild(wrap);
+                }
+                container.appendChild(frag);
+                try { window.MarkdownRenderer && window.MarkdownRenderer.highlight(container); } catch {}
+                if (index < merged.length) { requestAnimationFrame(renderChunk); }
+            };
+            requestAnimationFrame(renderChunk);
         }
 
         // 格式化消息内容
@@ -663,14 +718,17 @@
 
         // 显示错误
         function showError(message) {
-            document.getElementById('messagesContainer').innerHTML = `
+            const el = document.getElementById('messagesContainer');
+            if (!el) return;
+            el.innerHTML = `
                 <div class="error">
                     <div class="error-icon">⚠️</div>
                     <h3>加载失败</h3>
                     <p>${message}</p>
-                    <a href="/history-new.html" class="btn btn-primary" style="margin-top: 20px;">
-                        返回列表
-                    </a>
+                    <div style="margin-top:12px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+                        <button class="btn btn-primary" onclick="location.reload()">重试</button>
+                        <a href="/history-new.html" class="btn btn-secondary">返回列表</a>
+                    </div>
                 </div>
             `;
         }

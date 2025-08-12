@@ -95,7 +95,13 @@ class ChatTimeline {
           const classes = String(node.className || '').split(/\s+/).filter(Boolean);
           const langClass = classes.find(c => c.startsWith('language-')) || '';
           let lang = langClass ? langClass.replace(/^language-/, '') : '';
-          if (lang && /[:/]/.test(lang)) { lang = lang.split(/[:/]/)[0]; }
+          if (window.MarkdownRenderer && typeof window.MarkdownRenderer.normalizeLanguage === 'function'){
+            lang = window.MarkdownRenderer.normalizeLanguage(lang);
+          } else {
+            if (lang && /[:/]/.test(lang)) { lang = lang.split(/[:/]/)[0]; }
+            const map = { 'c#':'csharp', 'cs':'csharp', 'c++':'cpp', 'ts':'typescript', 'tsx':'typescript', 'js':'javascript', 'jsx':'javascript', 'py':'python', 'shell':'bash', 'sh':'bash', 'md':'markdown', 'html':'markup', 'xml':'markup' };
+            lang = map[String(lang||'').toLowerCase()] || lang;
+          }
           if (!lang) lang = 'none';
           const rest = classes.filter(c => !c.startsWith('language-'));
           node.className = `language-${lang}` + (rest.length ? ` ${rest.join(' ')}` : '');
@@ -136,6 +142,7 @@ class ChatTimeline {
       window.MarkdownRenderer.highlight(item);
       try { requestAnimationFrame(()=> window.MarkdownRenderer.highlight(item)); } catch {}
     } else {
+      // 无 Prism，仅规范化类名
       this.highlightCodeIn(item);
       try { requestAnimationFrame(()=> this.highlightCodeIn(item)); } catch {}
     }
@@ -177,7 +184,7 @@ class ChatTimeline {
     const cleaned = this.cleanMessageText(text);
     if (!cleaned) return; // 全噪声则不渲染
     this.appendMessage('assistant', cleaned, timestamp || Date.now());
-    try { Prism && Prism.highlightAllUnder && this.timeline && Prism.highlightAllUnder(this.timeline); } catch {}
+    // 不再触发 Prism
   }
 
   // 显示“正在生成”占位气泡（与 msgId 关联）
