@@ -268,8 +268,9 @@ class SimpleWebClient {
 
     // 1) 立刻生成消息并渲染到时间线（不等待任何网络）
     const msgId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2);
+    const sentAt = Date.now();
     this._lastSentMsgId = msgId;
-    this._lastSentAt = Date.now();
+    this._lastSentAt = sentAt;
     try { if (this.timeline) this.timeline.appendUserMessage(typeof message === 'string' ? message : JSON.stringify(message), msgId, sentAt); } catch {}
     try { if (this.timeline) this.timeline.showTyping(msgId); } catch {}
 
@@ -281,7 +282,6 @@ class SimpleWebClient {
     const ok = this.wsManager.send({ type: 'user_message', data: payload, targetInstanceId: this.instanceId || undefined, msgId });
     if (!ok) { try { this.uiManager.showNotification('发送失败', 'error'); } catch {}; return false; }
 
-    const sentAt = Date.now();
     try { this.uiManager.showNotification('已发送，等待回复…', 'info'); } catch {}
     try { if (this.timeline) this.timeline.markRouted(msgId); } catch {}
 

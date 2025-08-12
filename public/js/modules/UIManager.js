@@ -88,11 +88,13 @@ class UIManager {
             // 自动滚动到底部
             this.scrollToBottom(container);
 
-            console.log('✅ 内容已更新，长度:', html.length);
-            console.log('📊 内容预览:', html.substring(0, 200) + '...');
-            console.log('📏 容器高度:', container.scrollHeight, 'px');
-            console.log('📏 视口高度:', container.clientHeight, 'px');
-            console.log('📏 滚动位置:', container.scrollTop, 'px');
+            if (window.__cwDebugLogs) {
+                console.log('✅ 内容已更新，长度:', html.length);
+                console.log('📊 内容预览:', html.substring(0, 200) + '...');
+                console.log('📏 容器高度:', container.scrollHeight, 'px');
+                console.log('📏 视口高度:', container.clientHeight, 'px');
+                console.log('📏 滚动位置:', container.scrollTop, 'px');
+            }
 
             // 根据子Tab显示模式切换可见性
             try{
@@ -346,30 +348,30 @@ class UIManager {
 
             // 移除 max-height 限制
             if (style.maxHeight && style.maxHeight !== 'none') {
-                console.log('🔓 移除 max-height 限制:', style.maxHeight, '-> none');
+                if (window.__cwDebugLogs) console.log('🔓 移除 max-height 限制:', style.maxHeight, '-> none');
                 style.maxHeight = 'none';
             }
 
             // 移除 overflow: hidden 限制
             if (style.overflow === 'hidden') {
-                console.log('🔓 移除 overflow: hidden 限制');
+                if (window.__cwDebugLogs) console.log('🔓 移除 overflow: hidden 限制');
                 style.overflow = 'visible';
             }
 
             // 移除 overflow-y: hidden 限制
             if (style.overflowY === 'hidden') {
-                console.log('🔓 移除 overflow-y: hidden 限制');
+                if (window.__cwDebugLogs) console.log('🔓 移除 overflow-y: hidden 限制');
                 style.overflowY = 'visible';
             }
 
             // 移除 overflow-x: hidden 限制
             if (style.overflowX === 'hidden') {
-                console.log('🔓 移除 overflow-x: hidden 限制');
+                if (window.__cwDebugLogs) console.log('🔓 移除 overflow-x: hidden 限制');
                 style.overflowX = 'visible';
             }
         });
 
-        console.log('🎯 已移除所有高度限制样式，确保内容完整显示');
+        if (window.__cwDebugLogs) console.log('🎯 已移除所有高度限制样式，确保内容完整显示');
     }
 }
 

@@ -107,7 +107,8 @@ class ChatTimeline {
           node.className = `language-${lang}` + (rest.length ? ` ${rest.join(' ')}` : '');
         } catch {}
       });
-      try { window.Prism && window.Prism.highlightAllUnder && window.Prism.highlightAllUnder(element); } catch {}
+      // 延迟触发一次高亮，避免频繁阻塞主线程
+      try { if (window.Prism && window.Prism.highlightAllUnder) requestIdleCallback?.(()=>window.Prism.highlightAllUnder(element)); } catch {}
     }catch{}
   }
 

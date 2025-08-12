@@ -516,16 +516,27 @@ class CursorSync {
     }
 
     findChatContainer() {
-        // 1) 先按已知选择器尝试（VSCode/Cursor 常见结构）
+        // 允许外部强制指定选择器
+        try {
+            if (typeof window.__cursorChatSelector === 'string' && window.__cursorChatSelector.trim()) {
+                const forced = document.querySelector(window.__cursorChatSelector.trim());
+                if (forced) { this.chatContainer = forced; console.log('✅ 使用外部指定选择器:', window.__cursorChatSelector); return; }
+            }
+        } catch {}
+
+        // 1) 更严格地定位“右侧聊天栏”容器
         const selectorCandidates = [
+            // 明确含“Chat”语义且在右侧辅助区域
+            '[aria-label*="Chat" i][role="complementary"] .interactive-session .monaco-list-rows',
+            '[aria-label*="Chat" i] .interactive-session .monaco-list-rows',
+            '[aria-label*="Chat" i] .monaco-list-rows',
+            // Cursor/VSCode 常见结构
+            '.part.sidebar.right .interactive-session .monaco-list-rows',
             '.interactive-session .monaco-list-rows',
-            '.interactive-session .chat-list',
             '.chat-view .monaco-list-rows',
-            '.chat-view',
-            '.conversations',
-            '.chat-container',
             '[data-testid="chat-container"]',
-            '.conversation-container'
+            '.chat-view',
+            '.conversations'
         ];
 
         const nodes = [];
@@ -534,22 +545,25 @@ class CursorSync {
             if (n) nodes.push(n);
         }
 
-        // 2) 可选：尝试所有滚动区域（很可能承载消息列表）
-        document.querySelectorAll('[role="list"], .monaco-list, .scrollable, .scrollbar').forEach(n => nodes.push(n));
-
-        // 3) 永远把 body 加入候选，确保有兜底
-        nodes.push(document.body);
-
-        // 4) 评分：
-        //   - 文本长度（越长越像整体内容）
-        //   - 元素高度（越高越像滚动区域）
-        //   - 子块元素数量（div/p/li/pre/code 的数量）
+        // 2) 评分：
+        //   - 文本长度/块数量/高度
+        //   - 距离右侧越近得分越高（更像右侧边栏）
+        //   - 宽度较窄更可能是侧边栏
+        //   - 含助手消息标记加权
         const scoreOf = (el) => {
             try {
+                const rect = el.getBoundingClientRect();
                 const textLen = (el.textContent || '').length;
                 const blocks = el.querySelectorAll('div,p,li,pre,code').length;
                 const height = Math.max(el.scrollHeight || 0, el.clientHeight || 0);
-                return textLen + blocks * 10 + height / 2;
+                let score = textLen + blocks * 10 + height / 2;
+                const distanceToRight = Math.max(0, window.innerWidth - rect.right);
+                score += Math.max(0, 2000 - distanceToRight); // 越靠右分越高
+                if (rect.width && rect.width < 720) score += 1200; else score -= 400; // 侧栏通常较窄
+                const hasAssistant = el.querySelector('[data-from="assistant"], [data-role="assistant"], .assistant, .agent, .bot, .gpt, .assistant-message, .chat-message.agent, .message.assistant');
+                if (hasAssistant) score += 5000;
+                if (el === document.body) score -= 100000; // 强烈惩罚 body
+                return score;
             } catch { return 0; }
         };
 
@@ -560,31 +574,33 @@ class CursorSync {
             if (!best || s > best.score) best = { el, score: s };
         }
 
-        this.chatContainer = best ? best.el : document.body;
-
-        // 如果选中的容器文本太短，向上查找更大的父容器
-        const MIN_TEXT = 300; // 小于该阈值大概率选到了输入框等
-        let guard = 0;
-        while (this.chatContainer && (this.chatContainer.textContent || '').length < MIN_TEXT && this.chatContainer.parentElement && guard < 5) {
-            this.chatContainer = this.chatContainer.parentElement;
-            guard++;
-        }
-
-        if (this.chatContainer) {
-            const tlen = (this.chatContainer.textContent || '').length;
-            console.log('✅ 选定聊天容器:', this.chatContainer, '文本长度:', tlen);
+        this.chatContainer = best ? best.el : null;
+        if (!this.chatContainer) {
+            console.warn('⚠️ 未找到合适的聊天容器，将稍后重试');
         } else {
-            console.warn('❌ 未找到聊天容器');
+            const tlen = (this.chatContainer.textContent || '').length;
+            const rect = this.chatContainer.getBoundingClientRect();
+            console.log('✅ 选定聊天容器:', this.chatContainer, '文本长度:', tlen, '位置/宽度:', rect);
         }
     }
 
     startSync() {
-        // 启动 HTTP 同步
-        this.syncInterval = setInterval(() => {
-            this.syncContent();
-        }, 1000); // 每 1 秒同步一次
-
-        console.log('🔄 HTTP 同步已启动');
+        // 允许通过全局变量或 localStorage 调整频率
+        const readInterval = () => {
+            try {
+                if (typeof window.__cwSyncIntervalMs === 'number' && window.__cwSyncIntervalMs > 0) return window.__cwSyncIntervalMs;
+                const v = Number(localStorage.getItem('cw_sync_interval') || '') || 0;
+                if (v > 0) return v;
+            } catch {}
+            return 400; // 默认 400ms 更顺滑
+        };
+        const run = () => this.syncContent();
+        const intervalMs = readInterval();
+        if (this.syncInterval) { try { clearInterval(this.syncInterval); } catch {} }
+        this.syncInterval = setInterval(run, intervalMs);
+        console.log('🔄 HTTP 同步已启动，间隔(ms):', intervalMs);
+        // 提供动态调整 API
+        try { window.setCursorSyncInterval = (ms) => { try { localStorage.setItem('cw_sync_interval', String(Math.max(100, Number(ms)||0))); } catch {}; this.startSync(); }; } catch {}
     }
 
     async syncContent() {
@@ -626,23 +642,63 @@ class CursorSync {
         }
     }
 
+    // 收集聊天栏消息 DOM（默认仅助手，可切换包含用户）
+    collectChatPaneHtml(maxItems = 30, onlyAssistant = true) {
+        try {
+            const root = this.chatContainer || document.body;
+            const isVisible = (el) => {
+                try { return !!(el && el.offsetParent !== null && getComputedStyle(el).visibility !== 'hidden'); } catch { return true; }
+            };
+            // 消息选择器（先尝试更语义化的）
+            const selAssistant = [
+                '[data-from="assistant"]', '[data-role="assistant"]',
+                '.assistant-message', '.message.assistant', '.chat-message.assistant', '.chat-message.agent',
+                '.agent', '.assistant', '.ai', '.bot', '.gpt',
+                '.monaco-list-rows .monaco-list-row [class*="assistant"]', '.monaco-list-rows .monaco-list-row .markdown'
+            ];
+            const selUser = [
+                '[data-from="user"]', '[data-role="user"]', '.message.user', '.chat-message.user',
+                '.monaco-list-rows .monaco-list-row [class*="user"]'
+            ];
+
+            const collect = (selectors) => {
+                let nodes = [];
+                for (const sel of selectors) {
+                    const list = Array.from(root.querySelectorAll(sel));
+                    if (list && list.length) nodes.push(...list);
+                }
+                const set = new Set();
+                nodes = nodes.filter((n)=>{ if(!n || !isVisible(n)) return false; if(set.has(n)) return false; set.add(n); return true; });
+                return nodes;
+            };
+
+            let nodes = collect(selAssistant);
+            if (!onlyAssistant) nodes = nodes.concat(collect(selUser));
+            if (!nodes.length) return '';
+            // 保持 DOM 顺序，截取最新若干条
+            const picked = nodes.slice(-maxItems);
+            return picked.map(n => n.outerHTML || n.innerHTML || '').join('\n');
+        } catch (e) {
+            console.warn('collectChatPaneHtml 失败：', e);
+            return '';
+        }
+    }
+
     getContent() {
         if (!this.chatContainer) {
             console.warn('chatContainer 未找到');
             return null;
         }
-        // 自动滚动到底部，确保所有消息渲染出来
-        try {
-            this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
-        } catch (e) {
-            console.warn('自动滚动失败：', e);
-        }
-        // 直接采集 innerHTML
-        const html = this.chatContainer.innerHTML || '';
-        const text = this.chatContainer.textContent || '';
+        // 自动滚动到底部，确保最新消息渲染
+        try { this.chatContainer.scrollTop = this.chatContainer.scrollHeight; } catch {}
+        // 仅从“聊天栏”提取消息节点（默认只取助手，可通过 __cwIncludeUser=true 包含用户）
+        const onlyAssistant = !(window.__cwIncludeUser === true);
+        const html = this.collectChatPaneHtml(40, onlyAssistant);
+        const text = (this.chatContainer.textContent || '').trim();
         const contentLength = text.length;
-        console.log('采集 innerHTML 长度：', html.length, 'textContent 长度：', text.length);
-        if (contentLength === 0) {
+        if (window.__cwDebugLogs) console.log('采集 innerHTML 长度：', html.length, 'textContent 长度：', text.length);
+        // 若无法精确提取消息节点则跳过（不再回退到整个容器，避免采集到无关内容）
+        if (!html || html.replace(/\s+/g,'').length < 10 || contentLength === 0) {
             return null;
         }
         
