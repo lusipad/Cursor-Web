@@ -13,8 +13,10 @@ class GitManager {
     detectInstanceId(){
         try{
             const url = new URL(window.location.href);
-            return url.searchParams.get('instance') || '';
-        }catch{ return ''; }
+            const q = url.searchParams.get('instance');
+            if (q) return q;
+        }catch{}
+        try{ return (window.InstanceUtils && InstanceUtils.get()) || ''; }catch{ return ''; }
     }
 
     async init() {
@@ -72,21 +74,9 @@ class GitManager {
             }
         });
 
-        // 仅显示当前实例，不提供切换
+        // 显示当前实例（可点击切换）
         const instLabel = document.getElementById('git-instance-label');
-        if (instLabel){
-            const text = this.instanceId ? this.instanceId : '默认(当前目录)';
-            // 若能从 /api/instances 查询到 openPath，追加展示“— 路径”
-            try{
-                if (this.instanceId){
-                    fetch('/api/instances').then(r=>r.json()).then(j=>{
-                        const arr = Array.isArray(j?.data)?j.data:[];
-                        const found = arr.find(it => String(it.id||'')===String(this.instanceId));
-                        if (found && found.openPath) instLabel.textContent = `${this.instanceId} — ${found.openPath}`; else instLabel.textContent = text;
-                    }).catch(()=>{ instLabel.textContent = text; });
-                } else { instLabel.textContent = text; }
-            }catch{ instLabel.textContent = text; }
-        }
+        if (instLabel){ try{ InstanceUtils && InstanceUtils.renderBadge(instLabel); }catch{ instLabel.textContent = this.instanceId || '默认(当前目录)'; } }
     }
 
     async populateInstanceOptions(selectEl){

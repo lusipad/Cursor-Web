@@ -38,9 +38,12 @@
   <script src="js/modules/ChatTimeline.js"></script>
   <script src="js/modules/WebSocketManager.js"></script>
   <script src="js/modules/InjectBar.js"></script>
+  <script src="/js/instance-utils.js"></script>
+  <script src="/js/instance-banner.js"></script>
   <script>
   (function(){
-    const qsInst = (()=>{ try{ const u=new URL(window.location.href); return u.searchParams.get('instance')||''; }catch{ return ''; } })();
+    let qsInst = (()=>{ try{ const u=new URL(window.location.href); return u.searchParams.get('instance')||''; }catch{ return ''; } })();
+    if (!qsInst){ try{ qsInst = (window.InstanceUtils && InstanceUtils.get()) || ''; }catch{} }
     document.getElementById('instLabel').textContent = '实例：' + (qsInst||'(未指定)');
     // 注入条会自动挂载在 #chat-tab
     try{ window.InjectBar && window.InjectBar.init && window.InjectBar.init(); }catch{}

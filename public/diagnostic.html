@@ -212,7 +212,8 @@
 <body>
     <div class="header">
         <h1 style="font-size: 18px; margin-bottom: 6px;">🔍 功能模块诊断</h1>
-        <p style="font-size: 11px; margin-bottom: 0;">全面检查系统各个功能模块的状态和连接情况</p>
+        <p style="font-size: 11px; margin-bottom: 6px;">全面检查系统各个功能模块的状态和连接情况</p>
+        <div id="diagInstance" style="font-size:11px;opacity:.85"></div>
     </div>
 
     <div class="summary">
@@ -445,7 +446,11 @@
         </div>
 
     <script src="js/modules/module-loader.js"></script>
+    <script src="js/instance-utils.js"></script>
+    <script src="js/instance-banner.js"></script>
     <script>
+        // 显示当前实例
+        try{ InstanceUtils && InstanceUtils.renderBadge(document.getElementById('diagInstance')); }catch{}
         // ---- WS 回显控制（调用临时端点 /api/debug/html-broadcast）----
         async function fetchJson(url, options){ const r = await fetch(url, options); const t = await r.text(); try{return JSON.parse(t)}catch{return { raw:t }} }
         async function refreshWsBroadcast(){

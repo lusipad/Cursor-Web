@@ -480,6 +480,8 @@
         </div>
     </div>
 
+    <script src="/js/instance-utils.js"></script>
+    <script src="/js/instance-banner.js"></script>
     <script>
         let currentChat = null;
         // 与 cursor-view 保持一致：默认不过度合并
@@ -491,6 +493,10 @@
             const urlParams = new URLSearchParams(window.location.search);
             const sessionId = urlParams.get('sessionId');
             const mode = urlParams.get('mode') || 'cv';
+            // 若 URL 未带 instance，尝试从本地读取
+            if (!urlParams.get('instance')){
+                try{ const inst = (window.InstanceUtils && InstanceUtils.get()) || ''; if (inst){ const u=new URL(window.location.href); u.searchParams.set('instance', inst); history.replaceState(null,'',u.toString()); } }catch{}
+            }
             
             if (sessionId) {
                 loadChatDetail(sessionId, mode);

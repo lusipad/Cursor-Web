@@ -18,13 +18,16 @@
 <body>
     <div class="container">
         <h2>Cursor 同步脚本</h2>
+        <div id="scriptInstance" style="font-size:12px;opacity:.85;margin-bottom:8px;"></div>
         <div class="tip">在 <b>Cursor</b> 的开发者工具（F12）中粘贴下方脚本并回车运行</div>
         <button id="copy-cursor-script" class="copy-btn">一键复制脚本</button>
         <pre id="cursor-script">正在加载脚本...</pre>
         <div class="tip">脚本会同步整个Cursor页面内容到本网页</div>
         <a href="/" style="color:#4caf50;">返回首页</a>
     </div>
+    <script src="/js/instance-utils.js"></script>
     <script>
+    try{ InstanceUtils && InstanceUtils.renderBadge(document.getElementById('scriptInstance')); }catch{}
     fetch('/cursor-browser.js').then(r => r.text()).then(code => {
         document.getElementById('cursor-script').textContent = code;
     });

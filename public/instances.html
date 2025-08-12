@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>选择实例 - Cursor Web</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body { background:#111; color:#fff; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Segoe UI Symbol', 'Noto Color Emoji', "Apple Color Emoji", sans-serif; }
+    .container { max-width: 960px; margin: 0 auto; padding: 24px; }
+    .title { font-size: 20px; font-weight: 700; margin-bottom: 16px; }
+    .card { background:#161616; border:1px solid #2a2a2a; border-radius:12px; padding:16px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; gap:12px; }
+    .meta { font-size: 12px; color:#aaa; }
+    .btn { padding:8px 14px; border:0; border-radius:8px; cursor:pointer; background:#0aa6ff; color:#fff; }
+    .btn.secondary { background:#444; }
+    .row { display:flex; gap:10px; align-items:center; }
+    .foot { margin-top:16px; font-size:12px; color:#999; }
+    .path { color:#ddd; }
+    .badge { padding:2px 6px; font-size:12px; border-radius:6px; background:#333; color:#bbb; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="title">选择一个实例作为默认实例</div>
+    <div id="list"></div>
+    <div class="foot">选择后会把实例 ID 保存到 localStorage(cw.instanceId) 与 Cookie(cw_instance_id)，后续页面自动使用。</div>
+  </div>
+  <script>
+    function setCookie(name, value, days){ try{ const d=new Date(); d.setTime(d.getTime()+days*24*60*60*1000); document.cookie = `${name}=${encodeURIComponent(value)}; Max-Age=${days*24*60*60}; Path=/; SameSite=Lax`; }catch{} }
+    function getCookie(name){ try{ return document.cookie.split('; ').map(x=>x.split('=')).reduce((m,[k,v])=>{m[k]=decodeURIComponent(v||'');return m;}, {})[name]||''; }catch{ return ''; } }
+    function saveInstanceId(id){ try{ localStorage.setItem('cw.instanceId', String(id||'')); }catch{} setCookie('cw_instance_id', String(id||''), 180); }
+    async function loadInstances(){
+      const el = document.getElementById('list');
+      el.innerHTML = '<div class="meta">加载中...</div>';
+      try{
+        const r = await fetch('/api/instances');
+        const j = await r.json();
+        const arr = Array.isArray(j?.data) ? j.data : [];
+        if (arr.length === 0){ el.innerHTML = '<div class="meta">未发现实例配置，请检查 config/instances.json 或根目录 instances.json</div>'; return; }
+        el.innerHTML = '';
+        for (const it of arr){
+          const id = it?.id || '(unknown)';
+          const name = it?.name || id;
+          const openPath = it?.openPath || '';
+          const row = document.createElement('div');
+          row.className = 'card';
+          row.innerHTML = `<div><div style="font-weight:600;margin-bottom:6px;">${name} <span class="badge">${id}</span></div><div class="meta">打开目录：<span class="path">${openPath||'(未设置)'}</span></div></div><div class="row"><button class="btn" data-id="${id}">设为默认并进入</button><button class="btn secondary" data-view="${id}">仅进入</button></div>`;
+          el.appendChild(row);
+        }
+        el.addEventListener('click', (ev)=>{
+          const t = ev.target;
+          if (t.matches('button[data-id]')){
+            const id = t.getAttribute('data-id');
+            saveInstanceId(id);
+            location.href = '/history-new.html';
+          } else if (t.matches('button[data-view]')){
+            const id = t.getAttribute('data-view');
+            location.href = `/history-new.html?instance=${encodeURIComponent(id)}`;
+          }
+        });
+      }catch(e){ el.innerHTML = `<div class="meta">加载失败：${e.message}</div>`; }
+    }
+    loadInstances();
+  </script>
+</body>
+</html>
+

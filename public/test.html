@@ -111,6 +111,8 @@
       </div>
   </div>
 
+  <script src="/js/instance-utils.js"></script>
+  <script src="/js/instance-banner.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
     const log = (msg) => { const el = $('log'); el.textContent = [msg, '', el.textContent].join('\n').trim(); };
@@ -152,8 +154,12 @@
       }catch(e){ log('加载实例配置失败：' + (e?.message||e)); }
     }
 
-    // 页面加载后先拉取一次配置
+    // 页面加载后先拉取一次配置，并用默认实例填充值
     loadInstancesAndBindDefaults();
+    try{
+      const id = InstanceUtils.get();
+      if (id) $('instanceId').value = id;
+    }catch{}
 
 
     async function api(path, method='GET', body=null){

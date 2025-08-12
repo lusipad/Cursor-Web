@@ -72,6 +72,7 @@
         <div class="header">
             <h1>🤖 Cursor 聊天历史记录</h1>
             <div class="header-subtitle">查看、搜索和导出您的 AI 聊天记录</div>
+            <div id="instanceBadge" style="margin-top:6px;font-size:12px;opacity:.9"></div>
         </div>
 
         <div class="controls">
@@ -106,6 +107,8 @@
         </div>
     </div>
 
+    <script src="/js/instance-utils.js"></script>
+    <script src="/js/instance-banner.js"></script>
     <script>
     let currentViewMode = 'list';
     let currentHistory = [];
@@ -130,6 +133,7 @@
     let lastLoadTime = 0;
 
     document.addEventListener('DOMContentLoaded', async () => {
+        try{ InstanceUtils && InstanceUtils.renderBadge(document.getElementById('instanceBadge')); }catch{}
         // 先读取实例 openPath，再加载历史
         try { await ensureInstanceOpenPathLoaded(); } catch {}
         // 若带 instance，默认使用“当前活动目录”；否则默认“全部会话”
@@ -342,7 +346,7 @@
 
     // ========== 实例 openPath 支持 ==========
     let instanceOpenPath = '';
-    function detectInstanceId(){ try{ const u=new URL(window.location.href); return u.searchParams.get('instance')||''; }catch{ return ''; } }
+    function detectInstanceId(){ try{ return window.InstanceUtils ? (InstanceUtils.get()||'') : ''; }catch{ return ''; } }
     async function ensureInstanceOpenPathLoaded(){
         const inst = detectInstanceId();
         if (!inst) { instanceOpenPath=''; return; }
@@ -372,8 +376,8 @@
             list.innerHTML = `
                 <div class="no-data">
                     <div class="no-data-icon">⚠️</div>
-                    <h3>无法获取当前活动目录</h3>
-                    <p>请稍后重试，或检查服务器是否正常运行。</p>
+                    <h3>需要选择实例</h3>
+                    <p><a href="/instances.html" style="color:#0aa6ff;">点击选择实例</a>，或在地址栏添加 ?instance= 实例ID。</p>
                 </div>`;
             return;
         }
