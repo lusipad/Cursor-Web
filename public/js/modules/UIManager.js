@@ -49,7 +49,8 @@ class UIManager {
      * 显示聊天内容
      */
     displayContent(contentData) {
-        const container = document.getElementById('messages-container');
+        const targetId = window.__renderTargetId || 'messages-container';
+        const container = document.getElementById(targetId);
         if (!container) {
             // 在诊断页面中，如果没有messages-container，就输出到控制台
             console.log('📄 内容更新 (诊断模式):', contentData);
@@ -59,6 +60,8 @@ class UIManager {
         const { html, timestamp } = contentData;
 
         if (html) {
+            // 若当前不在“实时回显”模式，则仍更新但隐藏 DOM（以便切换时可秒显）
+            const realtimeOnly = (window.__enableRealtimeRender === true);
             // 清除欢迎消息
             const welcome = container.querySelector('.welcome-message');
             if (welcome) {
@@ -90,6 +93,19 @@ class UIManager {
             console.log('📏 容器高度:', container.scrollHeight, 'px');
             console.log('📏 视口高度:', container.clientHeight, 'px');
             console.log('📏 滚动位置:', container.scrollTop, 'px');
+
+            // 根据子Tab显示模式切换可见性
+            try{
+              const timelineEl = (window.simpleClient && window.simpleClient.timeline && window.simpleClient.timeline.timeline) || null;
+              if (realtimeOnly){
+                if (timelineEl) timelineEl.style.display = 'none';
+                contentArea.style.display = '';
+              } else {
+                if (timelineEl) timelineEl.style.display = '';
+                // 默认回显区域隐藏（仍保留最新内容，切换到实时回显时立即可见）
+                contentArea.style.display = 'none';
+              }
+            }catch{}
         }
     }
 

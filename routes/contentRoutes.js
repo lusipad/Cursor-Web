@@ -52,6 +52,17 @@ class ContentRoutes {
             const q = String(req.query.enable || '').trim();
             if (q === '1' || q === 'true') cfg.websocket.broadcastHtmlEnabled = true;
             else if (q === '0' || q === 'false') cfg.websocket.broadcastHtmlEnabled = false;
+            // 若刚开启且有最近内容，则立即广播一次，方便实时回显页看到内容
+            try{
+                if (cfg.websocket.broadcastHtmlEnabled === true){
+                    const content = this.chatManager.getContent && this.chatManager.getContent();
+                    const html = content && content.html;
+                    const ts = (content && content.timestamp) || Date.now();
+                    if (html && this.websocketManager && typeof this.websocketManager.broadcastToClients === 'function'){
+                        this.websocketManager.broadcastToClients({ type:'html_content', data:{ html, timestamp: ts } });
+                    }
+                }
+            }catch{}
             res.json({ success:true, enabled: !!cfg.websocket.broadcastHtmlEnabled });
         }catch(e){ res.status(500).json({ success:false, error: e?.message||'toggle failed' }); }
     }

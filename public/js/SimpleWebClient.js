@@ -376,8 +376,13 @@ class SimpleWebClient {
         switch (data.type) {
             case 'html_content':
         try {
-          const timestamp = (data && data.data && data.data.timestamp) || data.timestamp || Date.now();
-                this.cursorStatusManager.recordContentUpdate(timestamp);
+          const payload = (data && data.data) ? data.data : { html: (data && data.html) || '', timestamp: data?.timestamp || Date.now() };
+          // 推送到内容管理器 → 由 UIManager 渲染到当前渲染容器（聊天或实时回显）
+          if (this.contentManager && typeof this.contentManager.handleContentUpdate === 'function') {
+            this.contentManager.handleContentUpdate(payload);
+          }
+          const timestamp = Number(payload?.timestamp || Date.now());
+          this.cursorStatusManager.recordContentUpdate(timestamp);
         } catch {}
                 break;
             case 'clear_content':

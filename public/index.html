@@ -12,7 +12,8 @@
         <header class="header">
             <h1>Cursor Web</h1>
             <div style="display:flex;align-items:center;gap:12px;">
-                <a href="/test.html" class="btn btn-secondary" target="_blank" title="配置与注入测试">⚙ 设置</a>
+                 <a href="/test.html" class="btn btn-secondary" target="_blank" title="配置与注入测试">⚙ 设置</a>
+                 <button id="toggle-broadcast" class="btn btn-info" style="padding:6px 10px">📡 实时广播: 关闭</button>
                 <div id="status" class="status disconnected">等待连接...</div>
             </div>
         </header>
@@ -20,6 +21,7 @@
         <!-- Tab 导航 -->
         <nav class="tab-nav">
             <button class="tab-btn active" data-tab="chat-tab">聊天</button>
+            <button class="tab-btn" data-tab="realtime-tab">实时回显</button>
             <button class="tab-btn" data-tab="history-tab">历史记录</button>
             <button class="tab-btn" data-tab="instances-tab">实例</button>
             <button class="tab-btn" data-tab="git-tab">Git 管理</button>
@@ -27,7 +29,7 @@
         </nav>
 
         <main class="main">
-            <!-- 聊天 Tab 内容 -->
+            <!-- 聊天 Tab 内容（对话） -->
             <section id="chat-tab" class="tab-content active">
                 <div id="messages-container" class="messages-container">
                     <div class="welcome-message">
@@ -48,6 +50,22 @@
                         <button id="clear-btn" type="button">清除</button>
                     </form>
                 </footer>
+            </section>
+
+            <!-- 实时回显 Tab 内容 -->
+            <section id="realtime-tab" class="tab-content">
+                <div class="history-panel" style="padding:0;">
+                    <div style="padding:10px 12px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #333;background:#1b1d22;gap:12px;flex-wrap:wrap;">
+                        <div style="opacity:.9;display:flex;align-items:center;gap:10px;">
+                          <span>实时 HTML 回显</span>
+                          <span id="rt-broadcast-pill" class="badge badge-warn">状态：未知</span>
+                          <button id="toggle-broadcast-rt" class="btn btn-info btn-small">读取状态</button>
+                          <span style="font-size:12px;color:#888;">（开启后将立即广播最近一次内容）</span>
+                        </div>
+                        <div id="currentInstanceLabelRealtime" style="font-size:12px;color:#aaa;"></div>
+                    </div>
+                    <div id="realtime-container" class="messages-container"></div>
+                </div>
             </section>
 
             <!-- 历史记录 Tab 内容 -->
@@ -195,9 +213,62 @@
         }
       }
     </script>
-    <script src="git-manager.js"></script>
-    <script src="js/instances-tab.js"></script>
+     <script src="git-manager.js"></script>
+     <script src="js/instances-tab.js"></script>
+     <script src="js/broadcast-toggle.js"></script>
     <script>
+    // 实时广播开关
+    (function setupBroadcastToggle(){
+        const btn = document.getElementById('toggle-broadcast');
+        if (!btn) return;
+        async function refresh(){
+            try{
+                const r = await fetch('/api/debug/html-broadcast');
+                const j = await r.json();
+                const on = !!(j && (j.enabled===true || j.enabled==='true'));
+                btn.textContent = '📡 实时广播: ' + (on ? '开启' : '关闭');
+                btn.dataset.on = on ? '1' : '0';
+            }catch{ btn.textContent='📡 实时广播: 未知'; }
+        }
+        btn.addEventListener('click', async ()=>{
+            const on = btn.dataset.on === '1';
+            try{
+                const r = await fetch('/api/debug/html-broadcast?enable='+(on?'0':'1'));
+                await refresh();
+            }catch{}
+        });
+        refresh();
+    })();
+
+    // 实时回显页：状态胶囊与开关按钮
+    (function setupRealtimeBroadcastUI(){
+      const pill = document.getElementById('rt-broadcast-pill');
+      const btn = document.getElementById('toggle-broadcast-rt');
+      if (!pill || !btn) return;
+      function setPill(on){
+        pill.textContent = '状态：' + (on?'开启':'关闭');
+        pill.className = 'badge ' + (on ? 'badge-ok' : 'badge-warn');
+        btn.textContent = on ? '关闭广播' : '开启广播';
+      }
+      async function refresh(){
+        try{
+          const r = await fetch('/api/debug/html-broadcast');
+          const j = await r.json();
+          const on = !!(j && (j.enabled===true || j.enabled==='true'));
+          setPill(on);
+        }catch{ setPill(false); }
+      }
+      btn.addEventListener('click', async ()=>{
+        try{
+          const on = pill.classList.contains('badge-ok');
+          await fetch('/api/debug/html-broadcast?enable='+(on?'0':'1'));
+          await refresh();
+        }catch{}
+      });
+      // 初始刷新
+      refresh();
+    })();
+
     // Tab 切换逻辑
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', function() {
@@ -209,6 +280,16 @@
             // 如果切换到诊断tab，更新快速状态
             if (this.dataset.tab === 'diagnostic-tab') {
                 updateQuickStatus();
+            }
+            // 切换渲染目标：聊天使用 #messages-container；实时回显使用 #realtime-container
+            if (this.dataset.tab === 'realtime-tab') {
+                window.__renderTargetId = 'realtime-container';
+                window.__enableRealtimeRender = true;
+                try{ InstanceUtils && InstanceUtils.renderBadge(document.getElementById('currentInstanceLabelRealtime')); }catch{}
+            } else if (this.dataset.tab === 'chat-tab') {
+                window.__renderTargetId = 'messages-container';
+                window.__enableRealtimeRender = false;
+                try{ InstanceUtils && InstanceUtils.renderBadge(document.getElementById('currentInstanceLabel')); }catch{}
             }
             
             // 历史记录tab 直接内嵌，无需额外加载
@@ -331,6 +412,11 @@
         }catch{}
         // 渲染当前实例标识
         try{ InstanceUtils && InstanceUtils.renderBadge(document.getElementById('currentInstanceLabel')); }catch{}
+        try{ InstanceUtils && InstanceUtils.renderBadge(document.getElementById('currentInstanceLabelRealtime')); }catch{}
+
+        // 默认渲染目标为聊天
+        window.__renderTargetId = 'messages-container';
+        window.__enableRealtimeRender = false;
         // 如果当前在诊断tab，更新状态
         if (document.querySelector('.tab-btn[data-tab="diagnostic-tab"]').classList.contains('active')) {
             updateQuickStatus();

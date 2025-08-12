@@ -92,6 +92,7 @@ body {
 }
 
 /* 仅聊天页强制可增长，不影响历史/诊断等使用内滚的区域 */
+#chat-tab { position: relative; }
 #chat-tab .messages-container { overflow: visible; }
 
 /* 轻量聊天时间线样式 */
@@ -636,6 +637,9 @@ body {
     padding: 4px 8px;
     font-size: 12px;
 }
+
+/* 实时回显状态胶囊 */
+#rt-broadcast-pill { display:inline-block; }
 
 .branch-section,
 .commit-section {
