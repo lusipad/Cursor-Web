@@ -26,6 +26,12 @@ class SimpleWebClient {
     this._lastSentMsgId = null;
     this._lastSentAt = 0;
     this._correlationWindowMs = 120000; // 2 分钟窗口，避免误吸其他会话回复
+    // 抑制启动阶段把“历史里旧的最新一条”当作新消息渲染
+    this._startedAt = Date.now();
+    this._suppressUntilBaseline = true; // 等待一次基线建立后再放开
+    // 已加载过“同日历史”的标记，避免重复加载
+    this._historyLoadedForSession = null;
+    this._historyLoadedDayKey = null;
 
     // URL 中的实例 ID
         try {
@@ -79,6 +85,8 @@ class SimpleWebClient {
         const latest = payload && payload.latest;
         const message = latest && latest.message;
         if (!message) return;
+        const msgTs = Number(message.timestamp || 0);
+        const latestSessionId = latest && (latest.sessionId || latest.session_id);
         const normalizedText = String(message.content || message.text || message.value || '');
         const hash = this._hashMessage({ role: message.role || 'assistant', text: normalizedText });
         const now = Date.now();
@@ -86,14 +94,22 @@ class SimpleWebClient {
         if (this._lastSentMsgId && (now - this._lastSentAt) <= this._correlationWindowMs) {
           const ok = await this._verifyAssistantCorrelated(latest.sessionId, this._lastSentMsgId, message);
           if (!ok) return; // 不是本次回复，忽略
+        } else {
+          // 非关联窗口：避免在页面刚打开时把旧的“最新回复”渲染出来
+          if (this._suppressUntilBaseline) {
+            // 若没有时间戳或时间戳不晚于页面启动时间，则忽略
+            if (!msgTs || msgTs <= this._startedAt) return;
+          }
         }
         if (!this._lastMessageHash || hash !== this._lastMessageHash) {
           this._lastMessageHash = hash;
           if (normalizedText && this.timeline) {
-            this.timeline.appendAssistantMessage(String(normalizedText));
+            this.timeline.appendAssistantMessage(String(normalizedText), msgTs || Date.now());
           }
           const ts = message.timestamp || Date.now();
           try { this.cursorStatusManager.recordContentUpdate(ts); } catch {}
+          // 首次观察到该会话的当天消息时，补拉同一会话“同日历史”
+          try { if (latestSessionId && msgTs) await this._loadSameDayHistoryForSession(latestSessionId, msgTs); } catch {}
         }
       } catch {}
     });
@@ -112,7 +128,11 @@ class SimpleWebClient {
         console.log('🔧 初始化简化客户端...');
         this.wsManager.connect();
         this.statusManager.startStatusCheck();
-        this.statusManager.startContentPolling();
+      this.statusManager.startContentPolling();
+      // 启动后先建立一次“基线”，防止把历史的最新一条当作新消息显示
+      this._prefetchBaseline()
+        .catch(()=>{})
+        .finally(()=>{ this._suppressUntilBaseline = false; });
         this.cursorStatusManager.startMonitoring();
         this.eventManager.init();
         this.broadcastStatus();
@@ -250,7 +270,7 @@ class SimpleWebClient {
     const msgId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2);
     this._lastSentMsgId = msgId;
     this._lastSentAt = Date.now();
-    try { if (this.timeline) this.timeline.appendUserMessage(typeof message === 'string' ? message : JSON.stringify(message), msgId); } catch {}
+    try { if (this.timeline) this.timeline.appendUserMessage(typeof message === 'string' ? message : JSON.stringify(message), msgId, sentAt); } catch {}
     try { if (this.timeline) this.timeline.showTyping(msgId); } catch {}
 
     // 2) 异步预取旧基线，不阻塞 UI
@@ -288,6 +308,33 @@ class SimpleWebClient {
       if (!this._lastMessageHash) {
             this._captureBaseline(chats || []);
       }
+    }catch{}
+  }
+
+  _dayKey(ts){ try { const d = new Date(Number(ts)||Date.now()); const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const dd=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${dd}`; } catch { return ''; } }
+
+  async _loadSameDayHistoryForSession(sessionId, anchorTs){
+    try{
+      const dayKey = this._dayKey(anchorTs);
+      if (this._historyLoadedForSession === sessionId && this._historyLoadedDayKey === dayKey) return;
+      const url = `/api/chat/${encodeURIComponent(sessionId)}`;
+      const res = await fetch(url);
+      const chat = await res.json();
+      const msgs = Array.isArray(chat?.messages) ? chat.messages : (Array.isArray(chat?.data?.messages) ? chat.data.messages : []);
+      if (!msgs.length) { this._historyLoadedForSession = sessionId; this._historyLoadedDayKey = dayKey; return; }
+      const start = new Date(new Date(anchorTs).setHours(0,0,0,0)).getTime();
+      const end = new Date(new Date(anchorTs).setHours(23,59,59,999)).getTime();
+      // 升序渲染，交给时间线去重
+      const inDay = msgs.filter(m=>{ const t=Number(m?.timestamp||0); return t && t>=start && t<=end; }).sort((a,b)=>Number(a.timestamp||0)-Number(b.timestamp||0));
+      for (const m of inDay){
+        const text = String(m?.content || m?.text || m?.value || '');
+        if (!text) continue;
+        const role = String(m?.role||'assistant');
+        if (role==='user'){ try{ this.timeline && this.timeline.appendUserMessage(text, null, Number(m.timestamp||0)||Date.now()); }catch{} }
+        else { try{ this.timeline && this.timeline.appendAssistantMessage(text, Number(m.timestamp||0)||Date.now()); }catch{} }
+      }
+      this._historyLoadedForSession = sessionId;
+      this._historyLoadedDayKey = dayKey;
     }catch{}
   }
 

@@ -220,21 +220,3 @@ main().catch((err) => {
   process.exit(1);
 });
 
-
-
-  console.log(`Total: ${results.length}, Passed: ${results.length - failed.length}, Failed: ${failed.length}`);
-
-  // Stop server if we started it
-  if (srv.started && srv.proc) {
-    try { srv.proc.kill(); } catch {}
-  }
-
-  process.exit(failed.length > 0 ? 1 : 0);
-}
-
-run().catch((e) => {
-  console.error('❌ Test runner error:', e);
-  process.exit(1);
-});
-
-

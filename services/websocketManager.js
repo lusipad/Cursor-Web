@@ -26,7 +26,7 @@ class WebSocketManager {
   }
 
   handleMessage(ws, data){
-    let msg; try{ msg = JSON.parse(data.toString()); }catch{ return; }
+    let msg; try{ msg = JSON.parse(data.toString()); }catch (e){ return; }
     const t = msg.type;
     if (t==='register') return this.handleRegister(ws, msg);
     if (t==='html_content') return this.handleHtmlContent(ws, msg);
@@ -40,18 +40,29 @@ class WebSocketManager {
     const role = typeof message.role==='string' ? message.role : 'unknown';
     const instanceId = (typeof message.instanceId==='string' && message.instanceId.trim()) ? message.instanceId.trim() : null;
     ws._meta = { ...(ws._meta||{}), role, instanceId, injected: Boolean(message.injected), url: typeof message.url==='string'? message.url : null };
-    try{ ws.send(JSON.stringify({ type:'register_ack', ok:true, role, instanceId })); }catch{}
+    try{ ws.send(JSON.stringify({ type:'register_ack', ok:true, role, instanceId })); }catch (e){}
     // 注册后立即推送一次在线/注入状态给所有 web 端，提升“立即显示在线”的体验
+    this.pushClientsUpdate();
+  }
+
+  pushClientsUpdate(){
     try{
       const overview = this.getClientsOverview();
       const payload = JSON.stringify({ type:'clients_update', data: overview });
-      this.connectedClients.forEach(c=>{ if (c.readyState===c.OPEN){ const m=c._meta||{}; if (m.role==='web'){ try{ c.send(payload); }catch{ this.connectedClients.delete(c); } } });
-    }catch{}
+      this.connectedClients.forEach((client)=>{
+        if (client && client.readyState === client.OPEN){
+          const m = client._meta || {};
+          if (m.role === 'web'){
+            try { client.send(payload); } catch (e) { this.connectedClients.delete(client); }
+          }
+        }
+      });
+    }catch (e){}
   }
 
   handleHtmlContent(ws, message){
     // 更新当前会话 HTML（仅用于演示，实际项目可移除）
-    try{ this.chatManager.updateContent?.(message.data?.html||'', message.data?.timestamp||Date.now()); }catch{}
+    try{ this.chatManager.updateContent?.(message.data?.html||'', message.data?.timestamp||Date.now()); }catch (e){}
     // 根据配置决定是否广播到所有客户端（默认关闭，仅调试用）
     if (serverConfig?.websocket?.broadcastHtmlEnabled) {
       this.broadcastToClients(message, ws);
@@ -62,7 +73,7 @@ class WebSocketManager {
     const msg = JSON.stringify(message);
     this.connectedClients.forEach(client => {
       if (client!==sender && client.readyState===client.OPEN){
-        try{ client.send(msg); }catch{ this.connectedClients.delete(client); }
+        try{ client.send(msg); }catch (e){ this.connectedClients.delete(client); }
       }
     });
   }
@@ -80,10 +91,10 @@ class WebSocketManager {
         const m=c._meta||{}; if (m.role==='cursor' && m.instanceId===target){ if(!best || (m.connectedAt||0)>(best._meta?.connectedAt||0)) best=c; }
       }
     });
-    if (best){ try{ best.send(msgStr); }catch{ this.connectedClients.delete(best); } }
+    if (best){ try{ best.send(msgStr); }catch (e){ this.connectedClients.delete(best); } }
     else { // 通知 web 端无目标
       const fb = JSON.stringify({ type:'delivery_error', msgId: message.msgId||null, instanceId: target, reason:'no_target', timestamp: Date.now() });
-      this.connectedClients.forEach(c=>{ if (c!==ws && c.readyState===c.OPEN && (c._meta?.role==='web' && c._meta?.instanceId===target)) { try{ c.send(fb); }catch{ this.connectedClients.delete(c);} } });
+      this.connectedClients.forEach(c=>{ if (c!==ws && c.readyState===c.OPEN && (c._meta?.role==='web' && c._meta?.instanceId===target)) { try{ c.send(fb); }catch (e){ this.connectedClients.delete(c);} } });
     }
   }
 
@@ -91,22 +102,22 @@ class WebSocketManager {
     const payload = { type: message.type, msgId: message.msgId||null, instanceId: message.instanceId||null, reason: message.reason||null, timestamp: message.timestamp||Date.now() };
     const msgStr = JSON.stringify(payload);
     this.connectedClients.forEach(c=>{
-      if (c!==ws && c.readyState===c.OPEN){ const m=c._meta||{}; if (m.role==='web' && (!payload.instanceId || m.instanceId===payload.instanceId)) { try{ c.send(msgStr); }catch{ this.connectedClients.delete(c);} } }
+      if (c!==ws && c.readyState===c.OPEN){ const m=c._meta||{}; if (m.role==='web' && (!payload.instanceId || m.instanceId===payload.instanceId)) { try{ c.send(msgStr); }catch (e){ this.connectedClients.delete(c);} } }
     });
   }
 
   handleAssistantHint(ws, message){
     const payload = { type:'assistant_hint', msgId: message.msgId||null, instanceId: message.instanceId||ws._meta?.instanceId||null, timestamp: message.timestamp||Date.now() };
     const msgStr = JSON.stringify(payload);
-    this.connectedClients.forEach(c=>{ if (c!==ws && c.readyState===c.OPEN){ const m=c._meta||{}; if (m.role==='web' && (!payload.instanceId || m.instanceId===payload.instanceId)){ try{ c.send(msgStr); }catch{ this.connectedClients.delete(c);} } } });
+    this.connectedClients.forEach(c=>{ if (c!==ws && c.readyState===c.OPEN){ const m=c._meta||{}; if (m.role==='web' && (!payload.instanceId || m.instanceId===payload.instanceId)){ try{ c.send(msgStr); }catch (e){ this.connectedClients.delete(c);} } } });
   }
 
   setupHeartbeat(){
     setInterval(()=>{
       this.connectedClients.forEach(ws=>{
         if (ws.readyState===ws.OPEN){
-          if (ws.isAlive===false){ try{ ws.terminate(); }catch{} this.connectedClients.delete(ws); return; }
-          ws.isAlive=false; try{ ws.ping(); }catch{}
+          if (ws.isAlive===false){ try{ ws.terminate(); }catch (e){} this.connectedClients.delete(ws); return; }
+          ws.isAlive=false; try{ ws.ping(); }catch (e){}
         }
       });
     }, 30000);
@@ -124,7 +135,7 @@ class WebSocketManager {
     return count;
   }
 
-  close(){ try{ this.wss.close(); }catch{} }
+  close(){ try{ this.wss.close(); }catch (e){} }
 }
 
 module.exports = WebSocketManager;

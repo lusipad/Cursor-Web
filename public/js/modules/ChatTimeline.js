@@ -38,6 +38,53 @@ class ChatTimeline {
     }
   }
 
+  scrollToLatest(element){
+    try{ if (element && element.scrollIntoView) element.scrollIntoView({ block:'end', behavior:'smooth' }); }catch{}
+    try{ window.scrollTo({ top: document.documentElement.scrollHeight, behavior:'smooth' }); }catch{ try{ window.scrollTo(0, document.documentElement.scrollHeight || document.body.scrollHeight || 0); }catch{} }
+  }
+
+  // 过滤与净化：对助手消息应用与历史页相近的清洗规则
+  cleanMessageText(rawText) {
+    try {
+      const text = String(rawText == null ? '' : rawText);
+      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const shaRe = /^[0-9a-f]{7,40}$/i;
+      const longAlphaNumRe = /^[A-Za-z0-9_\-]{20,}$/;
+      const statusWordRe = /^(completed|complete|success|succeeded|ok|done|error|failed|failure|cancelled|canceled|timeout)$/i;
+      const toolWordRe = /^(codebase[_\.-]?search|grep|read_file|run_terminal_cmd|apply_patch|read_lints|list_dir|glob(_file_search)?|create_diagram|fetch_pull_request|update_memory|functions\.[A-Za-z0-9_]+)$/i;
+      const thinkHeadRe = /^(思考|思考过程|推理|反思|Reasoning|Thoughts?|Chain[- ]?of[- ]?Thoughts?|CoT)\s*[:：]/i;
+      const techHeadRe = /^(Tool|Arguments|Result|Observation|工具调用|工具参数|工具结果|观察)\s*[:：]/i;
+      const onlyUrlRe = /^(https?:\/\/[^\s]+)$/i;
+      const fileLikeRe = /^(file:\/\/\/|vscode-file:\/\/|vscode-webview:\/\/|devtools:\/\/)/i;
+      const fenceRe = /^`{3,}$/;
+
+      const isNoiseLine = (s) => {
+        if (typeof s !== 'string') return true;
+        const v = s.trim();
+        if (!v) return true;
+        if (uuidRe.test(v)) return true;
+        if (shaRe.test(v)) return true;
+        if (longAlphaNumRe.test(v)) return true;
+        if (statusWordRe.test(v)) return true;
+        if (toolWordRe.test(v)) return true;
+        if (techHeadRe.test(v)) return true;
+        if (thinkHeadRe.test(v)) return true;
+        if (fenceRe.test(v)) return true;
+        if (onlyUrlRe.test(v)) return true;
+        if (fileLikeRe.test(v)) return true; // vscode/file 路径类
+        return false;
+      };
+
+      const cleaned = text
+        .split(/\r?\n/)
+        .map(l => l.trim())
+        .filter(l => l && !isNoiseLine(l))
+        .join('\n')
+        .trim();
+      return cleaned;
+    } catch { return String(rawText || ''); }
+  }
+
   highlightCodeIn(element){
     try{
       if (!element) return;
@@ -92,19 +139,8 @@ class ChatTimeline {
       this.highlightCodeIn(item);
       try { requestAnimationFrame(()=> this.highlightCodeIn(item)); } catch {}
     }
-    // 保持视图尽量在底部（若用户未上滑）
-    try{
-      const nearBottom = (this.container.scrollTop + this.container.clientHeight) >= (this.container.scrollHeight - 30);
-      if (nearBottom) this.container.scrollTop = this.container.scrollHeight;
-    }catch{}
-    // 滚动到底部（延迟确保渲染完成）
-    const doScroll = () => {
-      if (!this.container) return;
-      // 强制向下滚动以显示最新消息（即使用户滚动至底部以外区域）
-      try { this.container.scrollTop = this.container.scrollHeight; } catch {}
-    };
-    doScroll();
-    try { requestAnimationFrame(() => setTimeout(doScroll, 0)); } catch {}
+    // 直接滚动到最新
+    this.scrollToLatest(item);
   }
 
   // 基于 角色 + 文本 的去重，避免同一条回复因不同时间戳重复渲染
@@ -117,8 +153,8 @@ class ChatTimeline {
     } catch { return String(Date.now()); }
   }
 
-  appendUserMessage(text, msgId) {
-    const ts = Date.now();
+  appendUserMessage(text, msgId, timestamp) {
+    const ts = timestamp || Date.now();
     this.appendMessage('user', text, ts);
     // 为最近一条 user 附状态条
     const last = this.timeline?.lastElementChild;
@@ -135,10 +171,12 @@ class ChatTimeline {
     }
   }
 
-  appendAssistantMessage(text) {
+  appendAssistantMessage(text, timestamp) {
     // 有新的助手回复时，移除任何遗留的占位，避免错乱
     this.clearTypingPlaceholders();
-    this.appendMessage('assistant', text, Date.now());
+    const cleaned = this.cleanMessageText(text);
+    if (!cleaned) return; // 全噪声则不渲染
+    this.appendMessage('assistant', cleaned, timestamp || Date.now());
     try { Prism && Prism.highlightAllUnder && this.timeline && Prism.highlightAllUnder(this.timeline); } catch {}
   }
 
@@ -161,8 +199,7 @@ class ChatTimeline {
       this.timeline.appendChild(item);
       this.typingMsgIdToEl.set(msgId, item);
       // 滚到底部
-      try { this.container.scrollTop = this.container.scrollHeight; } catch {}
-      try { requestAnimationFrame(()=>{ try{ this.container.scrollTop = this.container.scrollHeight; }catch{} }); } catch {}
+      this.scrollToLatest(item);
     } catch {}
   }
 
@@ -172,7 +209,9 @@ class ChatTimeline {
       const el = this.typingMsgIdToEl.get(msgId);
       if (!el) return false;
       const contentEl = el.querySelector('.content');
-      if (contentEl) contentEl.innerHTML = this.sanitize(String(text||''));
+      const cleaned = this.cleanMessageText(String(text||''));
+      if (!cleaned) { try { el.remove(); } catch {} this.typingMsgIdToEl.delete(msgId); return false; }
+      if (contentEl) contentEl.innerHTML = this.sanitize(cleaned);
       this.highlightCodeIn(el);
       const metaEl = el.querySelector('.meta');
       if (metaEl && timestamp) metaEl.textContent = `🤖 助手 · ${new Date(timestamp).toLocaleTimeString()}`;
