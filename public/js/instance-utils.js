@@ -20,7 +20,15 @@
     return 'default';
   }
 
-  function set(id){ try{ localStorage.setItem('cw.instanceId', String(id||'')); setCookie('cw_instance_id', String(id||''), 180); }catch{} }
+  function set(id){
+    try{
+      const v = String(id||'');
+      localStorage.setItem('cw.instanceId', v);
+      setCookie('cw_instance_id', v, 180);
+      // 同步给已注入的页面（若有），以便其在下次心跳/重连时带上正确的 instanceId
+      try{ window.__cursorInstanceId = v; }catch{}
+    }catch{}
+  }
   function clear(){ try{ localStorage.removeItem('cw.instanceId'); }catch{} setCookie('cw_instance_id','',-1); }
   function ensureOrRedirect(redirect){ const id = get(); if (id) return id; window.location.href = redirect || '/instances.html'; return ''; }
   async function getInstanceMeta(id){ try{ const r=await fetch(`/api/instances/${encodeURIComponent(id)}`); const j=await r.json(); return j&&j.success?j.data:null; }catch{ return null; } }

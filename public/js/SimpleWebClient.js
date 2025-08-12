@@ -38,6 +38,10 @@ class SimpleWebClient {
             const url = new URL(window.location.href);
             this.instanceId = url.searchParams.get('instance') || null;
         } catch { this.instanceId = null; }
+        // 补充：若 URL 未携带 instance，则回退到 InstanceUtils 的默认选择
+        if (!this.instanceId) {
+            try { this.instanceId = (window.InstanceUtils && InstanceUtils.get && InstanceUtils.get()) || null; } catch {}
+        }
 
     // 设置回调
         this.setupCallbacks();
