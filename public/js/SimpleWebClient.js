@@ -378,6 +378,26 @@ class SimpleWebClient {
   // ====== WS 事件 ======
     handleWebSocketMessage(data) {
         switch (data.type) {
+            case 'assistant_stream':
+        try {
+          const msgId = data.msgId || null;
+          const delta = String(data.delta || '');
+          if (msgId && this.timeline && delta) {
+            this.timeline.appendTypingChunk(msgId, delta);
+          }
+        } catch {}
+        break;
+            case 'assistant_done':
+        try {
+          const msgId = data.msgId || null;
+          const text = String(data.text || '');
+          if (msgId && this.timeline) {
+            const ok = this.timeline.replaceTyping(msgId, text, Number(data.timestamp||Date.now()));
+            if (!ok && text) this.timeline.appendAssistantMessage(text, Number(data.timestamp||Date.now()));
+            this.timeline.markReplied(msgId);
+          }
+        } catch {}
+        break;
             case 'html_content':
         try {
           const payload = (data && data.data) ? data.data : { html: (data && data.html) || '', timestamp: data?.timestamp || Date.now() };

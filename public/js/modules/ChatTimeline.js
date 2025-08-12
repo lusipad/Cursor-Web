@@ -211,6 +211,22 @@ class ChatTimeline {
     } catch {}
   }
 
+  // 追加增量内容到正在生成的占位
+  appendTypingChunk(msgId, delta) {
+    try {
+      if (!msgId) return;
+      const el = this.typingMsgIdToEl.get(msgId);
+      if (!el) return;
+      const contentEl = el.querySelector('.content');
+      if (!contentEl) return;
+      const cleaned = String(delta == null ? '' : delta);
+      if (!cleaned) return;
+      contentEl.innerHTML += this.sanitize(cleaned);
+      // 滚动到底部
+      this.scrollToLatest(el);
+    } catch {}
+  }
+
   // 用真实文本替换占位，并将真实消息哈希登记到去重集合
   replaceTyping(msgId, text, timestamp) {
     try {

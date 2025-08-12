@@ -31,6 +31,7 @@ class WebSocketManager {
     if (t==='register') return this.handleRegister(ws, msg);
     if (t==='html_content') return this.handleHtmlContent(ws, msg);
     if (t==='user_message') return this.handleUserMessage(ws, msg);
+    if (t==='assistant_stream' || t==='assistant_done') return this.handleAssistantStream(ws, msg);
     if (t==='ping') return ws.send(JSON.stringify({ type:'pong', timestamp:Date.now() }));
     if (t==='delivery_ack' || t==='delivery_error') return this.handleDeliveryEvent(ws, msg);
     if (t==='assistant_hint') return this.handleAssistantHint(ws, msg);
@@ -110,6 +111,20 @@ class WebSocketManager {
     const payload = { type:'assistant_hint', msgId: message.msgId||null, instanceId: message.instanceId||ws._meta?.instanceId||null, timestamp: message.timestamp||Date.now() };
     const msgStr = JSON.stringify(payload);
     this.connectedClients.forEach(c=>{ if (c!==ws && c.readyState===c.OPEN){ const m=c._meta||{}; if (m.role==='web' && (!payload.instanceId || m.instanceId===payload.instanceId)){ try{ c.send(msgStr); }catch (e){ this.connectedClients.delete(c);} } } });
+  }
+
+  // 代理模式：把注入端转发的增量/完成事件路由给相同 instance 的 web 端
+  handleAssistantStream(ws, message){
+    const instanceId = message.instanceId || ws._meta?.instanceId || null;
+    const payload = { type: message.type, msgId: message.msgId||null, delta: message.delta||null, text: message.text||null, timestamp: message.timestamp||Date.now() };
+    const msgStr = JSON.stringify(payload);
+    this.connectedClients.forEach(c=>{
+      if (c!==ws && c.readyState===c.OPEN){
+        const m=c._meta||{};
+        if (m.role==='web' && (!instanceId || m.instanceId===instanceId)){
+          try{ c.send(msgStr); }catch (e){ this.connectedClients.delete(c);} }
+      }
+    });
   }
 
   setupHeartbeat(){

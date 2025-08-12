@@ -378,6 +378,26 @@ class SimpleWebClient {
   // ====== WS 事件 ======
     handleWebSocketMessage(data) {
         switch (data.type) {
+            case 'assistant_stream':
+        try {
+          const msgId = data.msgId || null;
+          const delta = String(data.delta || '');
+          if (msgId && this.timeline && delta) {
+            this.timeline.appendTypingChunk(msgId, delta);
+          }
+        } catch {}
+        break;
+            case 'assistant_done':
+        try {
+          const msgId = data.msgId || null;
+          const text = String(data.text || '');
+          if (msgId && this.timeline) {
+            const ok = this.timeline.replaceTyping(msgId, text, Number(data.timestamp||Date.now()));
+            if (!ok && text) this.timeline.appendAssistantMessage(text, Number(data.timestamp||Date.now()));
+            this.timeline.markReplied(msgId);
+          }
+        } catch {}
+        break;
             case 'html_content':
         try {
           const payload = (data && data.data) ? data.data : { html: (data && data.html) || '', timestamp: data?.timestamp || Date.now() };
@@ -513,26 +533,6 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 
 
-            }
-        } catch (e) {
-            console.warn('打开 AI 面板尝试失败：', e);
-        }
-        return false;
-    }
-
-    findChatContainer() {
-        // 允许外部强制指定选择器
-        try {
-            if (typeof window.__cursorChatSelector === 'string' && window.__cursorChatSelector.trim()) {
-                const forced = document.querySelector(window.__cursorChatSelector.trim());
-                if (forced) { this.chatContainer = forced; console.log('✅ 使用外部指定选择器:', window.__cursorChatSelector); return; }
-            }
-        } catch {}
-
-        // 1) 更严格地定位“右侧聊天栏”容器
-        const selectorCandidates = [
-            // 明确含“Chat”语义且在右侧辅助区域
-            '[aria-label*="Chat" i][role="complementary"] .interactive-session .monaco-list-rows',
             '[aria-label*="Chat" i] .interactive-session .monaco-list-rows',
             '[aria-label*="Chat" i] .monaco-list-rows',
             // Cursor/VSCode 常见结构
