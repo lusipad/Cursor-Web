@@ -48,7 +48,21 @@ class InjectRoutes {
       if (!file) return null;
       const arr = JSON.parse(fs.readFileSync(file, 'utf8'));
       const list = Array.isArray(arr) ? arr : [];
-      return list.find(x => String(x.id||'') === String(instanceId)) || null;
+      const found = list.find(x => String(x.id||'') === String(instanceId));
+      if (found) return found;
+      if (String(instanceId) === 'default') {
+        // 始终提供一个默认实例：打开程序所在目录
+        return {
+          id: 'default',
+          name: '默认实例',
+          description: '打开程序所在目录',
+          openPath: process.cwd(),
+          args: [],
+          userDataDir: '',
+          cursorPath: ''
+        };
+      }
+      return null;
     } catch { return null; }
   }
 

@@ -22,6 +22,7 @@
         <nav class="tab-nav">
             <button class="tab-btn active" data-tab="chat-tab">聊天</button>
             <button class="tab-btn" data-tab="history-tab">历史记录</button>
+            <button class="tab-btn" data-tab="instances-tab">实例</button>
             <button class="tab-btn" data-tab="git-tab">Git 管理</button>
             <button class="tab-btn" data-tab="diagnostic-tab">系统诊断</button>
         </nav>
@@ -58,6 +59,31 @@
                       <a href="/instances.html" class="btn btn-secondary" target="_blank">选择/切换实例</a>
                     </div>
                     <iframe id="historyFrame" src="/history-new.html" style="width:100%;height:100vh;border:0;border-radius:8px;background:#111;"></iframe>
+                </div>
+            </section>
+
+            <!-- 实例 Tab 内容 -->
+            <section id="instances-tab" class="tab-content">
+                <div class="history-panel" style="padding:12px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+                      <div id="instancesCurrentLabel" style="font-size:12px;color:#aaa;"></div>
+                      <div style="display:flex;gap:8px;">
+                        <button id="instances-refresh" class="btn btn-secondary">刷新</button>
+                        <button id="instances-scan-inject" class="btn btn-info">扫描注入</button>
+                        <button id="instances-kill-all" class="btn btn-danger">杀死全部</button>
+                      </div>
+                    </div>
+                    <div id="instances-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-bottom:16px;"></div>
+                    <div style="display:grid;grid-template-columns:1fr;gap:12px;">
+                      <div class="card">
+                        <h3 style="margin:0 0 8px 0;">进程列表</h3>
+                        <div id="instances-processes" class="meta">加载中...</div>
+                      </div>
+                      <div class="card">
+                        <h3 style="margin:0 0 8px 0;">已连接客户端</h3>
+                        <div id="instances-clients" class="meta">加载中...</div>
+                      </div>
+                    </div>
                 </div>
             </section>
 
@@ -184,6 +210,7 @@
       }
     </script>
     <script src="git-manager.js"></script>
+    <script src="js/instances-tab.js"></script>
     <script>
     // Tab 切换逻辑
     document.querySelectorAll('.tab-btn').forEach(btn => {

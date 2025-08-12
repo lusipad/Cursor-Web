@@ -45,9 +45,34 @@ class InstancesRoutes {
     }
   }
 
+  buildDefaultInstance() {
+    try {
+      const cwd = process.cwd();
+      return {
+        id: 'default',
+        name: '默认实例',
+        description: '打开程序所在目录',
+        openPath: cwd,
+        args: [],
+        userDataDir: '',
+        cursorPath: ''
+      };
+    } catch {
+      return { id: 'default', name: '默认实例', description: '打开程序所在目录', openPath: process.cwd ? process.cwd() : '', args: [] };
+    }
+  }
+
+  ensureDefault(list) {
+    const hasDefault = list.some(it => String(it.id || '') === 'default');
+    if (!hasDefault) {
+      return [this.buildDefaultInstance(), ...list];
+    }
+    return list;
+  }
+
   handleListInstances(req, res) {
     try {
-      const list = this.readInstancesList();
+      const list = this.ensureDefault(this.readInstancesList());
       res.json({ success: true, data: list });
     } catch (e) {
       res.status(500).json({ success: false, error: e?.message || 'read instances failed' });
@@ -57,7 +82,7 @@ class InstancesRoutes {
   handleGetInstance(req, res) {
     try {
       const id = String(req.params.id || '');
-      const list = this.readInstancesList();
+      const list = this.ensureDefault(this.readInstancesList());
       const found = list.find(it => String(it.id || '') === id);
       if (!found) return res.status(404).json({ success: false, error: 'instance not found' });
       res.json({ success: true, data: found });
