@@ -21,9 +21,9 @@ class CursorHistoryManager {
     }
 
     // ====== cursor-view 等价实现（提取口径完全对齐） ======
-    getChatsCursorView() {
+    getChatsCursorView(summary = false) {
         try {
-            const out = this.cvExtractChats();
+            const out = this.cvExtractChats(summary);
             // 格式化为前端易用结构（与 cursor-view 的 format_chat_for_frontend 对齐）
             return out.map(c => this.cvFormatChat(c));
         } catch (e) {
@@ -32,7 +32,7 @@ class CursorHistoryManager {
         }
     }
 
-    cvExtractChats() {
+    cvExtractChats(summary = false) {
         const pathLib = require('path');
         const fsLib = require('fs');
         const out = [];
@@ -114,99 +114,112 @@ class CursorHistoryManager {
                     } catch {}
 
                     // 3) 累积消息：chatdata.tabs[].bubbles[] 与 composer.composerData.conversation/messages
-                    try {
-                        const r = db.prepare("SELECT value FROM ItemTable WHERE key='workbench.panel.aichat.view.aichat.chatdata'").get();
-                        const pane = r && r.value ? JSON.parse(r.value) : {};
-                        for (const tab of pane.tabs || []) {
-                            const tid = tab.tabId || 'unknown';
-                            for (const b of tab.bubbles || []) {
-                                const t = typeof b.text === 'string' ? b.text : (typeof b.content === 'string' ? b.content : '');
-                                if (!t) continue;
-                                const role = (b.type === 'user' || b.type === 1) ? 'user' : 'assistant';
-                                const ts = b?.cTime || b?.timestamp || b?.time || b?.createdAt || b?.lastUpdatedAt || tab?.lastUpdatedAt || tab?.createdAt || null;
-                                pushMsg(tid, role, t, dbPath, ts);
+                    if (!summary) {
+                        try {
+                            const r = db.prepare("SELECT value FROM ItemTable WHERE key='workbench.panel.aichat.view.aichat.chatdata'").get();
+                            const pane = r && r.value ? JSON.parse(r.value) : {};
+                            for (const tab of pane.tabs || []) {
+                                const tid = tab.tabId || 'unknown';
+                                for (const b of tab.bubbles || []) {
+                                    const t = typeof b.text === 'string' ? b.text : (typeof b.content === 'string' ? b.content : '');
+                                    if (!t) continue;
+                                    const role = (b.type === 'user' || b.type === 1) ? 'user' : 'assistant';
+                                    const ts = b?.cTime || b?.timestamp || b?.time || b?.createdAt || b?.lastUpdatedAt || tab?.lastUpdatedAt || tab?.createdAt || null;
+                                    pushMsg(tid, role, t, dbPath, ts);
+                                }
                             }
-                        }
-                    } catch {}
-                    try {
-                        const r = db.prepare("SELECT value FROM ItemTable WHERE key='composer.composerData'").get();
-                        const cd = r && r.value ? JSON.parse(r.value) : {};
-                        for (const c of cd.allComposers || []) {
-                            const cid = c.composerId || 'unknown';
-                            for (const m of c.messages || []) {
-                                const role = m.role || 'assistant';
-                                const t = m.content || m.text || '';
-                                const ts = m?.timestamp || m?.time || m?.createdAt || m?.lastUpdatedAt || c?.lastUpdatedAt || c?.createdAt || null;
-                                if (t) pushMsg(cid, role, t, dbPath, ts);
+                        } catch {}
+                    }
+                    if (!summary) {
+                        try {
+                            const r = db.prepare("SELECT value FROM ItemTable WHERE key='composer.composerData'").get();
+                            const cd = r && r.value ? JSON.parse(r.value) : {};
+                            for (const c of cd.allComposers || []) {
+                                const cid = c.composerId || 'unknown';
+                                for (const m of c.messages || []) {
+                                    const role = m.role || 'assistant';
+                                    const t = m.content || m.text || '';
+                                    const ts = m?.timestamp || m?.time || m?.createdAt || m?.lastUpdatedAt || c?.lastUpdatedAt || c?.createdAt || null;
+                                    if (t) pushMsg(cid, role, t, dbPath, ts);
+                                }
                             }
-                        }
-                    } catch {}
+                        } catch {}
+                    }
                 } finally { try { db.close(); } catch {} }
             }
         } catch {}
 
-        // 读取全局 globalStorage：cursorDiskKV['bubbleId:%'] / 'composerData:%' 与 ItemTable chatdata
-        try {
-            const pathLib = require('path');
-            const fsLib = require('fs');
-            const globalDb = pathLib.join(this.cursorStoragePath, 'User', 'globalStorage', 'state.vscdb');
-            if (fsLib.existsSync(globalDb)) {
-                const Database = require('better-sqlite3');
-                const db = new Database(globalDb, { readonly: true });
-                try {
-                    // bubbleId
+        if (!summary) {
+            // 读取全局 globalStorage：cursorDiskKV['bubbleId:%'] / 'composerData:%' 与 ItemTable chatdata
+            try {
+                const pathLib = require('path');
+                const fsLib = require('fs');
+                const globalDb = pathLib.join(this.cursorStoragePath, 'User', 'globalStorage', 'state.vscdb');
+                if (fsLib.existsSync(globalDb)) {
+                    const Database = require('better-sqlite3');
+                    const db = new Database(globalDb, { readonly: true });
                     try {
-                        const rows = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'").all();
-                        for (const row of rows) {
-                            const v = row.value ? JSON.parse(row.value) : null; if (!v) continue;
-                            const parts = String(row.key).split(':');
-                            const cid = parts.length >= 3 ? parts[1] : null; if (!cid) continue;
-                            const role = (v.type === 1 || v.type === 'user') ? 'user' : 'assistant';
-                            const t = v.text || v.richText || v.content || '';
-                            const ts = v?.cTime || v?.timestamp || v?.time || v?.createdAt || v?.lastUpdatedAt || null;
-                            if (t) pushMsg(cid, role, t, globalDb, ts);
-                            if (!compMeta.has(cid)) compMeta.set(cid, { title: `Chat ${String(cid).slice(0,8)}`, createdAt: v.createdAt || null, lastUpdatedAt: v.lastUpdatedAt || v.createdAt || null });
-                            if (!comp2ws.has(cid)) comp2ws.set(cid, '(global)');
-                        }
-                    } catch {}
-                    // composerData
-                    try {
-                        const rows = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'").all();
-                        for (const row of rows) {
-                            const v = row.value ? JSON.parse(row.value) : null; if (!v) continue;
-                            const parts = String(row.key).split(':');
-                            const cid = parts.length >= 2 ? parts[1] : null; if (!cid) continue;
-                            const created = v.createdAt || null;
-                            if (!compMeta.has(cid)) compMeta.set(cid, { title: `Chat ${String(cid).slice(0,8)}`, createdAt: created, lastUpdatedAt: created });
-                            if (!comp2ws.has(cid)) comp2ws.set(cid, '(global)');
-                            for (const m of v.conversation || []) {
-                                const role = (m.type === 1) ? 'user' : 'assistant';
-                                const t = m.text || '';
-                                const ts = m?.timestamp || m?.time || m?.createdAt || m?.lastUpdatedAt || created || null;
+                        // bubbleId
+                        try {
+                            const rows = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'").all();
+                            for (const row of rows) {
+                                const v = row.value ? JSON.parse(row.value) : null; if (!v) continue;
+                                const parts = String(row.key).split(':');
+                                const cid = parts.length >= 3 ? parts[1] : null; if (!cid) continue;
+                                const role = (v.type === 1 || v.type === 'user') ? 'user' : 'assistant';
+                                const t = v.text || v.richText || v.content || '';
+                                const ts = v?.cTime || v?.timestamp || v?.time || v?.createdAt || v?.lastUpdatedAt || null;
                                 if (t) pushMsg(cid, role, t, globalDb, ts);
+                                if (!compMeta.has(cid)) compMeta.set(cid, { title: `Chat ${String(cid).slice(0,8)}`, createdAt: v.createdAt || null, lastUpdatedAt: v.lastUpdatedAt || v.createdAt || null });
+                                if (!comp2ws.has(cid)) comp2ws.set(cid, '(global)');
                             }
-                        }
-                    } catch {}
-                    // global ItemTable chatdata
-                    try {
-                        const r = db.prepare("SELECT value FROM ItemTable WHERE key='workbench.panel.aichat.view.aichat.chatdata'").get();
-                        const pane = r && r.value ? JSON.parse(r.value) : {};
-                        for (const tab of pane.tabs || []) {
-                            const tid = tab.tabId || 'unknown';
-                            if (!compMeta.has(tid)) compMeta.set(tid, { title: `Global Chat ${String(tid).slice(0,8)}`, createdAt: null, lastUpdatedAt: null });
-                            if (!comp2ws.has(tid)) comp2ws.set(tid, '(global)');
-                            for (const b of tab.bubbles || []) {
-                                const t = typeof b.text === 'string' ? b.text : (typeof b.content === 'string' ? b.content : '');
-                                if (!t) continue;
-                                const role = (b.type === 'user' || b.type === 1) ? 'user' : 'assistant';
-                                const ts = b?.cTime || b?.timestamp || b?.time || b?.createdAt || b?.lastUpdatedAt || tab?.lastUpdatedAt || tab?.createdAt || null;
-                                pushMsg(tid, role, t, globalDb, ts);
+                        } catch {}
+                        // composerData
+                        try {
+                            const rows = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'").all();
+                            for (const row of rows) {
+                                const v = row.value ? JSON.parse(row.value) : null; if (!v) continue;
+                                const parts = String(row.key).split(':');
+                                const cid = parts.length >= 2 ? parts[1] : null; if (!cid) continue;
+                                const created = v.createdAt || null;
+                                if (!compMeta.has(cid)) compMeta.set(cid, { title: `Chat ${String(cid).slice(0,8)}`, createdAt: created, lastUpdatedAt: created });
+                                if (!comp2ws.has(cid)) comp2ws.set(cid, '(global)');
+                                for (const m of v.conversation || []) {
+                                    const role = (m.type === 1) ? 'user' : 'assistant';
+                                    const t = m.text || '';
+                                    const ts = m?.timestamp || m?.time || m?.createdAt || m?.lastUpdatedAt || created || null;
+                                    if (t) pushMsg(cid, role, t, globalDb, ts);
+                                }
                             }
-                        }
-                    } catch {}
-                } finally { try { db.close(); } catch {} }
+                        } catch {}
+                        // global ItemTable chatdata
+                        try {
+                            const r = db.prepare("SELECT value FROM ItemTable WHERE key='workbench.panel.aichat.view.aichat.chatdata'").get();
+                            const pane = r && r.value ? JSON.parse(r.value) : {};
+                            for (const tab of pane.tabs || []) {
+                                const tid = tab.tabId || 'unknown';
+                                if (!compMeta.has(tid)) compMeta.set(tid, { title: `Global Chat ${String(tid).slice(0,8)}`, createdAt: null, lastUpdatedAt: null });
+                                if (!comp2ws.has(tid)) comp2ws.set(tid, '(global)');
+                                for (const b of tab.bubbles || []) {
+                                    const t = typeof b.text === 'string' ? b.text : (typeof b.content === 'string' ? b.content : '');
+                                    if (!t) continue;
+                                    const role = (b.type === 'user' || b.type === 1) ? 'user' : 'assistant';
+                                    const ts = b?.cTime || b?.timestamp || b?.time || b?.createdAt || b?.lastUpdatedAt || tab?.lastUpdatedAt || tab?.createdAt || null;
+                                    pushMsg(tid, role, t, globalDb, ts);
+                                }
+                            }
+                        } catch {}
+                    } finally { try { db.close(); } catch {} }
+                }
+            } catch {}
+        }
+
+        // 在 summary 模式下，确保每个 comp 都有一个会话占位（避免遗漏无消息但有元信息的会话）
+        if (summary) {
+            for (const cid of compMeta.keys()) {
+                if (!sessions.has(cid)) sessions.set(cid, { messages: [], db_path: '' });
             }
-        } catch {}
+        }
 
         // 组装输出
         for (const [cid, data] of sessions.entries()) {
@@ -2042,20 +2055,55 @@ class CursorHistoryManager {
         const segmentMinutes = Number(options?.segmentMinutes || 0); // 默认不分段；>0 时按分钟切分
         console.log(`📚 获取聊天会话...`);
 
+        // 轻量缓存：按 (mode, segmentMinutes, includeUnmapped) 维度缓存“未按 openPath 过滤”的全集
+        const now = Date.now();
+        if (!this._historyCache) this._historyCache = new Map();
+        const cacheKey = JSON.stringify({
+            mode: options && options.mode ? String(options.mode) : 'default',
+            segment: segmentMinutes || 0,
+            includeUnmapped: includeUnmapped ? 1 : 0,
+            summary: (options && (options.summary === true || options.summary === 'true' || options.summary === 1 || options.summary === '1')) ? 1 : 0
+        });
+        const cached = this._historyCache.get(cacheKey);
+        if (cached && (now - cached.ts) < this.cacheTimeout) {
+            let base = cached.items;
+            // 如传入 openPath，则在缓存基础上做过滤
+            if (options && options.filterOpenPath) {
+                const basePath = this.normalizePath(options.filterOpenPath).toLowerCase();
+                const baseCv = this.encodeCursorViewPath(options.filterOpenPath).toLowerCase();
+                const ensureSlash = (s) => (s.endsWith('/') ? s : s + '/');
+                const isPrefix = (root) => {
+                    if (!root) return false;
+                    const r1 = this.normalizePath(root).toLowerCase();
+                    const r2 = this.encodeCursorViewPath(root).toLowerCase();
+                    const ok1 = r1 === basePath || r1.startsWith(ensureSlash(basePath)) || basePath.startsWith(ensureSlash(r1));
+                    const ok2 = r2 === baseCv || r2.startsWith(ensureSlash(baseCv)) || baseCv.startsWith(ensureSlash(r2));
+                    return ok1 || ok2;
+                };
+                base = base.filter(c => isPrefix(c?.project?.rootPath || ''));
+            }
+            console.log(`📚 使用缓存的历史记录: ${base.length} 个会话`);
+            return base;
+        }
+
         // 优先：cursor-view 等价实现（显式启用）
         if (options && options.mode === 'cv') {
             try {
-                const cvChats = this.getChatsCursorView();
-                let normalized = cvChats.map(c => ({
+                const isSummary = !!(options && (options.summary === true || options.summary === 'true' || options.summary === 1 || options.summary === '1'));
+                const cvChats = this.getChatsCursorView(isSummary);
+                const normalizedAll = cvChats.map(c => ({
                     sessionId: c.session_id,
                     project: c.project,
-                    messages: Array.isArray(c.messages) ? c.messages : [],
+                    messages: isSummary ? [] : (Array.isArray(c.messages) ? c.messages : []),
                     date: typeof c.date === 'number' ? new Date(c.date * 1000).toISOString() : (c.date || new Date().toISOString()),
                     workspaceId: c.workspace_id || 'unknown',
                     dbPath: c.db_path || '',
                     isRealData: true,
                     dataSource: 'cursor-view'
                 }));
+                // 写入缓存（未按 openPath 过滤的全集）
+                this._historyCache.set(cacheKey, { ts: now, items: normalizedAll });
+                let normalized = normalizedAll;
                 // 若指定 openPath 过滤，在 CV 模式同样生效
                 if (options && options.filterOpenPath) {
                     const base = this.normalizePath(options.filterOpenPath).toLowerCase();
@@ -2265,6 +2313,9 @@ class CursorHistoryManager {
             // 按日期排序
             deduped.sort((a, b) => new Date(b.date) - new Date(a.date));
             
+            // 先写入缓存（未按 openPath 过滤的全集）
+            this._historyCache.set(cacheKey, { ts: now, items: deduped });
+
             // 若指定了 openPath 过滤（不改变账号根，仅过滤结果集）
             let filtered = deduped;
             if (options && options.filterOpenPath) {
@@ -2304,13 +2355,29 @@ class CursorHistoryManager {
         }
     }
 
-    // 获取聊天记录列表（兼容原有API）
+    // 获取聊天记录列表（支持 summary 精简）
     async getHistory(options = {}) {
-        const { limit = 50, offset = 0 } = options;
-        
+        const { limit = 50, offset = 0, summary = false } = options;
+
         const chats = await this.getChats(options);
-        const paginatedChats = chats.slice(offset, offset + limit);
-        
+        let paginatedChats = chats.slice(offset, offset + limit);
+
+        if (summary) {
+            paginatedChats = paginatedChats.map(chat => {
+                const idA = chat.sessionId || chat.session_id || null;
+                const idB = chat.session_id || chat.sessionId || null;
+                const msgs = Array.isArray(chat.messages) ? chat.messages.slice(-3) : [];
+                return {
+                    sessionId: idA,
+                    session_id: idB,
+                    project: chat.project || null,
+                    date: chat.date || null,
+                    timestamp: chat.timestamp || chat.date || null,
+                    messages: msgs
+                };
+            });
+        }
+
         return {
             items: paginatedChats,
             total: chats.length,
@@ -2365,6 +2432,7 @@ class CursorHistoryManager {
     clearCache() {
         this.cachedHistory = null;
         this.lastCacheTime = 0;
+        this._historyCache = new Map();
         console.log('🗑️ 历史记录缓存已清除');
     }
 

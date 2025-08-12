@@ -116,13 +116,29 @@
     let activeWorkspaceCvPath = '';
     let activeWorkspaceLoaded = false;
 
+    // 分页/滚动加载状态
+    let pageSize = 30;
+    let nextOffset = 0;
+    let hasMore = true;
+    let isLoading = false;
+    let io = null; // IntersectionObserver
+    let lastQuery = '';
+    // 防止初始阶段一次性把所有页拉完
+    const MAX_INITIAL_AUTO_LOADS = 0;
+    let initialAutoLoads = 0;
+    let userScrolled = false;
+    let lastLoadTime = 0;
+
     document.addEventListener('DOMContentLoaded', async () => {
         // 先读取实例 openPath，再加载历史
         try { await ensureInstanceOpenPathLoaded(); } catch {}
         // 若带 instance，默认使用“当前活动目录”；否则默认“全部会话”
         setViewMode(detectInstanceId() ? 'active' : 'list');
-        loadHistory();
-        document.getElementById('searchInput').addEventListener('input', debounce(loadHistory, 500));
+        // 监听滚动，用于控制仅在用户滚动后继续加载
+        window.addEventListener('scroll', () => { userScrolled = true; }, { passive: true });
+        // 首次加载按分页进行
+        resetAndLoad();
+        document.getElementById('searchInput').addEventListener('input', debounce(()=>loadHistory(true), 500));
     });
 
     function debounce(fn, wait){ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), wait); }; }
@@ -131,38 +147,142 @@
         currentViewMode = mode;
         document.querySelectorAll('.view-btn').forEach(b=>{ b.classList.toggle('active', b.dataset.mode===mode); });
         const stats = document.getElementById('statsContainer');
-        if (mode === 'active') { stats.style.display='none'; renderActiveView(); } else { stats.style.display='grid'; loadStats(); renderHistory(currentHistory); }
+        stats.style.display = (mode === 'active') ? 'none' : 'grid';
+        // 视图变更后重置并按分页加载
+        resetAndLoad();
     }
 
-    async function loadHistory(){
-        const q = document.getElementById('searchInput').value;
-        // 全部会话/按项目聚合：不受 instance 过滤；仅“当前活动目录”才按 openPath 过滤
-        const params = new URLSearchParams({ limit: 20000, includeUnmapped: 'true' });
+    // 对外刷新函数（按钮/搜索共用）
+    function loadHistory(reset = true){
+        if (reset) return resetAndLoad();
+        return loadMoreHistory();
+    }
+
+    // 重置并启动首次分页加载
+    async function resetAndLoad(){
+        resetPagination();
+        currentHistory = [];
+        lastQuery = document.getElementById('searchInput').value || '';
+        // 基础布局：标题（可选）、列表容器、触底加载区
+        const container = document.getElementById('historyContent');
+        container.innerHTML = `
+            <div id="listHeading"></div>
+            <div id="listContainer" style="display:grid;gap:20px;"></div>
+            <div id="loadMoreArea" class="loading"><div class="spinner"></div><div>正在加载...</div></div>
+        `;
+        if (currentViewMode !== 'active') { try { loadStats(); } catch {} }
+        if (currentViewMode === 'active') { try { await ensureActiveWorkspaceLoaded(); } catch {} ; updateActiveHeading(0); }
+        setupInfiniteScroll();
+        await loadMoreHistory();
+        if (currentViewMode !== 'list') { try { await autoLoadAllPages(); } catch {} }
+    }
+
+    function resetPagination(){
+        nextOffset = 0;
+        hasMore = true;
+        isLoading = false;
+        if (io){ try{ io.disconnect(); }catch{} io = null; }
+    }
+
+    function setupInfiniteScroll(){
+        const target = document.getElementById('loadMoreArea');
+        if (!target) return;
+        if (currentViewMode !== 'list') return;
+        io = new IntersectionObserver((entries)=>{
+            const entry = entries[0];
+            if (!entry || !entry.isIntersecting) return;
+            // 简单冷却，避免在同一渲染周期内连发多次
+            const now = Date.now();
+            if (now - lastLoadTime < 400) return;
+            // 初始阶段仅允许少量自动加载，避免页面未溢出时把全部数据拉完
+            if (initialAutoLoads < MAX_INITIAL_AUTO_LOADS) {
+                initialAutoLoads++;
+                loadMoreHistory();
+                return;
+            }
+            // 非初始阶段：需要用户滚动后才触发
+            if (userScrolled) {
+                userScrolled = false;
+                loadMoreHistory();
+            }
+        }, { root: null, rootMargin: '200px', threshold: 0 });
+        io.observe(target);
+    }
+
+    async function loadMoreHistory(){
+        if (isLoading || !hasMore) return;
+        isLoading = true;
+        const q = document.getElementById('searchInput').value || '';
         const inst = detectInstanceId();
-        if (currentViewMode === 'active' && inst) params.append('instance', inst);
+        const params = new URLSearchParams({ limit: String(pageSize), offset: String(nextOffset), includeUnmapped: 'false', summary: '1', maxAgeMs: '8000', mode: 'cv' });
         if (q) params.append('search', q);
-        showLoading();
         try{
-            const [hRes, pRes] = await Promise.all([
-                fetch(`/api/history?${params}`),
-                fetch(`/api/history/projects${(currentViewMode==='active' && inst)?`?instance=${encodeURIComponent(inst)}`:''}`)
-            ]);
-            const result = await hRes.json();
-            const projects = await pRes.json();
-            if (result.success){
-                const raw = result.data.items || result.data || [];
-                currentHistory = (Array.isArray(raw) ? raw : []).map(ensurePrimaryTimestamp);
-                allProjects = projects && projects.success ? (Array.isArray(projects.data)?projects.data:[]) : [];
-                if (currentViewMode==='active') renderActiveView(); else renderHistory(currentHistory);
-            } else { showError('加载历史记录失败：' + result.error); }
-        } catch(e){ showError('加载历史记录失败：' + e.message); }
+            const res = await fetch(`/api/history?${params}`);
+            const result = await res.json();
+            if (!result || !result.success){
+                updateLoadMoreText('加载失败');
+                isLoading = false; return;
+            }
+            const payload = result.data || {};
+            const items = Array.isArray(payload.items) ? payload.items : (Array.isArray(payload) ? payload : []);
+            // 累计数据
+            if (items.length > 0){
+                currentHistory.push(...items.map(ensurePrimaryTimestamp));
+                nextOffset += items.length;
+            }
+            hasMore = typeof payload.hasMore === 'boolean' ? payload.hasMore : ((payload.total && nextOffset < payload.total) ? true : (items.length === pageSize));
+            renderAccordingToMode(items);
+            updateLoadMoreText(hasMore ? '向下滚动加载更多...' : '已全部加载');
+            // 更新统计（基于已加载数据）
+            try { updateStatsFromLoaded(); } catch {}
+        }catch(e){
+            updateLoadMoreText('加载失败：' + e.message);
+        }finally{
+            isLoading = false;
+            lastLoadTime = Date.now();
+        }
+    }
+
+    async function autoLoadAllPages(){
+        while (hasMore && !isLoading) {
+            await loadMoreHistory();
+            await new Promise(r => setTimeout(r, 0));
+        }
+    }
+
+    function updateLoadMoreText(text){
+        const el = document.getElementById('loadMoreArea');
+        if (!el) return;
+        el.innerHTML = hasMore
+            ? `<div class="spinner"></div><div>${text}</div>`
+            : `<div style="color: var(--text-secondary); padding: 8px 0;">${text}</div>`;
+    }
+
+    function renderAccordingToMode(newItems){
+        if (currentViewMode === 'list'){
+            appendListItems(newItems);
+        } else if (currentViewMode === 'grouped'){
+            renderProjectsUnique(currentHistory);
+        } else if (currentViewMode === 'active'){
+            renderActiveView();
+        }
+    }
+
+    function appendListItems(items){
+        const list = document.getElementById('listContainer');
+        if (!list) return;
+        if (!items || items.length === 0) return;
+        const html = items.map(chat => renderChatCard(ensurePrimaryTimestamp(chat))).join('');
+        list.insertAdjacentHTML('beforeend', html);
     }
 
     function renderHistory(items){
+        // 非 active 模式：填充到 listContainer
         if (currentViewMode==='active') return renderActiveView();
-        const container=document.getElementById('historyContent');
+        const list = document.getElementById('listContainer');
+        if (!list){ showLoading(); return; }
         if (!items || items.length===0){
-            container.innerHTML = `<div class="no-data"><div class="no-data-icon">💬</div><h3>暂无聊天记录</h3><p>当前筛选条件下没有找到聊天记录</p></div>`; return;
+            list.innerHTML = `<div class="no-data"><div class="no-data-icon">💬</div><h3>暂无聊天记录</h3><p>当前筛选条件下没有找到聊天记录</p></div>`; return;
         }
         if (currentViewMode==='list') return renderListView(items);
         return renderProjectsUnique(items);
@@ -179,9 +299,19 @@
 
     function normalizeProjectCvPathLower(p){
         if (!p) return '';
-        const s = String(p).replace(/\\/g,'/');
+        let s = String(p).replace(/\\/g,'/');
+        s = s.replace(/^file:\/\//, '');
+        try { s = decodeURIComponent(s); } catch {}
         if (/^\/[A-Za-z]%3A\//.test(s)){
-            return s.replace(/^\/([A-Za-z])%3A/, (_, d) => '/' + String(d).toLowerCase() + '%3A');
+            return s.replace(/^\/[A-Za-z]%3A\//, (m) => m.toLowerCase());
+        }
+        if (/^\/[A-Za-z]:\//.test(s)){
+            const d = s.charAt(1).toLowerCase();
+            return `/${d}%3a/` + s.slice(3);
+        }
+        if (/^[A-Za-z]:\//.test(s)){
+            const d = s.charAt(0).toLowerCase();
+            return `/${d}%3a/` + s.slice(3);
         }
         return normalizeCvPathLower(s);
     }
@@ -225,18 +355,21 @@
     }
 
     function matchActiveDirectory(projectRoot){
-        if (!projectRoot || !activeWorkspaceCvPath) return false;
+        if (!activeWorkspaceCvPath) return false;
+        if (!projectRoot || projectRoot === '(unknown)') return true; // 未映射的也先显示，避免误伤
         const pr = normalizeProjectCvPathLower(projectRoot);
-        const ar = activeWorkspaceCvPath;
+        const ar = normalizeProjectCvPathLower(activeWorkspaceCvPath);
         return pr === ar || pr.startsWith(ar + '/') || ar.startsWith(pr + '/');
     }
 
     async function renderActiveView(){
-        const container = document.getElementById('historyContent');
-        showLoading();
+        const headingEl = document.getElementById('listHeading');
+        const list = document.getElementById('listContainer');
+        if (!headingEl || !list) return;
         await ensureActiveWorkspaceLoaded();
         if (!activeWorkspaceCvPath){
-            container.innerHTML = `
+            headingEl.innerHTML = '';
+            list.innerHTML = `
                 <div class="no-data">
                     <div class="no-data-icon">⚠️</div>
                     <h3>无法获取当前活动目录</h3>
@@ -244,25 +377,45 @@
                 </div>`;
             return;
         }
-        const filtered = (currentHistory||[]).filter(item => matchActiveDirectory(item?.project?.rootPath || ''));
-        const instanceId = detectInstanceId();
-        const heading = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-            <div style="font-weight:600;">当前活动目录：
-                <span style="opacity:.8">${escapeHtml(toPrettyDisplayPath(activeWorkspacePath || activeWorkspaceCvPath))}</span>（${filtered.length}）
-                ${instanceId ? `<span style="margin-left:8px;color:#aaa;">实例：${escapeHtml(instanceId)}</span>` : ''}
-            </div>
-        </div>`;
+        let filtered = (currentHistory||[]).filter(item => matchActiveDirectory(item?.project?.rootPath || item?.project?.root || ''));
+        if (filtered.length === 0 && currentHistory.length > 0) {
+            // 回退：尝试使用会话的 workspaceId/dbPath 作为信号，宽松匹配一次
+            try {
+                const ar = normalizeProjectCvPathLower(activeWorkspaceCvPath);
+                filtered = (currentHistory||[]).filter(it => {
+                    const ws = String(it?.workspaceId||'').toLowerCase();
+                    const db = String(it?.dbPath||'').replace(/\\/g,'/').toLowerCase();
+                    return ws.includes('global') || db.includes('user/globalstorage');
+                });
+            } catch {}
+        }
+        updateActiveHeading(filtered.length);
         if (filtered.length === 0){
-            container.innerHTML = `${heading}
+            const hasInst = !!detectInstanceId();
+            list.innerHTML = `
                 <div class="no-data">
                     <div class="no-data-icon">💬</div>
                     <h3>暂无聊天记录</h3>
-                    <p>当前活动目录下没有匹配的会话</p>
+                    <p>${hasInst ? '当前活动目录下没有匹配的会话' : '未指定实例参数，当前活动目录取的是服务器工作目录，可能与 Cursor 的活动目录不一致。请在 URL 添加 ?instance=你的实例ID，或切换到“全部会话/按项目聚合”。'}</p>
                 </div>`;
             return;
         }
-        const html = filtered.map(chat => renderChatCard(chat)).join('');
-        container.innerHTML = `${heading}<div style="display:grid;gap:20px;">${html}</div>`;
+        const extra = (currentHistory||[]).filter(item => !item?.project || !item?.project?.rootPath || item?.project?.rootPath === '(unknown)');
+        const merged = filtered.length ? filtered : extra;
+        list.innerHTML = merged.map(chat => renderChatCard(chat)).join('');
+    }
+
+    function updateActiveHeading(count){
+        const headingEl = document.getElementById('listHeading');
+        if (!headingEl) return;
+        const instanceId = detectInstanceId();
+        headingEl.innerHTML = `
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <div style="font-weight:600;">当前活动目录：
+                    <span style="opacity:.8">${escapeHtml(toPrettyDisplayPath(activeWorkspacePath || activeWorkspaceCvPath))}</span>（${count||0}）
+                    ${instanceId ? `<span style=\"margin-left:8px;color:#aaa;\">实例：${escapeHtml(instanceId)}</span>` : ''}
+                </div>
+            </div>`;
     }
 
     function renderProjectsUnique(items){
@@ -279,12 +432,15 @@
         }
         const groups = Array.from(byProject.values()).sort((a,b)=> new Date(b.latest?.timestamp||b.latest?.date||0) - new Date(a.latest?.timestamp||a.latest?.date||0));
         const html = groups.map(g => renderProjectCard(g.project, g.latest, g.chats.length)).join('');
-        document.getElementById('historyContent').innerHTML = `<div class="sessions-grid">${html}</div>`;
+        const list = document.getElementById('listContainer');
+        if (list) list.innerHTML = `<div class="sessions-grid">${html}</div>`;
     }
 
     function renderListView(items){
+        const list = document.getElementById('listContainer');
+        if (!list) return;
         const html = items.map(chat => renderChatCard(ensurePrimaryTimestamp(chat))).join('');
-        document.getElementById('historyContent').innerHTML = `<div style="display:grid;gap:20px;">${html}</div>`;
+        list.innerHTML = html;
     }
 
     function renderProjectCard(project, latestChat, chatCount){
@@ -400,11 +556,18 @@
         return copy;
     }
 
-    async function loadStats(){ if (currentViewMode==='active') return; try{ const [sRes,pRes]=await Promise.all([fetch('/api/history/stats'), fetch('/api/history/projects')]); const s=await sRes.json(); const p=await pRes.json(); const messageCount=currentHistory.reduce((sum,it)=>sum+(it.messages?.length||0),0); const total=(s&&s.success)?(s.data.total||currentHistory.length):currentHistory.length; const chats=(s&&s.success)?(s.data.byType?.chat||currentHistory.length):currentHistory.length; const proj=(p&&p.success)?(p.data?.length||0):new Set(currentHistory.map(it=>it.project?.rootPath||it.project?.name)).size; document.getElementById('totalRecords').textContent=total; document.getElementById('chatRecords').textContent=chats; document.getElementById('projectCount').textContent=proj; document.getElementById('messageCount').textContent=messageCount; }catch(e){}}
+    async function loadStats(){ if (currentViewMode==='active') return; try{ updateStatsFromLoaded(); }catch(e){} }
+    function updateStatsFromLoaded(){ try{ const messageCount=currentHistory.reduce((sum,it)=>sum+(it.messages?.length||0),0); const total=currentHistory.length; const chats=total; const proj=new Set(currentHistory.map(it=>it?.project?.rootPath||it?.project?.name||'(unknown)')).size; const setText=(id,txt)=>{ const el=document.getElementById(id); if(el) el.textContent=String(txt); }; setText('totalRecords', total); setText('chatRecords', chats); setText('projectCount', proj); setText('messageCount', messageCount); }catch{} }
 
-    function showLoading(){ document.getElementById('historyContent').innerHTML = `<div class="loading"><div class="spinner"></div><div>正在加载聊天记录...</div></div>`; }
-    function showError(msg){ document.getElementById('historyContent').innerHTML = `<div class="no-data"><div class="no-data-icon">⚠️</div><h3>加载失败</h3><p>${msg}</p></div>`; }
-    function clearSearch(){ document.getElementById('searchInput').value=''; loadHistory(); }
+    function showLoading(){
+        const c = document.getElementById('historyContent');
+        if (c) c.innerHTML = `<div class="loading"><div class="spinner"></div><div>正在加载聊天记录...</div></div>`;
+    }
+    function showError(msg){
+        const c = document.getElementById('historyContent');
+        if (c) c.innerHTML = `<div class="no-data"><div class="no-data-icon">⚠️</div><h3>加载失败</h3><p>${msg}</p></div>`;
+    }
+    function clearSearch(){ document.getElementById('searchInput').value=''; loadHistory(true); }
     // 与 chat-detail.html 完全一致：简单直取并展示
     function formatTimestamp(timestamp){
         if (!timestamp) return 'N/A';

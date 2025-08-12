@@ -82,6 +82,7 @@ class HistoryRoutes {
                 sortOrder: req.query.sortOrder || 'desc',
                 includeUnmapped: req.query.includeUnmapped,
                 mode: req.query.mode,
+                summary: (String(req.query.summary || '').trim() === '1' || String(req.query.summary || '').trim().toLowerCase() === 'true'),
                 instanceId: req.query.instance || null,
                 nocache: req.query.nocache || null,
                 maxAgeMs: req.query.maxAgeMs || null
@@ -107,18 +108,27 @@ class HistoryRoutes {
             // 再次兜底按 openPath 过滤，确保 CV 模式与非 CV 模式统一
             if (options.filterOpenPath && result && Array.isArray(result.items)) {
                 const norm = (p)=>{ try{ return String(p||'').replace(/\\/g,'/'); }catch{ return ''; } };
+                const toCv = (p)=>{
+                    const n = norm(p).toLowerCase();
+                    const withSlash = n.startsWith('/') ? n : ('/' + n);
+                    return withSlash.replace(/^\/([a-z]):\//, '/$1%3a/');
+                };
                 const base = norm(options.filterOpenPath).toLowerCase();
-                const baseCv = ('/' + base.replace(/^([A-Za-z]):\//, (m,d)=>d.toLowerCase()+':/')).toLowerCase().replace(/^([a-z]):\//, '/$1%3a/');
+                const baseCv = toCv(options.filterOpenPath);
                 const ensureSlash = (s)=> s.endsWith('/')?s:(s+'/');
                 const isPrefix = (root)=>{
                     if (!root) return false;
                     const r1 = norm(root).toLowerCase();
-                    const r2 = r1.startsWith('/')?r1.replace(/^\/([A-Za-z]):\//, '/$1%3a/'):('/'+r1.replace(/^([A-Za-z]):\//, (m,d)=>d.toLowerCase()+':/')).replace(/^([a-z]):\//, '/$1%3a/');
+                    const r2 = toCv(root);
                     const ok1 = r1 === base || r1.startsWith(ensureSlash(base)) || base.startsWith(ensureSlash(r1));
                     const ok2 = r2 === baseCv || r2.startsWith(ensureSlash(baseCv)) || baseCv.startsWith(ensureSlash(r2));
                     return ok1 || ok2;
                 };
-                result = { ...result, items: result.items.filter(it => isPrefix(it?.project?.rootPath||'')) };
+                result = { ...result, items: result.items.filter(it => {
+                    const root = it?.project?.rootPath || '';
+                    if (!root || root === '(unknown)') return true; // 放宽：未知根路径保留，避免误过滤
+                    return isPrefix(root);
+                }) };
             }
 
             // 还原缓存超时
