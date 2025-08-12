@@ -28,7 +28,8 @@
     <script src="/js/instance-utils.js"></script>
     <script>
     try{ InstanceUtils && InstanceUtils.renderBadge(document.getElementById('scriptInstance')); }catch{}
-    fetch('/cursor-browser.js').then(r => r.text()).then(code => {
+    // 默认提供轻量注入脚本（KISS）；需要高级功能时可改为 /cursor-browser.js
+    fetch('/inject-lite.js').then(r => r.text()).then(code => {
         document.getElementById('cursor-script').textContent = code;
     });
     document.getElementById('copy-cursor-script').onclick = function() {

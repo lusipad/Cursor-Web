@@ -208,7 +208,7 @@ class ContentRoutes {
                 this.historyManager.cacheTimeout = n; // 允许设为 0
             }
 
-            // 解析实例 openPath 作为过滤条件
+            // 解析实例 openPath 作为过滤条件；若未指定实例或实例为 default/未命中，则回退到服务器工作目录
             if (options.instanceId) {
                 try{
                     const fs = require('fs');
@@ -229,6 +229,10 @@ class ContentRoutes {
                         }
                     }
                 }catch{}
+            }
+            if (!options.filterOpenPath) {
+                // 默认以服务器工作目录作为活动目录（KISS 回退）
+                try { options.filterOpenPath = process.cwd(); } catch {}
             }
 
             const chats = await this.historyManager.getChats(options);

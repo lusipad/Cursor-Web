@@ -108,12 +108,17 @@ class InjectRoutes {
   }
 
   async injectIntoAllTargets(cdpPort, instanceId) {
-    const scriptPath = path.join(__dirname, '..', 'public', 'cursor-browser.js');
+    // 优先注入轻量脚本（KISS），若不存在则回退到旧版 cursor-browser.js
+    const preferLite = String(process.env.USE_LITE_INJECT || '1') !== '0';
+    const publicDir = path.join(__dirname, '..', 'public');
+    const litePath = path.join(publicDir, 'inject-lite.js');
+    const legacyPath = path.join(publicDir, 'cursor-browser.js');
+    const scriptPath = (preferLite && fs.existsSync(litePath)) ? litePath : legacyPath;
     const raw = fs.readFileSync(scriptPath, 'utf8');
     const header = instanceId ? `try{ window.__cursorInstanceId = ${JSON.stringify(instanceId)} }catch(e){}` : '';
     // 在 VSCode/Cursor 内嵌页（vscode-file:// 等）无法使用同源 host，固定回 localhost:3000
     const wsOverride = `try{ window.__cursorWS = 'ws://localhost:3000'; }catch{}`;
-    const source = `;(() => { try {\n${header}\n${wsOverride}\n${raw}\n} catch (e) { console.error('cursor-browser.js injection error', e); } })();`;
+    const source = `;(() => { try {\n${header}\n${wsOverride}\n${raw}\n} catch (e) { console.error('inject-script error', e); } })();`;
     const targets = await CDP.List({ host: '127.0.0.1', port: cdpPort });
     const rel = targets.filter(t => ['page','webview','other'].includes(t.type));
     for (const t of rel) {

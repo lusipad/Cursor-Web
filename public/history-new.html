@@ -333,7 +333,14 @@
             }
             const res = await fetch('/api/health');
             const json = await res.json();
-            const ws = json && (json.workspace || (json.data && json.data.workspace)) || '';
+            let ws = json && (json.workspace || (json.data && json.data.workspace)) || '';
+            // 回退：若健康接口未提供工作目录，则使用当前页面推断或服务器工作目录作为默认活动目录
+            if (!ws) {
+                try { ws = (window.location && window.location.pathname) ? (window.location.pathname) : ''; } catch {}
+            }
+            if (!ws) {
+                try { ws = '/'; } catch {}
+            }
             activeWorkspacePath = ws || '';
             activeWorkspaceCvPath = normalizeCvPathLower(activeWorkspacePath);
             activeWorkspaceLoaded = true;

@@ -66,7 +66,8 @@ class CursorHistoryManager {
                 const Database = require('better-sqlite3');
                 const db = new Database(dbPath, { readonly: true });
                 try {
-                    // 1) 项目根：ItemTable['history.entries'] 的 editor.resource file:/// 路径求公共前缀（失败则用 debug.selectedroot 兜底）
+                    // 1) 项目根：ItemTable['history.entries'] 的 editor.resource file:/// 路径求公共前缀
+                    //    失败则用 debug.selectedroot 兜底；若仍然过浅/未知，再用“众数根”作为最后兜底
                     let project = { name: '(unknown)', rootPath: '(unknown)' };
                     try {
                         const row = db.prepare("SELECT value FROM ItemTable WHERE key='history.entries'").get();
@@ -93,6 +94,16 @@ class CursorHistoryManager {
                                 const root = sel.slice('file:///'.length);
                                 const name = this.cvExtractProjectNameFromPath(root);
                                 project = { name: name || '(unknown)', rootPath: '/' + String(root).replace(/^\/+/, '') };
+                            }
+                        }
+                    } catch {}
+                    // 进一步兜底：若根仍无效或仅有盘符（如 /d%3A），尝试根据文件样本计算“众数根”
+                    try {
+                        const shallow = /^\/[A-Za-z]%3A\/?$/.test(project?.rootPath||'') || project?.rootPath === '/' || !project?.rootPath;
+                        if (shallow) {
+                            const major = this.computeWorkspaceMajorRoot(dbPath);
+                            if (major && major.rootPath && !/^\/[A-Za-z]%3A\/?$/.test(major.rootPath) && major.rootPath !== '/') {
+                                project = { name: major.name || this.extractProjectNameFromPath(major.rootPath), rootPath: major.rootPath };
                             }
                         }
                     } catch {}
@@ -255,7 +266,15 @@ class CursorHistoryManager {
         } else if (chat?.session?.createdAt) {
             dateSec = Math.floor((chat.session.createdAt) / 1000);
         }
-        const project = chat.project || { name: 'Unknown Project', rootPath: '/' };
+        let project = chat.project || { name: 'Unknown Project', rootPath: '/' };
+        // 若根仍然过浅或未知，尝试从 lastComposerProjectIndex 全局候选兜底一次
+        try{
+            const shallow = /^\/[A-Za-z]%3A\/?$/.test(project?.rootPath||'') || project?.rootPath === '/' || !project?.rootPath || project?.name === '(unknown)';
+            if (shallow && this.lastComposerProjectIndex && Array.isArray(this.lastComposerProjectIndex.globalCandidates) && this.lastComposerProjectIndex.globalCandidates.length > 0){
+                const top = this.lastComposerProjectIndex.globalCandidates[0];
+                if (top && top.rootPath){ project = { name: this.extractProjectNameFromPath(top.rootPath), rootPath: top.rootPath }; }
+            }
+        }catch{}
         return {
             project,
             messages: Array.isArray(chat.messages) ? chat.messages : [],
@@ -1663,8 +1682,10 @@ class CursorHistoryManager {
     }
 
     extractProjectNameFromPath(projectPath) {
-        if (!projectPath || projectPath === '/') return 'Unknown Project';
-        const parts = projectPath.replace(/\\/g, '/').split('/').filter(Boolean);
+        if (!projectPath) return 'Unknown Project';
+        const norm = String(projectPath).replace(/\\/g,'/');
+        if (norm === '/' || /^\/[A-Za-z]%3A\/?$/.test(norm)) return 'Unknown Project';
+        const parts = norm.split('/').filter(Boolean);
         return parts.length ? parts[parts.length - 1] : 'Unknown Project';
     }
 
@@ -2327,27 +2348,11 @@ class CursorHistoryManager {
                             projectInfo = { ...projectInfo, rootPath: wsProjForUnknown.rootPath, name: projectInfo.name || wsProjForUnknown.name };
                         }
                     }
-                    // 强约束：若根为盘符/根或容器（Repos），用 workspace 项目根替换
+                    // KISS：若根为盘符/根或容器（Repos/Code/Projects/workspace/src），视为未知，不再做任何推断
                     const normRoot = this.normalizePath(projectInfo.rootPath);
-                    const isShallow = /^(?:[A-Za-z]:)?\/?$/.test(normRoot) || /\/repos\/?$/i.test(normRoot);
-                    if (isShallow) {
-                        // 优先使用会话所属 workspace 的项目根
-                        const wsId = composerToWorkspace.get(session.sessionId) || (session.composerId && composerToWorkspace.get(session.composerId));
-                        const wsProj = wsId && workspaceToProject.get(wsId);
-                        if (wsProj) {
-                            projectInfo = { ...projectInfo, rootPath: wsProj.rootPath, name: wsProj.name };
-                        } else {
-                            // 退化为名称匹配或末段名称
-                            const byName = projectsArray.find(p => (p.name||'').toLowerCase() === (projectInfo.name||'').toLowerCase());
-                            if (byName) {
-                                projectInfo = { ...projectInfo, rootPath: byName.rootPath, name: byName.name };
-                            } else if (projectsArray.length > 0) {
-                                const picked = projectsArray[0];
-                                projectInfo = { ...projectInfo, rootPath: picked.rootPath, name: picked.name };
-                            } else {
-                                projectInfo = { ...projectInfo, name: this.extractProjectNameFromPath(projectInfo.rootPath) };
-                            }
-                        }
+                    const invalidRoot = !normRoot || /^(?:[A-Za-z]:)?\/?$/.test(normRoot) || /\/(repos|code|projects|workspace|src)\/?$/i.test(normRoot);
+                    if (invalidRoot) {
+                        projectInfo = { ...projectInfo, rootPath: '(unknown)', name: projectInfo.name || '(unknown)' };
                     }
                     if (!this.alignCursorViewMain) {
                         // 仅在不对齐 cursor-view-main 时做归一

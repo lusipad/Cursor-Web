@@ -150,6 +150,23 @@ class WebSocketManager {
     return count;
   }
 
+  // 兼容 serverUtils 的优雅关闭调用（KISS：轻量广播 + 关闭连接）
+  notifyServerShutdown(){
+    try{
+      const payload = JSON.stringify({ type:'server_shutdown', timestamp: Date.now() });
+      this.connectedClients.forEach((client)=>{
+        try{
+          if (client && client.readyState === client.OPEN) {
+            client.send(payload);
+            try { client.close(); } catch {}
+          }
+        }catch{}
+      });
+    }catch{}
+    try{ this.wss.close(); }catch{}
+    return Promise.resolve();
+  }
+
   close(){ try{ this.wss.close(); }catch (e){} }
 }
 
