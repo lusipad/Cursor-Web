@@ -41,6 +41,12 @@ class WebSocketManager {
     const instanceId = (typeof message.instanceId==='string' && message.instanceId.trim()) ? message.instanceId.trim() : null;
     ws._meta = { ...(ws._meta||{}), role, instanceId, injected: Boolean(message.injected), url: typeof message.url==='string'? message.url : null };
     try{ ws.send(JSON.stringify({ type:'register_ack', ok:true, role, instanceId })); }catch{}
+    // 注册后立即推送一次在线/注入状态给所有 web 端，提升“立即显示在线”的体验
+    try{
+      const overview = this.getClientsOverview();
+      const payload = JSON.stringify({ type:'clients_update', data: overview });
+      this.connectedClients.forEach(c=>{ if (c.readyState===c.OPEN){ const m=c._meta||{}; if (m.role==='web'){ try{ c.send(payload); }catch{ this.connectedClients.delete(c); } } });
+    }catch{}
   }
 
   handleHtmlContent(ws, message){

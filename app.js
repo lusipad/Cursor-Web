@@ -69,4 +69,20 @@ setupProcessHandlers(server, websocketManager);
 // 启动服务器
 server.listen(config.server.port, config.server.host, () => {
     printServerInfo(config.server.port);
+    // 启动后自动拉起默认实例（可在 config.serverConfig.startup 配置开关）
+    try {
+        const sc = require('./config/serverConfig');
+        if (sc?.startup?.autoLaunchDefaultInstance) {
+            setTimeout(async () => {
+                try {
+                    const http = require('http');
+                    const payload = JSON.stringify({ instanceId: 'default', pollMs: 30000 });
+                    const req = http.request({ hostname: '127.0.0.1', port: config.server.port, path: '/api/inject/launch', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } });
+                    req.on('error', () => {});
+                    req.write(payload); req.end();
+                    console.log('🚀 默认实例启动请求已发送 (default)');
+                } catch {}
+            }, Math.max(0, Number(sc.startup.delayMs || 1200)));
+        }
+    } catch {}
 });

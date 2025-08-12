@@ -13,7 +13,11 @@
       }
     }catch{}
     try{ const v = localStorage.getItem('cw.instanceId'); if (v) return v; }catch{}
-    return getCookie('cw_instance_id') || '';
+    const ck = getCookie('cw_instance_id');
+    if (ck) return ck;
+    // 无任何记录时，回退到默认实例
+    try{ localStorage.setItem('cw.instanceId', 'default'); setCookie('cw_instance_id', 'default', 180); }catch{}
+    return 'default';
   }
 
   function set(id){ try{ localStorage.setItem('cw.instanceId', String(id||'')); setCookie('cw_instance_id', String(id||''), 180); }catch{} }

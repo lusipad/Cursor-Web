@@ -39,6 +39,14 @@ const config = {
         level: process.env.LOG_LEVEL || 'info'
     },
 
+  // 启动行为
+  startup: {
+    // 启动时自动拉起默认实例（openPath=程序目录）
+    autoLaunchDefaultInstance: true,
+    // 延迟毫秒数，等待服务就绪
+    delayMs: 1200
+  },
+
     // 调试配置
     debug: {
         // 若置为 true，且 testCursorPath 存在，则优先使用该路径作为 Cursor 根目录

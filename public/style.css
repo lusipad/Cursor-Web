@@ -635,6 +635,9 @@ body {
     background: #333;
     color: #bbb;
 }
+.badge-ok { background:#114400; color:#aaffaa; }
+.badge-off { background:#442222; color:#ffaaaa; }
+.badge-warn { background:#664400; color:#ffdd99; }
 
 .btn-small {
     padding: 4px 8px;
