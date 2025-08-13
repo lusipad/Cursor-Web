@@ -380,7 +380,7 @@ class ChatTimeline {
   _stripTypingPrefix(text){
     try{
       let s = String(text || '');
-      s = s.replace(/^\s*(正在生成(?:…|\.{3}|中)?[:：]?)\s*/i, '');
+      s = s.replace(/^\s*(正在生成 (?:…|\.{3}|中)?[:：]?)\s*/i, '');
       s = s.replace(/^\s*(typing|generating|loading)\s*(?:…|\.{3})?\s*/i, '');
       return s;
     }catch{ return String(text||''); }
@@ -549,8 +549,8 @@ class HistoryRoutes {
                     }
                 }catch{}
                 const thinkTag = /<think>[\s\S]*?<\/think>/i.test(String(text||'')) || /<think>[\s\S]*?<\/think>/i.test(String(row?.value||''));
-                const headThink = /^\s*(思考|思考过程|推理|反思|Reasoning|Thoughts?|CoT)\s*[:：]/i.test(String(text||''));
-                const headFinal = /^\s*(最终|答案|结论|结果|Final|Answer|Response|Conclusion)\s*[:：]/i.test(String(text||''));
+                const headThink = /^\s*(思考 | 思考过程 | 推理 | 反思|Reasoning|Thoughts？|CoT)\s*[:：]/i.test(String(text||''));
+                const headFinal = /^\s*(最终 | 答案 | 结论 | 结果|Final|Answer|Response|Conclusion)\s*[:：]/i.test(String(text||''));
                 const ts = parsed?.cTime || parsed?.timestamp || parsed?.time || parsed?.createdAt || parsed?.lastUpdatedAt || null;
                 const keyParts = String(row.key||'').split(':');
                 const composerId = keyParts.length>=3 ? keyParts[1] : null;
