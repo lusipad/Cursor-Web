@@ -222,12 +222,9 @@ class SimpleWebClient {
           const m0 = r && r.data && r.data.message;
           if (m0) {
             const textR = String(m0.content || m0.text || m0.value || '');
-            const notEchoR = !options.userTextNormalized || textR.trim() !== options.userTextNormalized.trim();
-            const tsOkR = m0.timestamp ? (m0.timestamp > sentAt) : true;
-            if (notEchoR && tsOkR) {
-              if (options.onAssistant) options.onAssistant(textR);
-              return true;
-            }
+            // 与 msgId 精确匹配，直接接受（不再做 notEcho/时间戳过滤）
+            if (options.onAssistant) options.onAssistant(textR);
+            return true;
           }
         }
         const urlLatest = this.instanceId
@@ -249,7 +246,8 @@ class SimpleWebClient {
               correlated0 = await this._verifyAssistantCorrelated(latestSessionId, options.msgId, latest);
             }
           } catch {}
-          if (isNew0 && tsOk0 && notEcho0 && (correlated0 || !options.msgId)) {
+          // 若与 msgId 相关，则放宽 notEcho 限制，避免“要求回复相同文本”被过滤
+          if (isNew0 && tsOk0 && (correlated0 ? true : notEcho0) && (correlated0 || !options.msgId)) {
             try { this.uiManager.showNotification('已获取最新回复', 'info'); } catch {}
             this._lastMessageHash = h0;
             if (text0 && options.onAssistant) options.onAssistant(text0);
@@ -269,7 +267,7 @@ class SimpleWebClient {
         }
         if (reply) {
           const text = String(reply.content || reply.text || reply.value || '');
-          const notEcho = !options.userTextNormalized || text.trim() !== options.userTextNormalized.trim();
+          const notEcho = !options.msgId && (!options.userTextNormalized || text.trim() !== options.userTextNormalized.trim());
           const h = this._hashMessage({ role: reply.role || 'assistant', text });
           const isNew = (!this._lastMessageHash || h !== this._lastMessageHash);
           const tsOk = reply.timestamp ? (reply.timestamp > sentAt) : true;
@@ -290,9 +288,14 @@ class SimpleWebClient {
     async sendAndPoll(message) {
         try{ window.Audit && Audit.log('send', 'start', { message }); }catch{}
         if (!this.wsManager.isConnected()) {
-      try { this.uiManager.showNotification('WebSocket 未连接，无法发送', 'error'); } catch {}
-      try{ window.Audit && Audit.log('send', 'ws_not_connected'); }catch{}
-            return false;
+      // 发送前尝试快速重连（最多 3 秒）
+      try{ this.uiManager.showNotification('网络未连，正在尝试重连…', 'warning'); }catch{}
+      try{ await this._ensureConnected(3000); }catch{}
+      if (!this.wsManager.isConnected()){
+        try { this.uiManager.showNotification('WebSocket 未连接，无法发送', 'error'); } catch {}
+        try{ window.Audit && Audit.log('send', 'ws_not_connected'); }catch{}
+        return false;
+      }
         }
 
     // 1) 立刻生成消息并渲染到时间线（不等待任何网络）
@@ -328,6 +331,20 @@ class SimpleWebClient {
       } catch {}
     }});
     return true;
+  }
+
+  // 快速确保 WS 已连接：在超时时间内轮询 isConnected 并触发一次手动重连
+  async _ensureConnected(timeoutMs=3000){
+    try{
+      const deadline = Date.now() + Number(timeoutMs||0);
+      let attempted = false;
+      while (Date.now() < deadline){
+        if (this.wsManager && this.wsManager.isConnected && this.wsManager.isConnected()) return true;
+        if (!attempted){ attempted = true; try{ this.wsManager.manualReconnect?.(); }catch{} }
+        await new Promise(r=>setTimeout(r, 200));
+      }
+      return this.wsManager && this.wsManager.isConnected && this.wsManager.isConnected();
+    }catch{ return false; }
   }
 
   // 异步预取基线（最近助手消息），避免阻塞 UI

@@ -116,8 +116,8 @@ class InjectRoutes {
     const scriptPath = (preferLite && fs.existsSync(litePath)) ? litePath : legacyPath;
     const raw = fs.readFileSync(scriptPath, 'utf8');
     const header = instanceId ? `try{ window.__cursorInstanceId = ${JSON.stringify(instanceId)} }catch(e){}` : '';
-    // 在 VSCode/Cursor 内嵌页（vscode-file:// 等）无法使用同源 host，固定回 localhost:3000
-    const wsOverride = `try{ window.__cursorWS = 'ws://localhost:3000'; }catch{}`;
+    // 在 VSCode/Cursor 内嵌页（vscode-file:// 等）无法使用同源 host，优先 127.0.0.1 回退 localhost
+    const wsOverride = `try{ window.__cursorWS = 'ws://127.0.0.1:3000'; }catch{}`;
     const source = `;(() => { try {\n${header}\n${wsOverride}\n${raw}\n} catch (e) { console.error('inject-script error', e); } })();`;
     const targets = await CDP.List({ host: '127.0.0.1', port: cdpPort });
     const rel = targets.filter(t => ['page','webview','other'].includes(t.type));

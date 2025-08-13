@@ -42,6 +42,8 @@ class HistoryRoutes {
         
         // 调试信息
         router.get('/history/debug', this.getDebugInfo.bind(this));
+        // 原始气泡采样（调试用）
+        router.get('/history/raw-bubbles', this.getRawBubbles.bind(this));
         // 读取 Cursor 数据根（只读，来源于自动探测或环境变量）
         router.get('/history/cursor-path', this.getCursorRoot.bind(this));
         // 清空后端提取缓存
@@ -66,6 +68,99 @@ class HistoryRoutes {
         
         // 清除历史记录
         router.delete('/history', this.clearHistory.bind(this));
+    }
+
+    // 原始 bubble 调试采样：用于观察是否存在可区分 thinking/最终 的字段
+    async getRawBubbles(req, res){
+        try{
+            const path = require('path');
+            const fs = require('fs');
+            let Database = null;
+            try { Database = require('better-sqlite3'); } catch { Database = null; }
+            if (!Database) return res.status(500).json({ success:false, error:'better-sqlite3 not available' });
+
+            const limit = Math.max(1, Math.min(parseInt(req.query.limit)||50, 200));
+            const preview = Math.max(0, Math.min(parseInt(req.query.preview)||400, 4000));
+            const scope = String(req.query.scope||'global').toLowerCase(); // global|workspaces|all
+            const like = String(req.query.like||'').trim();
+            const includeRaw = /^(1|true)$/i.test(String(req.query.raw||''));
+
+            const cursorRoot = this.historyManager.cursorStoragePath;
+            const items = [];
+
+            const extractItem = (dbPath, row) => {
+                let parsed = null; try { parsed = row && row.value ? JSON.parse(row.value) : null; } catch { parsed = null; }
+                let role = 'assistant'; let text = '';
+                try{
+                    if (this.historyManager && typeof this.historyManager.extractBubbleTextAndRole === 'function'){
+                        const r = this.historyManager.extractBubbleTextAndRole(parsed || {});
+                        role = r.role || 'assistant'; text = r.text || '';
+                    } else {
+                        role = (parsed?.role==='user'||parsed?.type===1)?'user':'assistant';
+                        text = String(parsed?.text||parsed?.content||parsed?.richText||parsed?.markdown||parsed?.md||parsed?.message?.content||parsed?.data?.content||parsed?.payload?.content||'');
+                    }
+                }catch{}
+                const thinkTag = /<think>[\s\S]*?<\/think>/i.test(String(text||'')) || /<think>[\s\S]*?<\/think>/i.test(String(row?.value||''));
+                const headThink = /^\s*(思考|思考过程|推理|反思|Reasoning|Thoughts?|CoT)\s*[:：]/i.test(String(text||''));
+                const headFinal = /^\s*(最终|答案|结论|结果|Final|Answer|Response|Conclusion)\s*[:：]/i.test(String(text||''));
+                const ts = parsed?.cTime || parsed?.timestamp || parsed?.time || parsed?.createdAt || parsed?.lastUpdatedAt || null;
+                const keyParts = String(row.key||'').split(':');
+                const composerId = keyParts.length>=3 ? keyParts[1] : null;
+                return {
+                    db: dbPath,
+                    key: row.key,
+                    composerId,
+                    role,
+                    type: parsed?.type || null,
+                    timestamp: ts || null,
+                    textPreview: String(text||'').slice(0, preview),
+                    flags: { thinkTag, headThink, headFinal },
+                    rawPreview: includeRaw ? String(row.value||'').slice(0, Math.max(200, preview)) : undefined
+                };
+            };
+
+            const scanDb = (dbPath, want, whereLike) => {
+                try{
+                    if (!fs.existsSync(dbPath)) return;
+                    const db = new Database(dbPath, { readonly: true });
+                    try{
+                        const has = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='cursorDiskKV'").get();
+                        if (!has) return;
+                        const sql = whereLike ?
+                          "SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE ? LIMIT ?" :
+                          "SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' LIMIT ?";
+                        const rows = whereLike ? db.prepare(sql).all(`%${whereLike}%`, want) : db.prepare(sql).all(want);
+                        for (const r of rows){
+                            if (items.length >= limit) break;
+                            items.push(extractItem(dbPath, r));
+                        }
+                    } finally { try { db.close(); } catch {} }
+                } catch {}
+            };
+
+            // global
+            if (scope==='global' || scope==='all'){
+                const globalDb = path.join(cursorRoot, 'User', 'globalStorage', 'state.vscdb');
+                scanDb(globalDb, limit - items.length, like || null);
+            }
+            // workspaces
+            if ((scope==='workspaces' || scope==='all') && items.length < limit){
+                try{
+                    const wsRoot = path.join(cursorRoot, 'User', 'workspaceStorage');
+                    const dirs = fs.existsSync(wsRoot) ? fs.readdirSync(wsRoot, { withFileTypes: true }) : [];
+                    for (const d of dirs){
+                        if (!d.isDirectory()) continue;
+                        const dbp = path.join(wsRoot, d.name, 'state.vscdb');
+                        scanDb(dbp, Math.max(1, limit - items.length), like || null);
+                        if (items.length >= limit) break;
+                    }
+                }catch{}
+            }
+
+            res.json({ success:true, data: { scopeUsed: scope, count: items.length, items } });
+        }catch(err){
+            res.status(500).json({ success:false, error: err?.message || 'raw-bubbles failed' });
+        }
     }
 
     // 获取历史记录列表
