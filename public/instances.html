@@ -21,6 +21,11 @@
 <body>
   <div class="container">
      <div class="title">实例管理</div>
+     <div id="firstRunTip" style="display:none;background:#0f172a;border:1px solid #1f2937;border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+       <div style="font-size:13px;color:#cbd5e1;">
+         检测到首次访问：请从下方选择一个实例，并点击“设为默认”。完成后将自动返回 <span id="firstRunReturn" style="color:#93c5fd;">/</span>
+       </div>
+     </div>
      <div id="instanceBadge"></div>
      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0 14px 0;">
        <div id="instancesCurrentLabel" class="meta"></div>
@@ -43,7 +48,22 @@
   </div>
   <script>
     try{ InstanceUtils && InstanceUtils.renderBadge(document.getElementById('instanceBadge')); }catch{}
+    // 首次引导提示
+    (function(){
+      try{
+        const u = new URL(window.location.href);
+        const first = u.searchParams.get('first');
+        const ret = u.searchParams.get('return') || '/';
+        if (first === '1'){
+          const tip = document.getElementById('firstRunTip');
+          const span = document.getElementById('firstRunReturn');
+          if (tip) tip.style.display = '';
+          if (span) span.textContent = ret;
+        }
+      }catch{}
+    })();
   </script>
+  <script src="/js/modules/InjectBar.js"></script>
   <script src="/js/instances-tab.js"></script>
 </body>
 </html>

@@ -6,6 +6,10 @@
     <title>Cursor Web - Cursor 聊天同步</title>
     <link rel="stylesheet" href="style.css">
     <!-- 已移除 Prism：仅用 marked 渲染 Markdown -->
+    <script src="js/instance-utils.js"></script>
+    <script>
+      try{ InstanceUtils && InstanceUtils.ensureOrRedirect('/instances.html?first=1&return=/'); }catch{}
+    </script>
 </head>
 <body>
     <div class="container">
@@ -14,7 +18,6 @@
             <div style="display:flex;align-items:center;gap:12px;">
                  <a href="/test.html" class="btn btn-secondary" target="_blank" title="配置与注入测试">⚙ 设置</a>
                  <button id="toggle-broadcast" class="btn btn-info" style="padding:6px 10px">📡 实时广播: 关闭</button>
-                <div id="status" class="status disconnected">等待连接...</div>
             </div>
         </header>
 
@@ -200,8 +203,9 @@
     <!-- Marked: 严格的 Markdown 解析，避免代码块截断问题 -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
      <script src="js/modules/module-loader.js"></script>
-     <script src="js/instance-utils.js"></script>
      <script src="js/instance-banner.js"></script>
+     <script src="js/modules/InjectBar.js"></script>
+     <script src="js/modules/DiagnosticQuickStatus.js"></script>
     <script>
       // 确保公共渲染工具加载
       if (window.ModuleLoader){
@@ -217,7 +221,7 @@
      <script src="js/instances-tab.js"></script>
      <script src="js/broadcast-toggle.js"></script>
     <script>
-    // 实时广播开关
+    // 实时广播开关（诊断/调试用）
     (function setupBroadcastToggle(){
         const btn = document.getElementById('toggle-broadcast');
         if (!btn) return;
@@ -240,7 +244,7 @@
         refresh();
     })();
 
-    // 实时回显页：状态胶囊与开关按钮
+    // 实时回显页：状态胶囊与开关按钮（仅该 Tab 可见）
     (function setupRealtimeBroadcastUI(){
       const pill = document.getElementById('rt-broadcast-pill');
       const btn = document.getElementById('toggle-broadcast-rt');
@@ -281,7 +285,7 @@
             if (this.dataset.tab === 'diagnostic-tab') {
                 updateQuickStatus();
             }
-            // 切换渲染目标：聊天使用 #messages-container；实时回显使用 #realtime-container
+            // 切换渲染目标（聊天: #messages-container；实时回显: #realtime-container）
             if (this.dataset.tab === 'realtime-tab') {
                 window.__renderTargetId = 'realtime-container';
                 window.__enableRealtimeRender = true;
@@ -296,103 +300,8 @@
         });
     });
 
-        // 更新快速状态检查
-    function updateQuickStatus() {
-        // WebSocket状态 - 使用更准确的检测方法
-        const wsStatus = document.getElementById('ws-status');
-        let wsConnected = false;
-
-        // 方法1: 检查simpleClient的WebSocket状态（与诊断页面保持一致）
-        if (window.simpleClient && typeof window.simpleClient.isConnected === 'function') {
-            wsConnected = window.simpleClient.isConnected();
-        }
-        // 方法2: 检查simpleClient的wsManager状态
-        else if (window.simpleClient && window.simpleClient.wsManager && typeof window.simpleClient.wsManager.isConnected === 'function') {
-            wsConnected = window.simpleClient.wsManager.isConnected();
-        }
-        // 方法3: 检查页面状态元素
-        else if (document.querySelector('.status.connected')) {
-            wsConnected = true;
-        }
-        // 方法4: 检查WebSocketManager模块
-        else if (window.WebSocketManager && typeof window.WebSocketManager.isConnected === 'function') {
-            wsConnected = window.WebSocketManager.isConnected();
-        }
-
-        if (wsConnected) {
-            wsStatus.textContent = '已连接';
-            wsStatus.className = 'status-value connected';
-        } else {
-            wsStatus.textContent = '未连接';
-            wsStatus.className = 'status-value disconnected';
-        }
-
-        // 调试信息（可选）
-        if (window.simpleClient) {
-            console.log('首页WebSocket状态检测:', {
-                simpleClientExists: !!window.simpleClient,
-                isConnectedMethod: typeof window.simpleClient.isConnected,
-                wsManagerExists: !!window.simpleClient.wsManager,
-                wsManagerIsConnectedMethod: window.simpleClient.wsManager ? typeof window.simpleClient.wsManager.isConnected : 'N/A',
-                finalResult: wsConnected
-            });
-        }
-
-        // 模块加载状态
-        const moduleStatus = document.getElementById('module-status');
-        if (window.ModuleLoader) {
-            moduleStatus.textContent = '已加载';
-            moduleStatus.className = 'status-value success';
-        } else {
-            moduleStatus.textContent = '未加载';
-            moduleStatus.className = 'status-value error';
-        }
-
-        // Cursor状态
-        const cursorStatus = document.getElementById('cursor-status');
-        if (window.simpleClient && window.simpleClient.cursorStatusManager) {
-            try {
-                const status = window.simpleClient.cursorStatusManager.getCursorStatus();
-                switch (status.status) {
-                    case 'active':
-                        cursorStatus.textContent = '活跃';
-                        cursorStatus.className = 'status-value success';
-                        break;
-                    case 'waiting':
-                        cursorStatus.textContent = '等待';
-                        cursorStatus.className = 'status-value warning';
-                        break;
-                    case 'inactive':
-                        cursorStatus.textContent = '不活跃';
-                        cursorStatus.className = 'status-value warning';
-                        break;
-                    case 'closed':
-                        cursorStatus.textContent = '已关闭';
-                        cursorStatus.className = 'status-value error';
-                        break;
-                    default:
-                        cursorStatus.textContent = '未知';
-                        cursorStatus.className = 'status-value error';
-                }
-            } catch (error) {
-                cursorStatus.textContent = '检查失败';
-                cursorStatus.className = 'status-value error';
-            }
-        } else {
-            cursorStatus.textContent = '未初始化';
-            cursorStatus.className = 'status-value error';
-        }
-
-        // 客户端状态
-        const clientStatus = document.getElementById('client-status');
-        if (window.simpleClient) {
-            clientStatus.textContent = '已初始化';
-            clientStatus.className = 'status-value success';
-        } else {
-            clientStatus.textContent = '未初始化';
-            clientStatus.className = 'status-value error';
-        }
-    }
+    // 更新快速状态检查（提取为模块）
+    function updateQuickStatus(){ try{ window.DiagnosticQuickStatus && window.DiagnosticQuickStatus.update(); }catch{} }
 
     // 页面加载完成后初始化
     window.addEventListener('load', function() {
@@ -425,11 +334,7 @@
         // 历史记录tab 直接内嵌，无需预加载
 
         // 定期更新状态（每5秒）
-        setInterval(function() {
-            if (document.querySelector('.tab-btn[data-tab="diagnostic-tab"]').classList.contains('active')) {
-                updateQuickStatus();
-            }
-        }, 5000);
+        try{ window.DiagnosticQuickStatus && window.DiagnosticQuickStatus.startAuto && window.DiagnosticQuickStatus.startAuto(); }catch{}
     });
     
     // 移除快速历史相关逻辑（改为内嵌 history-new）

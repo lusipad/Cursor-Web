@@ -39,6 +39,14 @@ class AppMiddleware {
 
     setupHomeRoute() {
         this.app.get('/', (req, res) => {
+            try {
+                const cookie = req.headers && req.headers.cookie ? String(req.headers.cookie) : '';
+                const hasInstanceCookie = /(?:^|;\s*)cw_instance_id=/.test(cookie);
+                const hasQueryInstance = typeof req.query?.instance === 'string' && req.query.instance.length > 0;
+                if (!hasInstanceCookie && !hasQueryInstance) {
+                    return res.redirect('/instances.html?first=1&return=/');
+                }
+            } catch {}
             res.sendFile(path.join(config.server.publicPath, 'index.html'));
         });
     }

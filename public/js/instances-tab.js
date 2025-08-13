@@ -72,7 +72,12 @@
         const t = ev.target; if (!(t instanceof HTMLElement)) return;
         const act = t.getAttribute('data-act'); const id = t.getAttribute('data-id'); if (!act || !id) return;
         try{
-          if (act==='set-default'){ try{ InstanceUtils && InstanceUtils.set(id); InstanceUtils && InstanceUtils.renderBadge(labelEl); }catch{} alert('已设置为默认实例：'+id); return; }
+          if (act==='set-default'){
+            try{ InstanceUtils && InstanceUtils.set(id); InstanceUtils && InstanceUtils.renderBadge(labelEl); }catch{}
+            try{ const u=new URL(window.location.href); const ret=u.searchParams.get('return'); if(ret){ window.location.href = ret; return; } }catch{}
+            alert('已设置为默认实例：'+id);
+            return;
+          }
           if (act==='launch' || act==='restart'){ await api('/api/inject/'+(act==='launch'?'launch':'restart'), 'POST', { instanceId:id, pollMs:30000 }); alert((act==='launch'?'启动':'重启')+'请求已发送'); await Promise.all([refreshProcesses(), refreshClients()]); return; }
           if (act==='inject'){
             await api('/api/inject/scan-inject', 'POST', { instanceId:id, startPort:9222, endPort:9250 });

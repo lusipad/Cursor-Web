@@ -6,7 +6,8 @@
  */
 (function(){
   function detectInstance(){
-    try{ const u=new URL(window.location.href); return u.searchParams.get('instance')||''; }catch{return ''}
+    try{ const u=new URL(window.location.href); const v=u.searchParams.get('instance'); if (v) return v; }catch{}
+    try{ return (window.InstanceUtils && InstanceUtils.get()) || ''; }catch{ return ''; }
   }
 
   function el(tag, attrs, children){
@@ -25,26 +26,31 @@
   }
 
   function renderBar(){
-    // 若不存在聊天 tab，跳过
-    const chatTab = document.getElementById('chat-tab');
-    if(!chatTab) return null;
-    // 已存在则复用
+    // 全局右上角状态条：直接挂载到 body，避免依赖具体页面结构
     let bar = document.getElementById('inject-bar');
     if(bar) return bar;
     bar = el('div', { id:'inject-bar', class:'inject-bar' }, []);
     bar.innerHTML = `
-      <div class="row">
+      <div class="row" style="position:relative;">
         <span class="label">实例</span>
         <select id="ib-inst-select" class="ib-select" style="background:#111;border:1px solid #2a2a2a;color:#fff;border-radius:6px;padding:4px 8px;"></select>
-        <span class="dot" id="ib-status-dot"></span>
+        <span class="dot" id="ib-ws-dot" title="WebSocket"></span>
+        <span id="ib-ws-text" class="status">未连接</span>
+        <span class="dot" id="ib-status-dot" title="注入"></span>
         <span id="ib-status-text" class="status">未注入</span>
-        <button id="ib-scan" class="ib-btn">仅注入(扫)</button>
-        <button id="ib-restart" class="ib-btn">重启并注入</button>
-        <button id="ib-launch" class="ib-btn">启动并注入</button>
-      </div>
-      <div id="ib-clients" style="margin-top:6px;font-size:12px;color:#aaa;max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>`;
-    // 默认挂到聊天容器右上
-    chatTab.appendChild(bar);
+        <button id="ib-more" class="ib-btn" title="更多" aria-haspopup="true" aria-expanded="false">⋯</button>
+        <div id="ib-menu" style="display:none; position:absolute; right:0; top:calc(100% + 8px); background:#111; border:1px solid #2a2a2a; border-radius:8px; padding:8px; box-shadow:0 6px 16px rgba(0,0,0,0.45); min-width:200px;">
+          <div style="display:flex; flex-direction:column; gap:6px;">
+            <button id="ib-scan" class="ib-btn" style="width:100%; text-align:left;">🔍 扫描并注入</button>
+            <button id="ib-restart" class="ib-btn" style="width:100%; text-align:left;">🔄 重启并注入</button>
+            <button id="ib-launch" class="ib-btn" style="width:100%; text-align:left;">🚀 启动并注入</button>
+            <button id="ib-manage" class="ib-btn" style="width:100%; text-align:left;">🧭 管理实例…</button>
+            <div id="ib-clients" style="margin-top:6px;font-size:12px;color:#aaa;max-width:520px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+          </div>
+        </div>
+      </div>`;
+    // 固定挂在页面右上角
+    (document.body || document.documentElement).appendChild(bar);
     return bar;
   }
 
@@ -63,13 +69,49 @@
     }catch(e){ notify('获取状态失败'); }
   }
 
+  function refreshWs(){
+    try{
+      let connected = false;
+      // 优先从 simpleClient 读取
+      try{ if (window.simpleClient && window.simpleClient.wsManager && typeof window.simpleClient.wsManager.isConnected==='function'){ connected = !!window.simpleClient.wsManager.isConnected(); } }catch{}
+      // 回退：读取本地存储广播
+      if (!connected){
+        try{ const raw = window.localStorage && localStorage.getItem('websocket_status'); if (raw){ const j = JSON.parse(raw); connected = !!j.isConnected; } }catch{}
+      }
+      const dot = document.getElementById('ib-ws-dot');
+      const txt = document.getElementById('ib-ws-text');
+      if (dot) dot.className = 'dot ' + (connected ? 'ok' : 'off');
+      if (txt) txt.textContent = connected ? '已连接' : '未连接';
+    }catch{}
+  }
+
   function bindActions(inst){
     const scan = document.getElementById('ib-scan');
     const restart = document.getElementById('ib-restart');
     const launch = document.getElementById('ib-launch');
     scan.onclick = async ()=>{ try{ await api('/api/inject/scan-inject','POST',{instanceId:inst,startPort:9222,endPort:9250}); await refreshStatus(inst);}catch{} };
-    restart.onclick = async ()=>{ try{ await api('/api/inject/restart','POST',{instanceId:inst,detach:true}); await refreshStatus(inst);}catch{} };
-    launch.onclick = async ()=>{ try{ await api('/api/inject/launch','POST',{instanceId:inst,detach:true}); await refreshStatus(inst);}catch{} };
+    restart.onclick = async ()=>{ try{ if(!confirm('确认要重启所选实例并注入吗？')) return; await api('/api/inject/restart','POST',{instanceId:inst,detach:true}); await refreshStatus(inst);}catch{} };
+    launch.onclick = async ()=>{ try{ if(!confirm('确认要启动并注入所选实例吗？')) return; await api('/api/inject/launch','POST',{instanceId:inst,detach:true}); await refreshStatus(inst);}catch{} };
+  }
+
+  function bindMenu(){
+    const more = document.getElementById('ib-more');
+    const menu = document.getElementById('ib-menu');
+    if (!more || !menu) return;
+    const hide = ()=>{ menu.style.display = 'none'; try{ more.setAttribute('aria-expanded','false'); }catch{} };
+    const show = ()=>{ menu.style.display = 'block'; try{ more.setAttribute('aria-expanded','true'); }catch{} };
+    more.onclick = (ev)=>{ ev.stopPropagation(); (menu.style.display==='block') ? hide() : show(); };
+    more.onkeydown = (ev)=>{ if (ev.key==='Enter' || ev.key===' '){ ev.preventDefault(); (menu.style.display==='block') ? hide() : show(); } };
+    document.addEventListener('click', (ev)=>{
+      try{ const target = ev.target; if (!menu.contains(target) && target !== more){ hide(); } }catch{}
+    });
+    window.addEventListener('resize', hide);
+    window.addEventListener('keydown', (ev)=>{ if (ev.key==='Escape'){ hide(); } });
+    // 快捷入口：管理实例
+    const manage = document.getElementById('ib-manage');
+    if (manage){
+      manage.onclick = (ev)=>{ ev.preventDefault(); try{ const ret = encodeURIComponent(window.location.pathname + window.location.search); window.location.href = `/instances.html?return=${ret}`; }catch{ window.location.href = '/instances.html'; } };
+    }
   }
 
   async function populateInstances(selectEl, current){
@@ -93,17 +135,21 @@
   }
 
   function init(){
-    // 在所有页面均可挂载（如 chat-lite.html / history-new.html）
+    // 在所有页面均可挂载
     const inst = detectInstance();
     const bar = renderBar(); if(!bar) return;
     const sel = document.getElementById('ib-inst-select');
     populateInstances(sel, inst).then(()=>{
       sel.onchange = () => switchInstance(sel.value||'');
     });
+    bindMenu();
     bindActions(inst);
     refreshStatus(inst);
+    refreshWs();
     // 周期刷新
-    setInterval(()=> refreshStatus(inst), 5000);
+    setInterval(()=> { refreshStatus(inst); refreshWs(); }, 5000);
+    // 监听 storage 广播，尽快更新 WS 状态
+    try{ window.addEventListener('storage', (ev)=>{ if (ev && ev.key==='websocket_status') refreshWs(); }); }catch{}
   }
 
   if (document.readyState === 'loading') {

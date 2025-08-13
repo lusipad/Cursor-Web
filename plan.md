@@ -1,3 +1,39 @@
+## 首页与实例选择统一化改造计划（vNext）
+
+### 目标
+- 首屏优先进入“实例选择”，选定后再进入主页。
+- 统一右上角状态条：实例选择 + 连接/注入状态 + 快捷操作，替换零散的状态/悬浮条。
+
+### 改造要点
+- 服务端在 `/` 路由检测 Cookie `cw_instance_id`，缺失则重定向到 `instances.html?first=1&return=/`。
+- 前端兜底：`index.html` 头部加载 `js/instance-utils.js` 并调用 `InstanceUtils.ensureOrRedirect('/instances.html?first=1&return=/')`。
+- 统一状态条：重用 `js/modules/InjectBar.js`，改为全局固定在右上角（position: fixed）。
+  - 内容：实例下拉、状态圆点与文案（注入/连接），“仅注入(扫)/重启并注入/启动并注入”进入菜单或保持按钮。
+  - 数据源：`/api/instances`、`/api/inject/clients`、WS 状态由 `WebSocketManager` 或本地 `localStorage.websocket_status` 广播。
+- 清理重复状态：移除 `index.html` 顶部 header 的“等待连接”状态 pill 与聊天页内局部悬浮条（由统一条替代）。
+- 选择默认实例后支持带 `return` 回跳，便于首次引导全链路闭环。
+
+### 受影响文件
+- `middleware/appMiddleware.js`：`/` 路由增加 Cookie 检查与重定向。
+- `public/index.html`：在 `<head>` 早期引入 `instance-utils` 并兜底重定向；移除旧状态 pill；引入统一状态条脚本。
+- `public/js/modules/InjectBar.js`：取消对 `#chat-tab` 的依赖，改为挂载到 `document.body`；实例获取增加 `InstanceUtils.get()` 兜底。
+- `public/style.css`：`.inject-bar` 改为 `position: fixed; right: 16px; top: 12px; z-index: 9999;`。
+- `public/js/instances-tab.js`：点击“设为默认”后，若 URL 含 `return` 参数则跳回。
+- （可选）`public/instances.html`、`public/diagnostic.html`、`public/history-new.html`：统一引入状态条脚本。
+
+### 任务清单（逐条落实）
+1) 服务端首页重定向（无实例 Cookie → `instances.html`）。
+2) `index.html` 头部兜底重定向；移除旧状态 pill；引入统一状态条脚本。
+3) `InjectBar` 提升为全局右上角组件；样式改为 fixed；实例获取完善。
+4) `instances-tab.js`：设为默认后按 `return` 返回。
+5) 其余页面按需引入统一状态条；删除冗余悬浮条/状态位。
+6) 回归测试：
+   - 未选择实例访问 `/` → 跳转到实例页；选择后跳回首页。
+   - 右上角状态条在各页可见，切换实例可用；注入/连接状态 5s 内更新。
+   - 聊天页无重复状态 pill。
+
+---
+
 ## 多实例整体工作流（更新版）
 
 ### 目标

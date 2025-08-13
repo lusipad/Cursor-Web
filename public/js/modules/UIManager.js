@@ -11,14 +11,25 @@ class UIManager {
      * 更新状态显示
      */
     updateStatus(message, type) {
-        const statusEl = document.getElementById('status');
-        if (statusEl) {
-            statusEl.textContent = message;
-            statusEl.className = `status ${type}`;
-        } else {
-            // 在诊断页面中，如果没有status元素，就输出到控制台
-            console.log(`📊 状态更新: ${message} (${type})`);
-        }
+        try{
+            const statusEl = document.getElementById('status');
+            if (statusEl) {
+                statusEl.textContent = message;
+                statusEl.className = `status ${type}`;
+                return;
+            }
+            // 没有 header 状态位时，尝试更新统一右上角状态条的 WS 文案
+            const wsText = document.getElementById('ib-ws-text');
+            const wsDot = document.getElementById('ib-ws-dot');
+            if (wsText && wsDot){
+                const isConnected = /连接|connected|success/.test(String(type||message));
+                wsText.textContent = isConnected ? '已连接' : '未连接';
+                wsDot.className = 'dot ' + (isConnected ? 'ok' : 'off');
+                return;
+            }
+        }catch{}
+        // 回退：仅输出日志
+        console.log(`📊 状态更新: ${message} (${type})`);
     }
 
     /**

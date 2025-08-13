@@ -336,7 +336,7 @@ body {
 }
 
 /* 注入控制条 */
-.inject-bar{ position: absolute; right: 16px; top: 8px; background:#111; border:1px solid #2a2a2a; padding:6px 10px; border-radius:8px; display:flex; align-items:center; z-index: 20; }
+.inject-bar{ position: fixed; right: 16px; top: 12px; background:#111; border:1px solid #2a2a2a; padding:6px 10px; border-radius:8px; display:flex; align-items:center; z-index: 9999; }
 .inject-bar .row{ display:flex; align-items:center; gap:10px; }
 .inject-bar .label{ color:#aaa; }
 .inject-bar .value{ color:#fff; font-weight:600; }
@@ -344,7 +344,16 @@ body {
 .inject-bar .dot.ok{ background:#16a34a; }
 .inject-bar .dot.off{ background:#f59e0b; }
 .inject-bar .ib-btn{ background:#374151; color:#fff; border:none; border-radius:6px; padding:6px 10px; cursor:pointer; }
+.inject-bar .ib-btn#ib-more{ padding:4px 10px; font-weight:700; }
 .inject-bar .ib-btn:hover{ background:#4b5563; }
+
+/* 统一状态条：移动端极简模式 */
+@media (max-width: 768px) {
+    .inject-bar { padding: 4px 8px; gap: 6px; }
+    .inject-bar .status { display: none; }
+    .inject-bar #ib-inst-select { max-width: 140px; }
+    .inject-bar #ib-more { padding: 2px 8px; }
+}
 
 /* 响应式设计 */
 @media (max-width: 768px) {
