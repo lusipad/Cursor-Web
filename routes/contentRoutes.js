@@ -393,14 +393,29 @@ class ContentRoutes {
             if (req.query.maxAgeMs) this.historyManager.cacheTimeout = originalCacheTimeout;
 
             const markerHtml = `<!--#msg:${msgId}-->`;
-            const markerHidden = `\u2063MSG:${msgId}\u2063`;
+            const encodeZw = (id)=>{
+                try{
+                    const s = String(id||'').toLowerCase();
+                    const B='\u200B', C='\u200C', D='\u200D', W='\u2060', T='\u2062';
+                    const map={
+                        '0': B+B, '1': B+C, '2': B+D, '3': B+W, '4': B+T,
+                        '5': C+B, '6': C+C, '7': C+D, '8': C+W, '9': C+T,
+                        'a': D+B, 'b': D+C, 'c': D+D, 'd': D+W, 'e': D+T,
+                        'f': W+B, '-': W+C
+                    };
+                    let out=''; for (const ch of s){ out += map[ch] || (D+T); }
+                    return out;
+                }catch{ return ''; }
+            };
+            const markerHiddenLegacy = `\u2063MSG:${msgId}\u2063`;
+            const markerHiddenZW = `\u2063${encodeZw(msgId)}\u2063`;
             const okRoles = new Set(['assistant','assistant_bot']);
             let sessionId = null; let reply = null;
             for (const s of (Array.isArray(chats) ? chats : [])){
                 const msgs = Array.isArray(s.messages) ? s.messages : [];
                 const idx = msgs.findIndex(m => {
                     const t = String(m?.content||m?.text||'');
-                    return t.includes(markerHtml) || t.includes(markerHidden);
+                    return t.includes(markerHtml) || t.includes(markerHiddenLegacy) || t.includes(markerHiddenZW);
                 });
                 if (idx === -1) continue;
                 for (let i = idx + 1; i < msgs.length; i++){
@@ -447,11 +462,30 @@ class ContentRoutes {
             this.historyManager.cacheTimeout = 0;
             const chats = await this.historyManager.getChats(options);
             this.historyManager.cacheTimeout = originalCacheTimeout;
-            const marker = `<!--#msg:${msgId}-->`;
+            const markerHtml = `<!--#msg:${msgId}-->`;
+            const encodeZw = (id)=>{
+                try{
+                    const s = String(id||'').toLowerCase();
+                    const B='\u200B', C='\u200C', D='\u200D', W='\u2060', T='\u2062';
+                    const map={
+                        '0': B+B, '1': B+C, '2': B+D, '3': B+W, '4': B+T,
+                        '5': C+B, '6': C+C, '7': C+D, '8': C+W, '9': C+T,
+                        'a': D+B, 'b': D+C, 'c': D+D, 'd': D+W, 'e': D+T,
+                        'f': W+B, '-': W+C
+                    };
+                    let out=''; for (const ch of s){ out += map[ch] || (D+T); }
+                    return out;
+                }catch{ return ''; }
+            };
+            const markerHiddenLegacy = `\u2063MSG:${msgId}\u2063`;
+            const markerHiddenZW = `\u2063${encodeZw(msgId)}\u2063`;
             const okRoles = new Set(['assistant','assistant_bot']);
             for (const s of (Array.isArray(chats)?chats:[])){
                 const msgs = Array.isArray(s.messages)?s.messages:[];
-                const idx = msgs.findIndex(m => typeof (m?.content||m?.text||'') === 'string' && (m.content||m.text||'').includes(marker));
+                const idx = msgs.findIndex(m => {
+                    const t = String(m?.content||m?.text||'');
+                    return t.includes(markerHtml) || t.includes(markerHiddenLegacy) || t.includes(markerHiddenZW);
+                });
                 if (idx === -1) continue;
                 for (let i = idx+1; i < msgs.length; i++){
                     const m = msgs[i];

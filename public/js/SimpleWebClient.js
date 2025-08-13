@@ -158,12 +158,26 @@ class SimpleWebClient {
   _embedIdIfString(text, msgId) {
     try {
       if (typeof text === 'string') {
-        const P = '\u2063MSG:'; // 隐藏式标记前缀（不可见字符）
-        const S = '\u2063';     // 隐藏式标记后缀
-        return `${text}${P}${msgId}${S}`;
+        return `${text}${this._encodeMsgIdZeroWidth(msgId)}`;
       }
     } catch {}
     return text;
+  }
+
+  _encodeMsgIdZeroWidth(msgId){
+    try{
+      const s = String(msgId||'').toLowerCase();
+      const B='\u200B', C='\u200C', D='\u200D', W='\u2060', T='\u2062';
+      const map = {
+        '0': B+B, '1': B+C, '2': B+D, '3': B+W, '4': B+T,
+        '5': C+B, '6': C+C, '7': C+D, '8': C+W, '9': C+T,
+        'a': D+B, 'b': D+C, 'c': D+D, 'd': D+W, 'e': D+T,
+        'f': W+B, '-': W+C
+      };
+      let out = '';
+      for (const ch of s){ out += map[ch] || (D+T); }
+      return '\u2063' + out + '\u2063';
+    }catch{ return ''; }
   }
 
   async _fetchJson(url) { const r = await fetch(url); return r.json(); }
@@ -374,7 +388,13 @@ class SimpleWebClient {
     try{
       for (const s of (Array.isArray(chats) ? chats : [])){
         const msgs = Array.isArray(s.messages) ? s.messages : [];
-        const idxUser = msgs.findIndex(m => typeof (m?.content||m?.text||'') === 'string' && (m.content||m.text||'').includes(`<!--#msg:${msgId}-->`));
+        const markerHtml = `<!--#msg:${msgId}-->`;
+        const markerHiddenLegacy = `\u2063MSG:${msgId}\u2063`;
+        const markerHiddenZW = this._encodeMsgIdZeroWidth(msgId);
+        const idxUser = msgs.findIndex(m => {
+          const t = String(m?.content||m?.text||'');
+          return t.includes(markerHtml) || t.includes(markerHiddenLegacy) || t.includes(markerHiddenZW);
+        });
         if (idxUser === -1) continue;
         for (let i = idxUser + 1; i < msgs.length; i++){
           const m = msgs[i];

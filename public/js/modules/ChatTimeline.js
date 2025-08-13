@@ -38,17 +38,58 @@ class ChatTimeline {
     }
   }
 
+  // 粗粒度解析“思考/最终”结构
+  extractThinkingAndFinal(raw){
+    try{
+      const s = String(raw || '');
+      let m = s.match(/<think>([\s\S]*?)<\/think>\s*([\s\S]*)$/i);
+      if (m) return { thinking: m[1].trim(), final: (m[2]||'').trim() };
+      const re = /^(?:\s*(?:思考|思考过程|推理|反思|Reasoning|Thoughts?|Chain[- ]?of[- ]?Thoughts?|CoT)\s*[:：]\s*)([\s\S]+?)(?:\n{2,}|\r?\n)(?:\s*(?:最终|答案|结论|结果|Final|Answer|Response|Conclusion)\s*[:：]\s*)([\s\S]*)$/i;
+      m = s.match(re);
+      if (m) return { thinking: m[1].trim(), final: (m[2]||'').trim() };
+      return { thinking: '', final: s };
+    }catch{ return { thinking: '', final: String(raw||'') }; }
+  }
+
+  appendThinkingBubble(text, timestamp, collapsed = true){
+    if (!this.timeline) return;
+    const content = this.cleanMessageText(text, { keepThinking: true });
+    if (!content) return;
+    const item = document.createElement('div');
+    item.className = `chat-message assistant-message thinking-message${collapsed ? ' collapsed' : ''}`;
+    const ts = timestamp || Date.now();
+    item.innerHTML = `
+      <div class="bubble">
+        <div class="meta">🤔 思考 · ${new Date(ts).toLocaleTimeString()} <button class="think-toggle" style="margin-left:8px;font-size:12px;">${collapsed?'展开':'收起'}</button></div>
+        <div class="content thinking-content" style="${collapsed?'display:none;':''}">${this.sanitize(content)}</div>
+      </div>`;
+    this.timeline.appendChild(item);
+    try{
+      const btn = item.querySelector('.think-toggle');
+      const cnt = item.querySelector('.thinking-content');
+      btn?.addEventListener('click', ()=>{
+        const hidden = cnt && getComputedStyle(cnt).display === 'none';
+        if (cnt) cnt.style.display = hidden ? '' : 'none';
+        if (btn) btn.textContent = hidden ? '收起' : '展开';
+      });
+    }catch{}
+    this.scrollToLatest(item);
+  }
+
   scrollToLatest(element){
     try{ if (element && element.scrollIntoView) element.scrollIntoView({ block:'end', behavior:'smooth' }); }catch{}
     try{ window.scrollTo({ top: document.documentElement.scrollHeight, behavior:'smooth' }); }catch{ try{ window.scrollTo(0, document.documentElement.scrollHeight || document.body.scrollHeight || 0); }catch{} }
   }
 
   // 过滤与净化：对助手消息应用与历史页相近的清洗规则
-  cleanMessageText(rawText) {
+  cleanMessageText(rawText, options = {}) {
     try {
       const text = String(rawText == null ? '' : rawText);
-      // 移除隐形标记与旧的 HTML 注释标记
-      const stripMarkers = (s)=> s.replace(/\u2063MSG:[^\u2063]+\u2063/g,'').replace(/<!--#msg:[^>]+-->/g,'');
+      // 移除隐形标记（零宽编码、旧版 MSG:）与旧的 HTML 注释标记
+      const stripMarkers = (s)=> s
+        .replace(/\u2063[\u200B\u200C\u200D\u2060\u2062]+\u2063/g,'')
+        .replace(/\u2063MSG:[^\u2063]+\u2063/g,'')
+        .replace(/<!--#msg:[^>]+-->/g,'');
       const norm = stripMarkers(text);
       const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       const shaRe = /^[0-9a-f]{7,40}$/i;
@@ -71,7 +112,7 @@ class ChatTimeline {
         if (statusWordRe.test(v)) return true;
         if (toolWordRe.test(v)) return true;
         if (techHeadRe.test(v)) return true;
-        if (thinkHeadRe.test(v)) return true;
+        if (!options.keepThinking && thinkHeadRe.test(v)) return true;
         if (fenceRe.test(v)) return true;
         if (onlyUrlRe.test(v)) return true;
         if (fileLikeRe.test(v)) return true; // vscode/file 路径类
@@ -185,9 +226,17 @@ class ChatTimeline {
   appendAssistantMessage(text, timestamp) {
     // 有新的助手回复时，移除任何遗留的占位，避免错乱
     this.clearTypingPlaceholders();
-    const cleaned = this.cleanMessageText(text);
+    const { thinking, final } = this.extractThinkingAndFinal(String(text||''));
+    const ts = timestamp || Date.now();
+    if (final) {
+      if (thinking) this.appendThinkingBubble(thinking, ts, true);
+      const cleanedFinal = this.cleanMessageText(final, { keepThinking: false });
+      if (cleanedFinal) this.appendMessage('assistant', cleanedFinal, ts);
+      return;
+    }
+    const cleaned = this.cleanMessageText(text, { keepThinking: false });
     if (!cleaned) return; // 全噪声则不渲染
-    this.appendMessage('assistant', cleaned, timestamp || Date.now());
+    this.appendMessage('assistant', cleaned, ts);
     // 不再触发 Prism
   }
 
@@ -224,6 +273,7 @@ class ChatTimeline {
       if (!contentEl) return;
       const cleaned = String(delta == null ? '' : delta);
       if (!cleaned) return;
+      // 思考增量直接累加到占位的 content 区域
       contentEl.innerHTML += this.sanitize(cleaned);
       // 滚动到底部
       this.scrollToLatest(el);
@@ -236,20 +286,23 @@ class ChatTimeline {
       const el = this.typingMsgIdToEl.get(msgId);
       if (!el) return false;
       const contentEl = el.querySelector('.content');
-      const cleaned = this.cleanMessageText(String(text||''));
-      if (!cleaned) { try { el.remove(); } catch {} this.typingMsgIdToEl.delete(msgId); return false; }
-      if (contentEl) contentEl.innerHTML = this.sanitize(cleaned);
-      this.highlightCodeIn(el);
-      const metaEl = el.querySelector('.meta');
-      if (metaEl && timestamp) metaEl.textContent = `🤖 助手 · ${new Date(timestamp).toLocaleTimeString()}`;
-      // 取消 typing 样式
-      try { el.querySelector('.bubble')?.classList?.remove('typing'); } catch {}
-      // 登记去重哈希
-      const realHash = this.hashMessage('assistant', String(text||''));
-      this.renderedHashSet.add(realHash);
-      // 滚到底部
-      try { this.container.scrollTop = this.container.scrollHeight; } catch {}
+      const prevHtml = (contentEl && contentEl.innerHTML) ? contentEl.innerHTML.trim() : '';
+      const prevPlain = (contentEl && contentEl.textContent ? contentEl.textContent.trim() : '');
+      const { thinking, final } = this.extractThinkingAndFinal(String(text||''));
+      const finalClean = this.cleanMessageText(final || String(text||''), { keepThinking: false });
+      const ts = timestamp || Date.now();
+      const hasThoughts = (thinking && thinking.trim()) || (prevHtml && prevPlain && prevPlain !== '正在生成…');
+      // 移除占位
+      try { el.remove(); } catch {}
       this.typingMsgIdToEl.delete(msgId);
+      // 若有“思考”则先渲染折叠块
+      if (hasThoughts) {
+        const thoughtText = prevPlain && prevPlain !== '正在生成…' ? prevPlain : String(thinking||'');
+        if (thoughtText) this.appendThinkingBubble(thoughtText, ts, true);
+      }
+      if (finalClean) this.appendMessage('assistant', finalClean, ts);
+      const realHash = this.hashMessage('assistant', String(final || text || ''));
+      this.renderedHashSet.add(realHash);
       return true;
     } catch { return false; }
   }
