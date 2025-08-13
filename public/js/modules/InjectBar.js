@@ -58,9 +58,17 @@
     try{
       const j = await api('/api/inject/clients');
       const arr = Array.isArray(j?.data)? j.data : (Array.isArray(j)? j: []);
-      const ok = arr.some(c => c && c.role==='cursor' && c.instanceId===inst && c.injected && c.online);
-      document.getElementById('ib-status-dot').className = 'dot ' + (ok?'ok':'off');
-      document.getElementById('ib-status-text').textContent = ok ? '已注入' : '未注入';
+      const injOk = arr.some(c => c && c.role==='cursor' && (inst? c.instanceId===inst : true) && c.injected && c.online);
+      document.getElementById('ib-status-dot').className = 'dot ' + (injOk?'ok':'off');
+      document.getElementById('ib-status-text').textContent = injOk ? '已注入' : '未注入';
+      // 同时基于服务端在线列表更新 WS 连接指示（若本页没有 simpleClient 也能显示真实状态）
+      try{
+        const wsOk = arr.some(c => c && c.role==='web' && (inst? c.instanceId===inst : true) && c.online);
+        const wd = document.getElementById('ib-ws-dot');
+        const wt = document.getElementById('ib-ws-text');
+        if (wd) wd.className = 'dot ' + (wsOk ? 'ok' : 'off');
+        if (wt) wt.textContent = wsOk ? '已连接' : '未连接';
+      }catch{}
       // 渲染轻量在线列表
       try{
         const list = arr.filter(c=>c && c.role).map(c=>`${c.role}:${c.instanceId||'-'}${c.injected?'✓':''}${c.online?'●':'○'}`).join(' | ');

@@ -203,6 +203,14 @@
     <!-- Marked: 严格的 Markdown 解析，避免代码块截断问题 -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
      <script src="js/modules/module-loader.js"></script>
+     <script>
+       // 轻量初始化 SimpleWebClient：用于建立 WS 连接并上报 web 客户端在线状态
+       (function(){
+         function boot(){ try{ if (window.SimpleWebClient && !window.simpleClient){ window.simpleClient = new window.SimpleWebClient(); } }catch{} }
+         // 若模块加载器异步加载了 SimpleWebClient，这里兜底等待 1s 再尝试
+         setTimeout(boot, 1000);
+       })();
+     </script>
      <script src="js/instance-banner.js"></script>
      <script src="js/modules/InjectBar.js"></script>
      <script src="js/modules/DiagnosticQuickStatus.js"></script>

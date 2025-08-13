@@ -43,6 +43,10 @@ const config = {
   startup: {
     // 启动时自动拉起默认实例（openPath=程序目录）
     autoLaunchDefaultInstance: true,
+    // 启动后自动进行注入（launch 时已自带注入；如仅 scan 模式可用此开关）
+    autoInjectOnBoot: true,
+    // 默认注入的实例 ID（为空则使用 'default'）
+    autoInjectInstanceId: 'default',
     // 延迟毫秒数，等待服务就绪
     delayMs: 1200
   },

@@ -41,9 +41,11 @@ class AppMiddleware {
         this.app.get('/', (req, res) => {
             try {
                 const cookie = req.headers && req.headers.cookie ? String(req.headers.cookie) : '';
-                const hasInstanceCookie = /(?:^|;\s*)cw_instance_id=/.test(cookie);
                 const hasQueryInstance = typeof req.query?.instance === 'string' && req.query.instance.length > 0;
-                if (!hasInstanceCookie && !hasQueryInstance) {
+                let instanceCookie = '';
+                try{ const m = cookie.match(/(?:^|;\s*)cw_instance_id=([^;]+)/); if (m) instanceCookie = decodeURIComponent(m[1]||''); }catch{}
+                const needRedirect = (!instanceCookie || instanceCookie === 'default') && !hasQueryInstance;
+                if (needRedirect) {
                     return res.redirect('/instances.html?first=1&return=/');
                 }
             } catch {}
