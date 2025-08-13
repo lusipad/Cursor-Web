@@ -392,12 +392,16 @@ class ContentRoutes {
             const chats = await this.historyManager.getChats(options);
             if (req.query.maxAgeMs) this.historyManager.cacheTimeout = originalCacheTimeout;
 
-            const marker = `<!--#msg:${msgId}-->`;
+            const markerHtml = `<!--#msg:${msgId}-->`;
+            const markerHidden = `\u2063MSG:${msgId}\u2063`;
             const okRoles = new Set(['assistant','assistant_bot']);
             let sessionId = null; let reply = null;
             for (const s of (Array.isArray(chats) ? chats : [])){
                 const msgs = Array.isArray(s.messages) ? s.messages : [];
-                const idx = msgs.findIndex(m => typeof (m?.content||m?.text||'') === 'string' && (m.content||m.text||'').includes(marker));
+                const idx = msgs.findIndex(m => {
+                    const t = String(m?.content||m?.text||'');
+                    return t.includes(markerHtml) || t.includes(markerHidden);
+                });
                 if (idx === -1) continue;
                 for (let i = idx + 1; i < msgs.length; i++){
                     const m = msgs[i];

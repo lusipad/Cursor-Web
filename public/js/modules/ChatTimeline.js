@@ -47,6 +47,9 @@ class ChatTimeline {
   cleanMessageText(rawText) {
     try {
       const text = String(rawText == null ? '' : rawText);
+      // 移除隐形标记与旧的 HTML 注释标记
+      const stripMarkers = (s)=> s.replace(/\u2063MSG:[^\u2063]+\u2063/g,'').replace(/<!--#msg:[^>]+-->/g,'');
+      const norm = stripMarkers(text);
       const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       const shaRe = /^[0-9a-f]{7,40}$/i;
       const longAlphaNumRe = /^[A-Za-z0-9_\-]{20,}$/;
@@ -75,7 +78,7 @@ class ChatTimeline {
         return false;
       };
 
-      const cleaned = text
+      const cleaned = norm
         .split(/\r?\n/)
         .map(l => l.trim())
         .filter(l => l && !isNoiseLine(l))

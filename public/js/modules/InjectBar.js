@@ -5,6 +5,15 @@
  * - 一键操作：仅注入(扫)、重启并注入、启动并注入
  */
 (function(){
+  // 轻量状态粘滞，减少“已注入/未注入、已连接/未连接”的瞬时抖动
+  const __state = {
+    injLastOkAt: 0,
+    injMisses: 0,
+    wsLastOkAt: 0,
+    wsMisses: 0,
+    STICKY_MS: 15000,
+    MISS_LIMIT: 2,
+  };
   function detectInstance(){
     try{ const u=new URL(window.location.href); const v=u.searchParams.get('instance'); if (v) return v; }catch{}
     try{ return (window.InstanceUtils && InstanceUtils.get()) || ''; }catch{ return ''; }
@@ -32,6 +41,7 @@
     bar = el('div', { id:'inject-bar', class:'inject-bar' }, []);
     bar.innerHTML = `
       <div class="row" style="position:relative;">
+        <button id="ib-move" class="ib-btn" title="下移/上移" style="padding:4px 8px;">⇵</button>
         <span class="label">实例</span>
         <select id="ib-inst-select" class="ib-select" style="background:#111;border:1px solid #2a2a2a;color:#fff;border-radius:6px;padding:4px 8px;"></select>
         <span class="dot" id="ib-ws-dot" title="WebSocket"></span>
@@ -58,12 +68,19 @@
     try{
       const j = await api('/api/inject/clients');
       const arr = Array.isArray(j?.data)? j.data : (Array.isArray(j)? j: []);
-      const injOk = arr.some(c => c && c.role==='cursor' && (inst? c.instanceId===inst : true) && c.injected && c.online);
+      const now = Date.now();
+      const injNow = arr.some(c => c && c.role==='cursor' && (inst? c.instanceId===inst : true) && c.injected && c.online);
+      if (injNow){ __state.injLastOkAt = now; __state.injMisses = 0; } else { __state.injMisses++; }
+      const injSticky = (now - __state.injLastOkAt) < __state.STICKY_MS && __state.injMisses <= __state.MISS_LIMIT;
+      const injOk = injNow || injSticky;
       document.getElementById('ib-status-dot').className = 'dot ' + (injOk?'ok':'off');
       document.getElementById('ib-status-text').textContent = injOk ? '已注入' : '未注入';
       // 同时基于服务端在线列表更新 WS 连接指示（若本页没有 simpleClient 也能显示真实状态）
       try{
-        const wsOk = arr.some(c => c && c.role==='web' && (inst? c.instanceId===inst : true) && c.online);
+        const wsNow = arr.some(c => c && c.role==='web' && (inst? c.instanceId===inst : true) && c.online);
+        if (wsNow){ __state.wsLastOkAt = now; __state.wsMisses = 0; } else { __state.wsMisses++; }
+        const wsSticky = (now - __state.wsLastOkAt) < __state.STICKY_MS && __state.wsMisses <= __state.MISS_LIMIT;
+        const wsOk = wsNow || wsSticky;
         const wd = document.getElementById('ib-ws-dot');
         const wt = document.getElementById('ib-ws-text');
         if (wd) wd.className = 'dot ' + (wsOk ? 'ok' : 'off');
@@ -95,6 +112,20 @@
   }
 
   function bindActions(inst){
+    // 位置切换：避免遮挡（顶部/次顶部）
+    const moveBtn = document.getElementById('ib-move');
+    if (moveBtn){
+      const applyTop = (px)=>{ try{ document.documentElement.style.setProperty('--cw-injectbar-top', px+'px'); localStorage.setItem('cw.injectbar.top', String(px)); }catch{} };
+      const loadTop = ()=>{ try{ const v = parseInt(localStorage.getItem('cw.injectbar.top')||'12',10); return isFinite(v)?v:12; }catch{ return 12; } };
+      applyTop(loadTop());
+      moveBtn.onclick = ()=>{
+        const current = loadTop();
+        const candidates = [12, 48, 84];
+        const idx = candidates.indexOf(current);
+        const next = candidates[(idx+1) % candidates.length];
+        applyTop(next);
+      };
+    }
     const scan = document.getElementById('ib-scan');
     const restart = document.getElementById('ib-restart');
     const launch = document.getElementById('ib-launch');

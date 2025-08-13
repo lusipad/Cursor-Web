@@ -336,7 +336,7 @@ body {
 }
 
 /* 注入控制条 */
-.inject-bar{ position: fixed; right: 16px; top: 12px; background:#111; border:1px solid #2a2a2a; padding:6px 10px; border-radius:8px; display:flex; align-items:center; z-index: 9999; }
+.inject-bar{ position: fixed; right: 16px; top: var(--cw-injectbar-top, 12px); background:#111; border:1px solid #2a2a2a; padding:6px 10px; border-radius:8px; display:flex; align-items:center; z-index: 9999; }
 .inject-bar .row{ display:flex; align-items:center; gap:10px; }
 .inject-bar .label{ color:#aaa; }
 .inject-bar .value{ color:#fff; font-weight:600; }

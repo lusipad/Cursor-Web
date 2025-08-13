@@ -156,7 +156,13 @@ class SimpleWebClient {
     }
 
   _embedIdIfString(text, msgId) {
-    try { if (typeof text === 'string') return `${text} \n<!--#msg:${msgId}-->`; } catch {}
+    try {
+      if (typeof text === 'string') {
+        const P = '\u2063MSG:'; // 隐藏式标记前缀（不可见字符）
+        const S = '\u2063';     // 隐藏式标记后缀
+        return `${text}${P}${msgId}${S}`;
+      }
+    } catch {}
     return text;
   }
 

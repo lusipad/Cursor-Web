@@ -9,8 +9,15 @@ class CursorHistoryManager {
         this.cachedHistory = null;
         this.lastCacheTime = 0;
         this.cacheTimeout = 10000; // 默认 10 秒缓存，前端可通过 maxAgeMs 调整（发送后精确查询可绕过）
-        // 读取时优先走“只读副本”，规避 Cursor 写锁（可按需关闭）
+        // 读取首选“共享只读快照”（后台定时复制），未命中再退化为“按请求只读副本”
         this.useReadonlyCopy = true;
+        this.snapshots = {
+            enabled: true,
+            dir: path.join(os.tmpdir ? os.tmpdir() : (os.tmpDir?.()||'.'), 'cursor_web_snapshots'),
+            intervalMs: 5000,
+            lastRefresh: 0,
+            map: new Map() // 原路径 -> 快照路径
+        };
         this.sqliteEngine = null;
         this._historyCache = new Map();
         this._historyItemCache = new Map(); // sessionId -> { ts, item }
@@ -25,6 +32,7 @@ class CursorHistoryManager {
         this.initializeSQLiteEngine();
         // 启动后延迟构建一次索引，并每 60s 增量刷新，降低首次详情耗时
         try { this.scheduleSessionIndexRebuild(); } catch {}
+        try { this.scheduleSnapshotRefresh(); } catch {}
     }
 
     // ====== 只读副本支持 ======
@@ -42,12 +50,58 @@ class CursorHistoryManager {
 
     openReadonlyDatabase(dbPath){
         const Database = require('better-sqlite3');
+        // 优先使用共享快照
+        try{
+            if (this.snapshots?.enabled && this.snapshots.map.has(dbPath)){
+                const snap = this.snapshots.map.get(dbPath);
+                const db = new Database(snap, { readonly: true });
+                const cleanup = () => { try{ db.close(); }catch{} };
+                return { db, cleanup };
+            }
+        }catch{}
+        // 回退到“按请求只读副本”
         let copied = null;
         try{ if (this.useReadonlyCopy) copied = this.makeReadonlyCopy(dbPath); }catch{}
         const openPath = copied || dbPath;
         const db = new Database(openPath, { readonly: true });
         const cleanup = () => { try{ db.close(); }catch{} try{ if (copied && fs.existsSync(copied)) fs.unlinkSync(copied); }catch{} };
         return { db, cleanup };
+    }
+
+    // 共享快照定时刷新
+    scheduleSnapshotRefresh(){
+        if (!this.snapshots?.enabled) return;
+        try{ if (!fs.existsSync(this.snapshots.dir)) fs.mkdirSync(this.snapshots.dir, { recursive: true }); }catch{}
+        const buildList = () => {
+            const list = [];
+            try{
+                const globalDb = path.join(this.cursorStoragePath, 'User', 'globalStorage', 'state.vscdb');
+                if (fs.existsSync(globalDb)) list.push(globalDb);
+            }catch{}
+            try{
+                const workspaces = this.findWorkspaceDatabases();
+                for (const ws of workspaces){
+                    const p = ws.workspaceDb || ws.dbPath || ws; if (p && fs.existsSync(p)) list.push(p);
+                }
+            }catch{}
+            return Array.from(new Set(list));
+        };
+        const shortHash = (s)=>{ try{ let h=0; for(let i=0;i<s.length;i++){ h=((h<<5)-h)+s.charCodeAt(i); h|=0; } return Math.abs(h).toString(36);}catch{ return 'h'; } };
+        const refresh = () => {
+            const files = buildList();
+            for (const src of files){
+                try{
+                    const base = path.basename(src).replace(/[^A-Za-z0-9_.-]/g,'_');
+                    const snap = path.join(this.snapshots.dir, `snap_${shortHash(src)}_${base}`);
+                    fs.copyFileSync(src, snap);
+                    this.snapshots.map.set(src, snap);
+                }catch{}
+            }
+            this.snapshots.lastRefresh = Date.now();
+        };
+        // 立即与定时
+        setTimeout(()=>{ try{ refresh(); }catch{} }, 800);
+        setInterval(()=>{ try{ refresh(); }catch{} }, this.snapshots.intervalMs || 5000);
     }
 
     // ====== cursor-view 等价实现（提取口径完全对齐） ======
