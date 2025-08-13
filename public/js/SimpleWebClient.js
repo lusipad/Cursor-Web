@@ -460,7 +460,10 @@ class SimpleWebClient {
         } catch {}
                 break;
             case 'clear_content':
+                // 清空实时回显区域
                 this.contentManager.handleClearContent(data);
+                // 同步清空主页聊天时间线（ChatTimeline）
+                try { if (this.timeline && typeof this.timeline.clear === 'function') this.timeline.clear(); } catch {}
                 this.cursorStatusManager.recordCursorActivity('clear_content');
                 break;
             case 'delivery_ack':

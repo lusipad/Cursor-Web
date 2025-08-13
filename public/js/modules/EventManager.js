@@ -166,6 +166,13 @@ class EventManager {
                     this.client.uiManager.clearContent();
                 }
 
+                // 清空主页聊天时间线（ChatTimeline）
+                try {
+                    if (this.client && this.client.timeline && typeof this.client.timeline.clear === 'function') {
+                        this.client.timeline.clear();
+                    }
+                } catch {}
+
                 // 通知服务器清空内容
                 if (this.client && this.client.wsManager) {
                     this.client.wsManager.send({
