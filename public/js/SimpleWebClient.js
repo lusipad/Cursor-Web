@@ -56,13 +56,14 @@ class SimpleWebClient {
   // 回调绑定
     setupCallbacks() {
     // WS 消息
-    this.wsManager.setMessageCallback((data) => this.handleWebSocketMessage(data));
+        this.wsManager.setMessageCallback((data) => { try{ window.Audit && Audit.log('ws:onmessage', data.type, data); }catch{} this.handleWebSocketMessage(data); });
 
     // WS 状态
     this.wsManager.setStatusChangeCallback((message, type) => this.uiManager.updateStatus(message, type));
 
     // 连接成功
         this.wsManager.setConnectCallback(() => {
+            try{ window.Audit && Audit.log('ws', 'connected'); }catch{}
             this.handleWebSocketConnect();
             if (this.instanceId) {
                 this.wsManager.send({ type: 'register', role: 'web', instanceId: this.instanceId });
@@ -71,6 +72,7 @@ class SimpleWebClient {
 
     // 断开/重连失败
         this.wsManager.setDisconnectCallback(() => {
+            try{ window.Audit && Audit.log('ws', 'disconnected'); }catch{}
             this.statusManager.stopStatusCheck();
             this.homePageStatusManager.updateHomePageStatus();
         });
@@ -130,6 +132,7 @@ class SimpleWebClient {
   // 启动
     init() {
         console.log('🔧 初始化简化客户端...');
+        try{ window.Audit && Audit.log('boot','ws_connect_begin'); }catch{}
         this.wsManager.connect();
         this.statusManager.startStatusCheck();
       this.statusManager.startContentPolling();
@@ -265,8 +268,10 @@ class SimpleWebClient {
     }
 
     async sendAndPoll(message) {
+        try{ window.Audit && Audit.log('send', 'start', { message }); }catch{}
         if (!this.wsManager.isConnected()) {
       try { this.uiManager.showNotification('WebSocket 未连接，无法发送', 'error'); } catch {}
+      try{ window.Audit && Audit.log('send', 'ws_not_connected'); }catch{}
             return false;
         }
 
@@ -284,6 +289,7 @@ class SimpleWebClient {
     // 3) 立即发送
     const payload = this._embedIdIfString(message, msgId);
     const ok = this.wsManager.send({ type: 'user_message', data: payload, targetInstanceId: this.instanceId || undefined, msgId });
+    try{ window.Audit && Audit.log('send', ok?'sent':'send_failed', { msgId, instanceId: this.instanceId||null }); }catch{}
     if (!ok) { try { this.uiManager.showNotification('发送失败', 'error'); } catch {}; return false; }
 
     try { this.uiManager.showNotification('已发送，等待回复…', 'info'); } catch {}
@@ -293,6 +299,7 @@ class SimpleWebClient {
     // 4) 后台快速轮询（带 msgId 与去回显）
     const userTextNormalized = typeof message === 'string' ? String(message) : '';
     this._pollReplyAfterSend(sentAt, { msgId, userTextNormalized, onAssistant: (text) => {
+      try{ window.Audit && Audit.log('poll', 'assistant_hit', { msgId, len: (String(text||'').length) }); }catch{}
       try {
         if (this.timeline) {
           this.timeline.replaceTyping(msgId, String(text||''), Date.now());

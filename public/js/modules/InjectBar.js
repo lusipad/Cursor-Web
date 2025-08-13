@@ -86,6 +86,7 @@
       if (!connected){
         try{ const raw = window.localStorage && localStorage.getItem('websocket_status'); if (raw){ const j = JSON.parse(raw); connected = !!j.isConnected; } }catch{}
       }
+      try{ window.Audit && Audit.log('status', 'ws_indicator', { connected }); }catch{}
       const dot = document.getElementById('ib-ws-dot');
       const txt = document.getElementById('ib-ws-text');
       if (dot) dot.className = 'dot ' + (connected ? 'ok' : 'off');
@@ -108,7 +109,7 @@
     if (!more || !menu) return;
     const hide = ()=>{ menu.style.display = 'none'; try{ more.setAttribute('aria-expanded','false'); }catch{} };
     const show = ()=>{ menu.style.display = 'block'; try{ more.setAttribute('aria-expanded','true'); }catch{} };
-    more.onclick = (ev)=>{ ev.stopPropagation(); (menu.style.display==='block') ? hide() : show(); };
+    more.onclick = (ev)=>{ ev.stopPropagation(); (menu.style.display==='block') ? hide() : show(); try{ window.Audit && Audit.log('ui', 'toggle_menu', { open: menu.style.display==='block' }); }catch{} };
     more.onkeydown = (ev)=>{ if (ev.key==='Enter' || ev.key===' '){ ev.preventDefault(); (menu.style.display==='block') ? hide() : show(); } };
     document.addEventListener('click', (ev)=>{
       try{ const target = ev.target; if (!menu.contains(target) && target !== more){ hide(); } }catch{}

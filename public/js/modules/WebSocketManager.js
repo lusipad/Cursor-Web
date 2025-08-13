@@ -14,6 +14,10 @@ class WebSocketManager {
         this.onConnectCallback = null;
         this.onDisconnectCallback = null;
         this.onReconnectFailureCallback = null;
+        // 连接候选与状态
+        this._wsCandidates = null;
+        this._wsIndex = 0;
+        this._opened = false;
     }
 
     /**
@@ -59,23 +63,46 @@ class WebSocketManager {
             this.ws.close();
         }
 
-        // 动态获取WebSocket URL，支持局域网访问
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = window.location.hostname;
-        const port = window.location.port || '3000';
-        const wsUrl = `${protocol}//${host}:${port}`;
+        // 构建候选列表（支持 ?ws= 覆盖、多端口/主机回退）
+        this._wsCandidates = this._buildCandidates();
+        this._wsIndex = 0;
+        this._opened = false;
+        this._connectToCurrentCandidate();
+    }
 
-        console.log('🔌 尝试连接WebSocket:', wsUrl);
-        console.log('🔍 连接详情:', {
-            protocol: window.location.protocol,
-            hostname: window.location.hostname,
-            port: window.location.port,
-            fullUrl: window.location.href
-        });
+    _buildCandidates(){
+        const urls = [];
+        // 1) URL 覆盖：?ws=ws://ip:port
+        try{
+            const u = new URL(window.location.href);
+            const override = u.searchParams.get('ws');
+            if (override && /^wss?:\/\//i.test(override)) urls.push(override);
+        }catch{}
+        // 2) window.__cursorWS（注入端常用）
+        try{ if (typeof window.__cursorWS === 'string' && /^wss?:\/\//i.test(window.__cursorWS)) urls.push(window.__cursorWS); }catch{}
+        // 3) 同源地址
+        try{
+            const isHttps = (window.location && window.location.protocol === 'https:');
+            const protocol = isHttps ? 'wss:' : 'ws:';
+            const host = (window.location && window.location.hostname) || '';
+            const port = (window.location && window.location.port) ? `:${window.location.port}` : ':3000';
+            if (host) urls.push(`${protocol}//${host}${port}`);
+        }catch{}
+        // 4) 回退：localhost 与 127.0.0.1
+        urls.push('ws://localhost:3000', 'ws://127.0.0.1:3000');
+        // 去重
+        return Array.from(new Set(urls));
+    }
+
+    _connectToCurrentCandidate(){
+        const target = this._wsCandidates[this._wsIndex] || '';
+        try{ window.Audit && Audit.log('ws_try', 'connect', { url: target, index: this._wsIndex }); }catch{}
+        if (!target){ this.updateStatus('找不到可用的 WebSocket 地址', 'error'); return; }
+
+        console.log('🔌 尝试连接WebSocket:', target);
         this.updateStatus('正在连接网络...', 'connecting');
 
-        const finalUrl = (window.__cursorWS && typeof window.__cursorWS==='string') ? window.__cursorWS : wsUrl;
-        this.ws = new WebSocket(finalUrl);
+        this.ws = new WebSocket(target);
 
         // 连接超时处理
         const connectionTimeout = setTimeout(() => {
@@ -83,15 +110,18 @@ class WebSocketManager {
                 console.error('⏰ WebSocket 连接超时');
                 this.ws.close();
                 this.updateStatus('网络连接超时', 'error');
+                this._tryNextCandidate();
             }
         }, 10000); // 10秒超时
 
         // 自动重连设置
         this.ws.onopen = () => {
             console.log('✅ WebSocket 连接成功');
+            try{ window.Audit && Audit.log('ws', 'open', { url: target }); }catch{}
             clearTimeout(connectionTimeout);
             this.reconnectAttempts = 0;
             this.startHeartbeat();
+            this._opened = true;
 
             if (this.onConnectCallback) {
                 this.onConnectCallback();
@@ -128,7 +158,8 @@ class WebSocketManager {
             } else {
                 // 异常断开，尝试重连
                 this.updateStatus('网络连接断开 - 正在重连...', 'disconnected');
-                this.attemptReconnect();
+                if (!this._opened) { this._tryNextCandidate(); }
+                else { this.attemptReconnect(); }
             }
 
             if (this.onDisconnectCallback) {
@@ -141,11 +172,22 @@ class WebSocketManager {
             console.error('🔍 错误详情:', {
                 error: error,
                 readyState: this.ws.readyState,
-                url: wsUrl
+                url: target
             });
             this.updateStatus('网络连接错误', 'error');
-            try { console.warn('WebSocket 连接地址:', finalUrl); } catch {}
+            try { console.warn('WebSocket 连接地址:', target); } catch {}
+            if (!this._opened) { this._tryNextCandidate(); }
         };
+    }
+
+    _tryNextCandidate(){
+        if (this._wsCandidates && this._wsIndex < this._wsCandidates.length - 1){
+            this._wsIndex += 1;
+            setTimeout(()=> this._connectToCurrentCandidate(), 300);
+            return;
+        }
+        // 候选都失败，走原有重连流程
+        this.attemptReconnect();
     }
 
     /**

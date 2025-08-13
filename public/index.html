@@ -204,15 +204,28 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
      <script src="js/modules/module-loader.js"></script>
      <script>
-       // 轻量初始化 SimpleWebClient：用于建立 WS 连接并上报 web 客户端在线状态
+       // 初始化 SimpleWebClient：稳妥轮询方式，最多重试 ~4s
        (function(){
-         function boot(){ try{ if (window.SimpleWebClient && !window.simpleClient){ window.simpleClient = new window.SimpleWebClient(); } }catch{} }
-         // 若模块加载器异步加载了 SimpleWebClient，这里兜底等待 1s 再尝试
-         setTimeout(boot, 1000);
+         let tries = 0; const max = 20;
+         function boot(){
+           try{
+             if (window.simpleClient) return true;
+             if (window.SimpleWebClient){
+               try{ window.Audit && Audit.log('boot','instantiate_simple_client'); }catch{}
+               window.simpleClient = new window.SimpleWebClient();
+               return true;
+             }
+           }catch{}
+           return false;
+         }
+         if (!boot()){
+           const t = setInterval(()=>{ tries++; if (boot() || tries>=max) clearInterval(t); }, 200);
+         }
        })();
      </script>
      <script src="js/instance-banner.js"></script>
      <script src="js/modules/InjectBar.js"></script>
+     <script src="js/modules/AuditLogger.js"></script>
      <script src="js/modules/DiagnosticQuickStatus.js"></script>
     <script>
       // 确保公共渲染工具加载
