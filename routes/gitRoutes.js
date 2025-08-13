@@ -39,7 +39,7 @@ class GitRoutes {
             const testGit = simpleGit(gitPath);
             return testGit;
         } catch (error) {
-            console.log('❌ 无效的Git路径:', gitPath);
+            console.log('❌ 无效的 Git 路径：', gitPath);
             return null;
         }
     }
@@ -84,7 +84,7 @@ class GitRoutes {
     checkAndUpdateGitPath(instanceId) {
         const targetPath = this.resolveGitRoot(instanceId);
         if (targetPath !== this.currentGitPath) {
-            console.log(`🔄 Git路径变更: ${this.currentGitPath} -> ${targetPath}`);
+            console.log(`🔄 Git 路径变更：${this.currentGitPath} -> ${targetPath}`);
             this.git = this.initGit(targetPath);
             this.currentGitPath = targetPath;
         }
@@ -98,7 +98,7 @@ class GitRoutes {
             if (!gitInstance) {
                 return res.status(500).json({
                     success: false,
-                    message: '当前目录不是有效的Git仓库',
+                    message: '当前目录不是有效的 Git 仓库',
                     currentPath: process.cwd()
                 });
             }
@@ -108,7 +108,7 @@ class GitRoutes {
                 await gitInstance.fetch(['--all', '--prune']);
                 console.log('✅ 远程分支信息已更新，已删除的分支引用已清理');
             } catch (fetchError) {
-                console.log('⚠️  远程分支更新失败，使用本地缓存的分支信息:', fetchError.message);
+                console.log('⚠️  远程分支更新失败，使用本地缓存的分支信息：', fetchError.message);
             }
 
             const [currentBranch, allBranches] = await Promise.all([
@@ -148,7 +148,7 @@ class GitRoutes {
             if (!gitInstance) {
                 return res.status(500).json({
                     success: false,
-                    message: '当前目录不是有效的Git仓库',
+                    message: '当前目录不是有效的 Git 仓库',
                     currentPath: process.cwd()
                 });
             }
@@ -193,7 +193,7 @@ class GitRoutes {
 
             res.json({
                 success: true,
-                message: `已切换到分支: ${targetBranch}`,
+                message: `已切换到分支：${targetBranch}`,
                 currentBranch: newBranch.current,
                 timestamp: Date.now()
             });
@@ -214,7 +214,7 @@ class GitRoutes {
             if (!gitInstance) {
                 return res.status(500).json({
                     success: false,
-                    message: '当前目录不是有效的Git仓库',
+                    message: '当前目录不是有效的 Git 仓库',
                     currentPath: process.cwd()
                 });
             }
@@ -244,7 +244,7 @@ class GitRoutes {
             if (!gitInstance) {
                 return res.status(500).json({
                     success: false,
-                    message: '当前目录不是有效的Git仓库',
+                    message: '当前目录不是有效的 Git 仓库',
                     currentPath: process.cwd()
                 });
             }
@@ -260,7 +260,7 @@ class GitRoutes {
             console.log('❌ Git 状态获取失败：', error.message);
             res.status(500).json({
                 success: false,
-                message: '获取Git状态失败',
+                message: '获取 Git 状态失败',
                 error: error.message
             });
         }
@@ -273,7 +273,7 @@ class GitRoutes {
             if (!gitInstance) {
                 return res.status(500).json({
                     success: false,
-                    message: '当前目录不是有效的Git仓库',
+                    message: '当前目录不是有效的 Git 仓库',
                     currentPath: process.cwd()
                 });
             }
@@ -306,7 +306,7 @@ class GitRoutes {
             if (!gitInstance) {
                 return res.status(500).json({
                     success: false,
-                    message: '当前目录不是有效的Git仓库',
+                    message: '当前目录不是有效的 Git 仓库',
                     currentPath: process.cwd()
                 });
             }
@@ -344,7 +344,7 @@ class GitRoutes {
             if (!gitInstance) {
                 return res.status(500).json({
                     success: false,
-                    message: '当前目录不是有效的Git仓库',
+                    message: '当前目录不是有效的 Git 仓库',
                     currentPath: process.cwd()
                 });
             }
