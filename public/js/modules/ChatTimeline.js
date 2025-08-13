@@ -27,6 +27,27 @@ class ChatTimeline {
     this.stickToBottom = true; // 用户未上滑时保持吸底
     this.typingMsgIdToEl = new Map();
 
+		// 思考气泡显示开关（默认关闭）；支持 URL ?thinking=1 或 localStorage 'cw_show_thinking'='1'
+		try{
+			let on = false;
+			try{ const u=new URL(window.location.href); const q=u.searchParams.get('thinking'); if(q==='1'||q==='true') on=true; if(q==='0'||q==='false') on=false; }catch{}
+			if (!on){ try{ const v=localStorage.getItem('cw_show_thinking'); if(v==='1'||v==='true') on=true; }catch{} }
+			this.showThinking = !!on;
+		}catch{ this.showThinking = false; }
+
+		// 思考分段启发式开关（默认关闭，仅在 <think> 缺失时启用标题样式分段）
+		try{
+			let h = false;
+			try{ const u=new URL(window.location.href); const q=u.searchParams.get('thinkheur')||u.searchParams.get('thinkingHeuristic'); if(q==='1'||q==='true') h=true; if(q==='0'||q==='false') h=false; }catch{}
+			if (!h){ try{ const v=localStorage.getItem('cw_thinking_heuristic'); if(v==='1'||v==='true') h=true; }catch{} }
+			this.useThinkingHeuristic = !!h;
+		}catch{ this.useThinkingHeuristic = false; }
+
+    // 本地持久化（按实例隔离）
+    this.MAX_PERSISTED_ITEMS = 200;
+    this._isRestoring = false;
+    this.storageKey = this._computeStorageKey();
+
     // 监听用户滚动，若上滑则暂时关闭吸底
     if (this.container) {
       this.container.addEventListener('scroll', () => {
@@ -36,6 +57,51 @@ class ChatTimeline {
         } catch {}
       });
     }
+    // 启动时尝试恢复时间线
+    try { this.restoreFromStorage(); } catch {}
+  }
+
+  // ======== 本地持久化 ========
+  _computeStorageKey(){
+    try{
+      let iid = null;
+      try { const u = new URL(window.location.href); iid = u.searchParams.get('instance') || null; } catch {}
+      if (!iid) { try { iid = (window.InstanceUtils && InstanceUtils.get && InstanceUtils.get()) || null; } catch {} }
+      if (!iid) iid = 'default';
+      return `cw_timeline_${iid}`;
+    }catch{ return 'cw_timeline_default'; }
+  }
+  _persistLoad(){
+    try{
+      const raw = localStorage.getItem(this.storageKey);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    }catch{ return []; }
+  }
+  _persistSave(list){
+    try{ localStorage.setItem(this.storageKey, JSON.stringify(list || [])); }catch{}
+  }
+  _persistAppend(item){
+    const list = this._persistLoad();
+    list.push({ role: String(item.role||'assistant'), content: String(item.content||''), timestamp: Number(item.timestamp||Date.now()), collapsed: item.collapsed===true });
+    if (list.length > this.MAX_PERSISTED_ITEMS) list.splice(0, list.length - this.MAX_PERSISTED_ITEMS);
+    this._persistSave(list);
+  }
+  restoreFromStorage(){
+    const list = this._persistLoad();
+    if (!list.length) return;
+    this._isRestoring = true;
+    try{
+      for (const it of list){
+        const role = String(it.role||'assistant');
+        const ts = Number(it.timestamp||Date.now());
+        const text = String(it.content||'');
+        if (role === 'assistant_thinking') this.appendThinkingBubble(text, ts, it.collapsed!==false);
+        else if (role === 'user') this.appendUserMessage(text, null, ts);
+        else this.appendMessage('assistant', this.cleanMessageText(text, { keepThinking:false }), ts);
+      }
+    } finally { this._isRestoring = false; }
   }
 
   // 粗粒度解析“思考/最终”结构
@@ -44,15 +110,18 @@ class ChatTimeline {
       const s = String(raw || '');
       let m = s.match(/<think>([\s\S]*?)<\/think>\s*([\s\S]*)$/i);
       if (m) return { thinking: m[1].trim(), final: (m[2]||'').trim() };
-      const re = /^(?:\s*(?:思考|思考过程|推理|反思|Reasoning|Thoughts?|Chain[- ]?of[- ]?Thoughts?|CoT)\s*[:：]\s*)([\s\S]+?)(?:\n{2,}|\r?\n)(?:\s*(?:最终|答案|结论|结果|Final|Answer|Response|Conclusion)\s*[:：]\s*)([\s\S]*)$/i;
-      m = s.match(re);
-      if (m) return { thinking: m[1].trim(), final: (m[2]||'').trim() };
+      if (this.useThinkingHeuristic) {
+        const re = /^(?:\s*(?:思考|思考过程|推理|反思|Reasoning|Thoughts?|Chain[- ]?of[- ]?Thoughts?|CoT)\s*[:：]\s*)([\s\S]+?)(?:\n{2,}|\r?\n)(?:\s*(?:最终|答案|结论|结果|Final|Answer|Response|Conclusion)\s*[:：]\s*)([\s\S]*)$/i;
+        m = s.match(re);
+        if (m) return { thinking: m[1].trim(), final: (m[2]||'').trim() };
+      }
       return { thinking: '', final: s };
     }catch{ return { thinking: '', final: String(raw||'') }; }
   }
 
   appendThinkingBubble(text, timestamp, collapsed = true){
     if (!this.timeline) return;
+    if (!this.showThinking) return;
     const content = this.cleanMessageText(text, { keepThinking: true });
     if (!content) return;
     const item = document.createElement('div');
@@ -74,6 +143,7 @@ class ChatTimeline {
       });
     }catch{}
     this.scrollToLatest(item);
+    try { if (!this._isRestoring) this._persistAppend({ role: 'assistant_thinking', content: String(text||''), timestamp: ts, collapsed: !!collapsed }); } catch {}
   }
 
   scrollToLatest(element){
@@ -193,6 +263,8 @@ class ChatTimeline {
     }
     // 直接滚动到最新
     this.scrollToLatest(item);
+    // 持久化（跳过恢复阶段）
+    try { if (!this._isRestoring) this._persistAppend({ role, content: String(content||''), timestamp: timestamp||Date.now() }); } catch {}
   }
 
   // 基于 角色 + 文本 的去重，避免同一条回复因不同时间戳重复渲染
@@ -296,7 +368,7 @@ class ChatTimeline {
       try { el.remove(); } catch {}
       this.typingMsgIdToEl.delete(msgId);
       // 若有“思考”则先渲染折叠块
-      if (hasThoughts) {
+      if (hasThoughts && this.showThinking) {
         const thoughtText = prevPlain && prevPlain !== '正在生成…' ? prevPlain : String(thinking||'');
         if (thoughtText) this.appendThinkingBubble(thoughtText, ts, true);
       }
@@ -332,6 +404,7 @@ class ChatTimeline {
 
   clear() {
     if (this.timeline) this.timeline.innerHTML = '';
+    try { localStorage.removeItem(this.storageKey); } catch {}
   }
 }
 
