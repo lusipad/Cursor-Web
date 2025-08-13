@@ -1,587 +1,1098 @@
 /**
- * Simple Web Client - 主控制器（重构版）
- * 说明：该文件在 2025-08 发生过误删/语法损坏，本版本为稳定恢复版。
+ * ChatTimeline - 主页聊天时间线（基于历史拉取展示）
+ * - 渲染目标容器：#messages-container
+ * - 不依赖注入端的 html_content，发送后通过 HTTP 轮询获取助手回复
  */
+class ChatTimeline {
+  constructor() {
+    this.container = document.getElementById('messages-container');
+    if (!this.container) {
+      console.warn('ChatTimeline: 未找到 #messages-container');
+      return;
+    }
+    // 清理欢迎引导
+    const welcome = this.container.querySelector('.welcome-message');
+    if (welcome) welcome.remove();
 
-class SimpleWebClient {
-    constructor() {
-    console.log('🚀 Simple Cursor Web Client 初始化...');
-
-    // 管理器实例
-        this.wsManager = new WebSocketManager();
-        this.contentManager = new ContentManager();
-        this.statusManager = new StatusManager();
-        this.cursorStatusManager = new CursorStatusManager();
-        this.uiManager = new UIManager();
-        this.homePageStatusManager = new HomePageStatusManager(this.wsManager, this.cursorStatusManager, this.uiManager);
-        this.debugManager = new DebugManager(this);
-        try { this.timeline = new ChatTimeline(); } catch {}
-
-    // 方案 1：发送后轮询历史的状态
-    this._lastMessageHash = null;    // 最近助手消息基线
-    this._lastSessionId = null;      // 最近会话 ID
-    this._replyPollingTimer = null;  // 轮询定时器句柄
-    this._replyPollingAbort = false; // 轮询中止标志
-    // 相关性窗口：仅在该窗口内接受与最近一次发送相关的助手消息
-    this._lastSentMsgId = null;
-    this._lastSentAt = 0;
-    this._correlationWindowMs = 120000; // 2 分钟窗口，避免误吸其他会话回复
-    // 抑制启动阶段把“历史里旧的最新一条”当作新消息渲染
-    this._startedAt = Date.now();
-    this._suppressUntilBaseline = true; // 等待一次基线建立后再放开
-    // 已加载过“同日历史”的标记，避免重复加载
-    this._historyLoadedForSession = null;
-    this._historyLoadedDayKey = null;
-
-    // URL 中的实例 ID
-        try {
-            const url = new URL(window.location.href);
-            this.instanceId = url.searchParams.get('instance') || null;
-        } catch { this.instanceId = null; }
-        // 补充：若 URL 未携带 instance，则回退到 InstanceUtils 的默认选择
-        if (!this.instanceId) {
-            try { this.instanceId = (window.InstanceUtils && InstanceUtils.get && InstanceUtils.get()) || null; } catch {}
-        }
-
-    // 设置回调
-        this.setupCallbacks();
-
-    // 事件管理器最后初始化
-        this.eventManager = new EventManager(this);
-
-    // 启动
-        this.init();
+    // 创建时间线容器
+    this.timeline = this.container.querySelector('.chat-timeline');
+    if (!this.timeline) {
+      this.timeline = document.createElement('div');
+      this.timeline.className = 'chat-timeline';
+      this.container.appendChild(this.timeline);
     }
 
-  // 回调绑定
-    setupCallbacks() {
-    // WS 消息
-        this.wsManager.setMessageCallback((data) => { try{ window.Audit && Audit.log('ws:onmessage', data.type, data); }catch{} this.handleWebSocketMessage(data); });
+    // 索引/状态
+    this.msgIdToEl = new Map(); // msgId -> user message element（用于进度条）
+    this.renderedHashSet = new Set(); // 渲染去重
+    this.stickToBottom = true; // 用户未上滑时保持吸底
+    this.typingMsgIdToEl = new Map(); // 兼容旧逻辑（不再使用 DOM 占位）
+    this.streamBuffer = new Map(); // msgId -> 思考增量缓冲（仅内存，不渲染 DOM 占位）
 
-    // WS 状态
-    this.wsManager.setStatusChangeCallback((message, type) => this.uiManager.updateStatus(message, type));
-
-    // 连接成功
-        this.wsManager.setConnectCallback(() => {
-            try{ window.Audit && Audit.log('ws', 'connected'); }catch{}
-            this.handleWebSocketConnect();
-            if (this.instanceId) {
-                this.wsManager.send({ type: 'register', role: 'web', instanceId: this.instanceId });
-            }
-        });
-
-    // 断开/重连失败
-        this.wsManager.setDisconnectCallback(() => {
-            try{ window.Audit && Audit.log('ws', 'disconnected'); }catch{}
-            this.statusManager.stopStatusCheck();
-            this.homePageStatusManager.updateHomePageStatus();
-        });
-    this.wsManager.setReconnectFailureCallback(() => this.handleReconnectFailure());
-
-    // 内容管理（此版本仅用于清理场景）
-        this.contentManager.setContentUpdateCallback((contentData) => {
-            this.uiManager.displayContent(contentData);
-        });
-    this.contentManager.setClearCallback(() => this.uiManager.clearContent());
-
-    // 状态/轮询
-    this.statusManager.setStatusChangeCallback((message, type) => this.uiManager.updateStatus(message, type));
-    this.statusManager.setContentPollingCallback(async (payload) => {
-      try {
-        const latest = payload && payload.latest;
-        const message = latest && latest.message;
-        if (!message) return;
-        const msgTs = Number(message.timestamp || 0);
-        const latestSessionId = latest && (latest.sessionId || latest.session_id);
-        const normalizedText = String(message.content || message.text || message.value || '');
-        const hash = this._hashMessage({ role: message.role || 'assistant', text: normalizedText });
-        const now = Date.now();
-        // 若存在最近一次发送，则仅在窗口内并且确认与 msgId 相关时才接受
-        if (this._lastSentMsgId && (now - this._lastSentAt) <= this._correlationWindowMs) {
-          const ok = await this._verifyAssistantCorrelated(latest.sessionId, this._lastSentMsgId, message);
-          if (!ok) return; // 不是本次回复，忽略
-        } else {
-          // 非关联窗口：避免在页面刚打开时把旧的“最新回复”渲染出来
-          if (this._suppressUntilBaseline) {
-            // 若没有时间戳或时间戳不晚于页面启动时间，则忽略
-            if (!msgTs || msgTs <= this._startedAt) return;
-          }
-        }
-        if (!this._lastMessageHash || hash !== this._lastMessageHash) {
-          this._lastMessageHash = hash;
-          if (normalizedText && this.timeline) {
-            this.timeline.appendAssistantMessage(String(normalizedText), msgTs || Date.now());
-          }
-          const ts = message.timestamp || Date.now();
-          try { this.cursorStatusManager.recordContentUpdate(ts); } catch {}
-          // 首次观察到该会话的当天消息时，补拉同一会话“同日历史”
-          try { if (latestSessionId && msgTs) await this._loadSameDayHistoryForSession(latestSessionId, msgTs); } catch {}
-        }
-      } catch {}
-    });
-    this.statusManager.setStatusCheckCallback(() => this.homePageStatusManager.updateHomePageStatus());
-    this.statusManager.setConnectionCheckCallback(() => this.homePageStatusManager.updateHomePageStatus());
-
-    // Cursor 状态
-    this.cursorStatusManager.setStatusChangeCallback(() => this.homePageStatusManager.updateHomePageStatus());
-        this.cursorStatusManager.setCursorActivityCallback((activityType) => {
-      console.log(`📝 Cursor 活动：${activityType}`);
-        });
-    }
-
-  // 启动
-    init() {
-        console.log('🔧 初始化简化客户端...');
-        try{ window.Audit && Audit.log('boot','ws_connect_begin'); }catch{}
-        this.wsManager.connect();
-        this.statusManager.startStatusCheck();
-      this.statusManager.startContentPolling();
-      // 启动后先建立一次“基线”，防止把历史的最新一条当作新消息显示
-      this._prefetchBaseline()
-        .catch(()=>{})
-        .finally(()=>{ this._suppressUntilBaseline = false; });
-        this.cursorStatusManager.startMonitoring();
-        this.eventManager.init();
-        this.broadcastStatus();
-    }
-
-  // ====== 轮询与发送 ======
-    _hashMessage(msg) {
-        try {
-            const s = typeof msg === 'string' ? msg : JSON.stringify(msg || {});
-            let h = 0;
-      for (let i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0; }
-            return String(h);
-        } catch { return String(Date.now()); }
-    }
-
-  _embedIdIfString(text, msgId) {
+    // 思考气泡显示开关（默认关闭）；支持 URL ?thinking=1 或 localStorage 'cw_show_thinking'='1'
     try {
-      if (typeof text === 'string') {
-        return `${text}${this._encodeMsgIdZeroWidth(msgId)}`;
-      }
-    } catch {}
-    return text;
-  }
-
-  _encodeMsgIdZeroWidth(msgId){
-    try{
-      const s = String(msgId||'').toLowerCase();
-      const B='\u200B', C='\u200C', D='\u200D', W='\u2060', T='\u2062';
-      const map = {
-        '0': B+B, '1': B+C, '2': B+D, '3': B+W, '4': B+T,
-        '5': C+B, '6': C+C, '7': C+D, '8': C+W, '9': C+T,
-        'a': D+B, 'b': D+C, 'c': D+D, 'd': D+W, 'e': D+T,
-        'f': W+B, '-': W+C
-      };
-      let out = '';
-      for (const ch of s){ out += map[ch] || (D+T); }
-      return '\u2063' + out + '\u2063';
-    }catch{ return ''; }
-  }
-
-  async _fetchJson(url) { const r = await fetch(url); return r.json(); }
-
-    _pickLatestAssistant(chats) {
-        if (!Array.isArray(chats)) return { session: null, message: null };
-    let best = null; let bestSession = null;
-        for (const s of chats) {
-            const msgs = Array.isArray(s.messages) ? s.messages : [];
-            for (let i = msgs.length - 1; i >= 0; i--) {
-                const m = msgs[i];
-                if (m && (m.role === 'assistant' || m.role === 'assistant_bot')) {
-                    const score = (s.lastUpdatedAt || s.updatedAt || 0);
-          if (!best || score > best.score) { best = { msg: m, score }; bestSession = s; }
-                    break;
-                }
-            }
-        }
-        return { session: bestSession, message: best ? best.msg : null };
-    }
-
-    _captureBaseline(chats) {
-        const { session, message } = this._pickLatestAssistant(chats);
-        this._lastSessionId = session?.sessionId || session?.session_id || null;
-    this._lastMessageHash = message ? this._hashMessage({ role: message.role || 'assistant', text: String(message.content || message.text || message.value || '') }) : null;
-    }
-
-    async _pollReplyAfterSend(sentAt, options = {}) {
-    const delays = options.delays || [100, 300, 800, 1500, 2500, 4000, 7000, 10000];
-        this._replyPollingAbort = false;
-        for (let i = 0; i < delays.length; i++) {
-            if (this._replyPollingAbort) return false;
-            await new Promise(r => this._replyPollingTimer = setTimeout(r, delays[i]));
-            try {
-        const ts = Date.now();
-        // 0) 精确接口：优先按 msgId 直接查询对应的助手回复（强制）
-        if (options.msgId) {
-          const urlR = this.instanceId
-            ? `/api/chats/force-reply?msgId=${encodeURIComponent(options.msgId)}&instance=${encodeURIComponent(this.instanceId)}&_=${ts}`
-            : `/api/chats/force-reply?msgId=${encodeURIComponent(options.msgId)}&_=${ts}`;
-          const r = await this._fetchJson(urlR);
-          const m0 = r && r.data && r.data.message;
-          if (m0) {
-            const textR = String(m0.content || m0.text || m0.value || '');
-            // 与 msgId 精确匹配，直接接受（不再做 notEcho/时间戳过滤）
-            if (options.onAssistant) options.onAssistant(textR);
-            return true;
-          }
-        }
-        const urlLatest = this.instanceId
-          ? `/api/chats/latest?instance=${encodeURIComponent(this.instanceId)}&maxAgeMs=0&nocache=1&_=${ts}`
-          : `/api/chats/latest?maxAgeMs=0&nocache=1&_=${ts}`;
-        const rLatest = await this._fetchJson(urlLatest);
-        const latest = rLatest && rLatest.data && rLatest.data.message;
-        const latestSessionId = rLatest && rLatest.data && rLatest.data.sessionId;
-        if (latest) {
-          const text0 = String(latest.content || latest.text || latest.value || '');
-          const notEcho0 = !options.userTextNormalized || text0.trim() !== options.userTextNormalized.trim();
-          const h0 = this._hashMessage({ role: latest.role || 'assistant', text: text0 });
-          const isNew0 = (!this._lastMessageHash || h0 !== this._lastMessageHash);
-          const tsOk0 = latest.timestamp ? (latest.timestamp > sentAt) : true;
-          // 相关性校验：确认该回复紧随本次发送的用户消息之后
-          let correlated0 = false;
-          try {
-            if (latestSessionId && options.msgId) {
-              correlated0 = await this._verifyAssistantCorrelated(latestSessionId, options.msgId, latest);
-            }
-          } catch {}
-          // 若与 msgId 相关，则放宽 notEcho 限制，避免“要求回复相同文本”被过滤
-          if (isNew0 && tsOk0 && (correlated0 ? true : notEcho0) && (correlated0 || !options.msgId)) {
-            try { this.uiManager.showNotification('已获取最新回复', 'info'); } catch {}
-            this._lastMessageHash = h0;
-            if (text0 && options.onAssistant) options.onAssistant(text0);
-                        return true;
-                    }
-                }
-
-        const urlChats = this.instanceId ? `/api/chats?instance=${encodeURIComponent(this.instanceId)}` : '/api/chats';
-        const chats = await this._fetchJson(urlChats);
-        // 在完整会话中定位“携带 msgId 的用户消息”后的第一条助手回复
-        let reply = null;
-        if (options.msgId) {
-          reply = this._findAssistantReplyForMsgId(chats || [], options.msgId, sentAt);
-        } else {
-          const { message } = this._pickLatestAssistant(chats || []);
-          reply = message || null;
-        }
-        if (reply) {
-          const text = String(reply.content || reply.text || reply.value || '');
-          const notEcho = !options.msgId && (!options.userTextNormalized || text.trim() !== options.userTextNormalized.trim());
-          const h = this._hashMessage({ role: reply.role || 'assistant', text });
-          const isNew = (!this._lastMessageHash || h !== this._lastMessageHash);
-          const tsOk = reply.timestamp ? (reply.timestamp > sentAt) : true;
-          if (isNew && tsOk && notEcho) {
-            try { this.uiManager.showNotification('已获取最新回复', 'info'); } catch {}
-            this._lastMessageHash = h;
-            if (text && options.onAssistant) options.onAssistant(text);
-            return true;
-          }
-        }
-        if (i === 2) { try { await this._fetchJson('/api/history/cache/clear'); } catch {} }
-      } catch {}
-    }
-    try { this.uiManager.showNotification('等待回复超时，可稍后在历史里查看', 'warning'); } catch {}
-        return false;
-    }
-
-    async sendAndPoll(message) {
-        try{ window.Audit && Audit.log('send', 'start', { message }); }catch{}
-        if (!this.wsManager.isConnected()) {
-      // 发送前尝试快速重连（最多 3 秒）
-      try{ this.uiManager.showNotification('网络未连，正在尝试重连…', 'warning'); }catch{}
-      try{ await this._ensureConnected(3000); }catch{}
-      if (!this.wsManager.isConnected()){
-        try { this.uiManager.showNotification('WebSocket 未连接，无法发送', 'error'); } catch {}
-        try{ window.Audit && Audit.log('send', 'ws_not_connected'); }catch{}
-        return false;
-      }
-        }
-
-    // 1) 立刻生成消息并渲染到时间线（不等待任何网络）
-    const msgId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2);
-    const sentAt = Date.now();
-    this._lastSentMsgId = msgId;
-    this._lastSentAt = sentAt;
-    try { if (this.timeline) this.timeline.appendUserMessage(typeof message === 'string' ? message : JSON.stringify(message), msgId, sentAt); } catch {}
-    try { if (this.timeline) this.timeline.showTyping(msgId); } catch {}
-
-    // 2) 异步预取旧基线，不阻塞 UI
-    this._prefetchBaseline().catch(()=>{});
-
-    // 3) 立即发送
-    const payload = this._embedIdIfString(message, msgId);
-    const ok = this.wsManager.send({ type: 'user_message', data: payload, targetInstanceId: this.instanceId || undefined, msgId });
-    try{ window.Audit && Audit.log('send', ok?'sent':'send_failed', { msgId, instanceId: this.instanceId||null }); }catch{}
-    if (!ok) { try { this.uiManager.showNotification('发送失败', 'error'); } catch {}; return false; }
-
-    try { this.uiManager.showNotification('已发送，等待回复…', 'info'); } catch {}
-    try { if (this.timeline) this.timeline.markRouted(msgId); } catch {}
-
-    // 4) 后台快速轮询（带 msgId 相关性）
-    // 4) 后台快速轮询（带 msgId 与去回显）
-    const userTextNormalized = typeof message === 'string' ? String(message) : '';
-    this._pollReplyAfterSend(sentAt, { msgId, userTextNormalized, onAssistant: (text) => {
-      try{ window.Audit && Audit.log('poll', 'assistant_hit', { msgId, len: (String(text||'').length) }); }catch{}
+      let on = false;
       try {
-        if (this.timeline) {
-          this.timeline.replaceTyping(msgId, String(text||''), Date.now());
-          this.timeline.markReplied(msgId);
-        }
+        const u = new URL(window.location.href);
+        const q = u.searchParams.get('thinking');
+        if (q === '1' || q === 'true') on = true;
+        if (q === '0' || q === 'false') on = false;
       } catch {}
-    }});
-    return true;
+      if (!on) {
+        try { const v = localStorage.getItem('cw_show_thinking'); if (v === '1' || v === 'true') on = true; } catch {}
+      }
+      this.showThinking = !!on;
+    } catch { this.showThinking = false; }
+
+    // 思考分段启发式开关（默认关闭，仅在 <think> 缺失时启用标题样式分段）
+    try {
+      let h = false;
+      try {
+        const u = new URL(window.location.href);
+        const q = u.searchParams.get('thinkheur') || u.searchParams.get('thinkingHeuristic');
+        if (q === '1' || q === 'true') h = true;
+        if (q === '0' || q === 'false') h = false;
+      } catch {}
+      if (!h) { try { const v = localStorage.getItem('cw_thinking_heuristic'); if (v === '1' || v === 'true') h = true; } catch {} }
+      this.useThinkingHeuristic = !!h;
+    } catch { this.useThinkingHeuristic = false; }
+
+    // 本地持久化（按实例隔离）
+    this.MAX_PERSISTED_ITEMS = 200;
+    this._isRestoring = false;
+    this.storageKey = this._computeStorageKey();
+
+    // 监听用户滚动，若上滑则暂时关闭吸底
+    if (this.container) {
+      this.container.addEventListener('scroll', () => {
+        try {
+          const nearBottom = (this.container.scrollTop + this.container.clientHeight) >= (this.container.scrollHeight - 30);
+          this.stickToBottom = nearBottom;
+        } catch {}
+      });
+    }
+
+    // 启动时尝试恢复时间线
+    try { this.restoreFromStorage(); } catch {}
   }
 
-  // 快速确保 WS 已连接：在超时时间内轮询 isConnected 并触发一次手动重连
-  async _ensureConnected(timeoutMs=3000){
+  // ======== 本地持久化 ========
+  _computeStorageKey(){
     try{
-      const deadline = Date.now() + Number(timeoutMs||0);
-      let attempted = false;
-      while (Date.now() < deadline){
-        if (this.wsManager && this.wsManager.isConnected && this.wsManager.isConnected()) return true;
-        if (!attempted){ attempted = true; try{ this.wsManager.manualReconnect?.(); }catch{} }
-        await new Promise(r=>setTimeout(r, 200));
+      let iid = null;
+      try { const u = new URL(window.location.href); iid = u.searchParams.get('instance') || null; } catch {}
+      if (!iid) { try { iid = (window.InstanceUtils && InstanceUtils.get && InstanceUtils.get()) || null; } catch {} }
+      if (!iid) iid = 'default';
+      return `cw_timeline_${iid}`;
+    }catch{ return 'cw_timeline_default'; }
+  }
+  _persistLoad(){
+    try{
+      const raw = localStorage.getItem(this.storageKey);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    }catch{ return []; }
+  }
+  _persistSave(list){
+    try{ localStorage.setItem(this.storageKey, JSON.stringify(list || [])); }catch{}
+  }
+  _persistAppend(item){
+    const list = this._persistLoad();
+    list.push({ role: String(item.role||'assistant'), content: String(item.content||''), timestamp: Number(item.timestamp||Date.now()), collapsed: item.collapsed===true });
+    if (list.length > this.MAX_PERSISTED_ITEMS) list.splice(0, list.length - this.MAX_PERSISTED_ITEMS);
+    this._persistSave(list);
+  }
+  restoreFromStorage(){
+    let list = this._persistLoad();
+    if (!list.length) return;
+    // TTL 过期清理（默认 30 分钟）
+    try { list = this._expireOldThinking(list, 30*60*1000); this._persistSave(list); } catch {}
+    // 启动恢复前清洁一次：若思考后窗口内已有最终，则丢弃该思考
+    try { list = this._cleanupPersistedThinking(list, 5*60*1000); this._persistSave(list); } catch {}
+    this._isRestoring = true;
+    try{
+      for (const it of list){
+        const role = String(it.role||'assistant');
+        const ts = Number(it.timestamp||Date.now());
+        const text = String(it.content||'');
+        if (role === 'assistant_thinking') this.appendThinkingBubble(text, ts, it.collapsed!==false);
+        else if (role === 'user') this.appendUserMessage(text, null, ts);
+        else this.appendMessage('assistant', this.cleanMessageText(text, { keepThinking:false }), ts);
       }
-      return this.wsManager && this.wsManager.isConnected && this.wsManager.isConnected();
-    }catch{ return false; }
+    } finally { this._isRestoring = false; }
   }
 
-  // 异步预取基线（最近助手消息），避免阻塞 UI
-  async _prefetchBaseline(){
+  // 粗粒度解析“思考/最终”结构
+  extractThinkingAndFinal(raw){
     try{
-            const url0 = this.instanceId ? `/api/chats?instance=${encodeURIComponent(this.instanceId)}` : '/api/chats';
-            const chats = await this._fetchJson(url0);
-      // 仅当还未设置过基线时再写入，避免覆盖实时更新
-      if (!this._lastMessageHash) {
-            this._captureBaseline(chats || []);
+      const s = String(raw || '');
+      let m = s.match(/<think>([\s\S]*?)<\/think>\s*([\s\S]*)$/i);
+      if (m) return { thinking: m[1].trim(), final: (m[2]||'').trim() };
+      if (this.useThinkingHeuristic) {
+        const re = /^(?:\s*(?:思考|思考过程|推理|反思|Reasoning|Thoughts?|Chain[- ]?of[- ]?Thoughts?|CoT)\s*[:：]\s*)([\s\S]+?)(?:\n{2,}|\r?\n)(?:\s*(?:最终|答案|结论|结果|Final|Answer|Response|Conclusion)\s*[:：]\s*)([\s\S]*)$/i;
+        m = s.match(re);
+        if (m) return { thinking: m[1].trim(), final: (m[2]||'').trim() };
       }
+      return { thinking: '', final: s };
+    }catch{ return { thinking: '', final: String(raw||'') }; }
+  }
+
+  appendThinkingBubble(text, timestamp, collapsed = true){
+    if (!this.timeline) return;
+    if (!this.showThinking) return;
+    const content = this.cleanMessageText(text, { keepThinking: true });
+    if (!content) return;
+    const item = document.createElement('div');
+    item.className = `chat-message assistant-message thinking-message${collapsed ? ' collapsed' : ''}`;
+    const ts = timestamp || Date.now();
+    item.innerHTML = `
+      <div class="bubble">
+        <div class="meta">🤔 思考 · ${new Date(ts).toLocaleTimeString()} <button class="think-toggle" style="margin-left:8px;font-size:12px;">${collapsed?'展开':'收起'}</button></div>
+        <div class="content thinking-content" style="${collapsed?'display:none;':''}">${this.sanitize(content)}</div>
+      </div>`;
+    this.timeline.appendChild(item);
+    try{
+      const btn = item.querySelector('.think-toggle');
+      const cnt = item.querySelector('.thinking-content');
+      btn?.addEventListener('click', ()=>{
+        const hidden = cnt && getComputedStyle(cnt).display === 'none';
+        if (cnt) cnt.style.display = hidden ? '' : 'none';
+        if (btn) btn.textContent = hidden ? '收起' : '展开';
+      });
     }catch{}
+    this.scrollToLatest(item);
+    try { if (!this._isRestoring) this._persistAppend({ role: 'assistant_thinking', content: String(text||''), timestamp: ts, collapsed: !!collapsed }); } catch {}
   }
 
-  _dayKey(ts){ try { const d = new Date(Number(ts)||Date.now()); const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const dd=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${dd}`; } catch { return ''; } }
-
-  async _loadSameDayHistoryForSession(sessionId, anchorTs){
-    try{
-      const dayKey = this._dayKey(anchorTs);
-      if (this._historyLoadedForSession === sessionId && this._historyLoadedDayKey === dayKey) return;
-      const url = `/api/chat/${encodeURIComponent(sessionId)}`;
-      const res = await fetch(url);
-      const chat = await res.json();
-      const msgs = Array.isArray(chat?.messages) ? chat.messages : (Array.isArray(chat?.data?.messages) ? chat.data.messages : []);
-      if (!msgs.length) { this._historyLoadedForSession = sessionId; this._historyLoadedDayKey = dayKey; return; }
-      const start = new Date(new Date(anchorTs).setHours(0,0,0,0)).getTime();
-      const end = new Date(new Date(anchorTs).setHours(23,59,59,999)).getTime();
-      // 升序渲染，交给时间线去重
-      const inDay = msgs.filter(m=>{ const t=Number(m?.timestamp||0); return t && t>=start && t<=end; }).sort((a,b)=>Number(a.timestamp||0)-Number(b.timestamp||0));
-      for (const m of inDay){
-        const text = String(m?.content || m?.text || m?.value || '');
-        if (!text) continue;
-        const role = String(m?.role||'assistant');
-        if (role==='user'){ try{ this.timeline && this.timeline.appendUserMessage(text, null, Number(m.timestamp||0)||Date.now()); }catch{} }
-        else { try{ this.timeline && this.timeline.appendAssistantMessage(text, Number(m.timestamp||0)||Date.now()); }catch{} }
-      }
-      this._historyLoadedForSession = sessionId;
-      this._historyLoadedDayKey = dayKey;
-    }catch{}
+  scrollToLatest(element){
+    try{ if (element && element.scrollIntoView) element.scrollIntoView({ block:'end', behavior:'smooth' }); }catch{}
+    try{ window.scrollTo({ top: document.documentElement.scrollHeight, behavior:'smooth' }); }catch{ try{ window.scrollTo(0, document.documentElement.scrollHeight || document.body.scrollHeight || 0); }catch{} }
   }
 
-  // ====== 关联性判定 ======
-  async _verifyAssistantCorrelated(sessionId, msgId, assistantMsg){
-    try{
-      // 使用服务端精确接口，直接返回与 msgId 对应的助手回复
-      const r = await this._fetchJson(`/api/chats/reply-for-msg?msgId=${encodeURIComponent(msgId)}${this.instanceId ? `&instance=${encodeURIComponent(this.instanceId)}` : ''}&maxAgeMs=0&nocache=1`);
-      const reply = r && r.data && r.data.message;
-      if (!reply) return false;
-      // 内容或时间戳一致即视为相关
-      const aTxt = String(assistantMsg?.content || assistantMsg?.text || assistantMsg?.value || '');
-      const rTxt = String(reply.content || reply.text || reply.value || '');
-      if ((assistantMsg?.timestamp && reply?.timestamp && assistantMsg.timestamp === reply.timestamp) || aTxt === rTxt) return true;
-            return false;
-    }catch{ return false; }
-  }
+  // 过滤与净化：对助手消息应用与历史页相近的清洗规则
+  cleanMessageText(rawText, options = {}) {
+    try {
+      const text = String(rawText == null ? '' : rawText);
+      // 移除隐形标记（零宽编码、旧版 MSG:）与旧的 HTML 注释标记
+      const stripMarkers = (s)=> s
+        .replace(/\u2063[\u200B\u200C\u200D\u2060\u2062]+\u2063/g,'')
+        .replace(/\u2063MSG:[^\u2063]+\u2063/g,'')
+        .replace(/<!--#msg:[^>]+-->/g,'');
+      const norm = stripMarkers(text);
+      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const shaRe = /^[0-9a-f]{7,40}$/i;
+      const longAlphaNumRe = /^[A-Za-z0-9_\-]{20,}$/;
+      const statusWordRe = /^(completed|complete|success|succeeded|ok|done|error|failed|failure|cancelled|canceled|timeout)$/i;
+      const toolWordRe = /^(codebase[_\.-]?search|grep|read_file|run_terminal_cmd|apply_patch|read_lints|list_dir|glob(_file_search)?|create_diagram|fetch_pull_request|update_memory|functions\.[A-Za-z0-9_]+)$/i;
+      const thinkHeadRe = /^(思考|思考过程|推理|反思|Reasoning|Thoughts?|Chain[- ]?of[- ]?Thoughts?|CoT)\s*[:：]/i;
+      const techHeadRe = /^(Tool|Arguments|Result|Observation|工具调用|工具参数|工具结果|观察)\s*[:：]/i;
+      const onlyUrlRe = /^(https?:\/\/[^\s]+)$/i;
+      const fileLikeRe = /^(file:\/\/\/|vscode-file:\/\/|vscode-webview:\/\/|devtools:\/\/) /i;
+      const fenceRe = /^`{3,}$/;
 
-  _findAssistantReplyForMsgId(chats, msgId, sentAt){
-    try{
-      for (const s of (Array.isArray(chats) ? chats : [])){
-        const msgs = Array.isArray(s.messages) ? s.messages : [];
-        const markerHtml = `<!--#msg:${msgId}-->`;
-        const markerHiddenLegacy = `\u2063MSG:${msgId}\u2063`;
-        const markerHiddenZW = this._encodeMsgIdZeroWidth(msgId);
-        const idxUser = msgs.findIndex(m => {
-          const t = String(m?.content||m?.text||'');
-          return t.includes(markerHtml) || t.includes(markerHiddenLegacy) || t.includes(markerHiddenZW);
-        });
-        if (idxUser === -1) continue;
-        for (let i = idxUser + 1; i < msgs.length; i++){
-          const m = msgs[i];
-          if (!m) continue;
-          if ((m.role === 'assistant' || m.role === 'assistant_bot') && (!sentAt || !m.timestamp || m.timestamp > sentAt)){
-            return m;
-          }
-        }
-      }
-      return null;
-    }catch{ return null; }
-  }
-
-  // ====== WS 事件 ======
-    handleWebSocketMessage(data) {
-        switch (data.type) {
-            case 'assistant_stream':
-        try {
-          const msgId = data.msgId || null;
-          const delta = String(data.delta || '');
-          if (msgId && this.timeline && delta) {
-            this.timeline.appendTypingChunk(msgId, delta);
-          }
-        } catch {}
-        break;
-            case 'assistant_done':
-        try {
-          const msgId = data.msgId || null;
-          const text = String(data.text || '');
-          if (msgId && this.timeline) {
-            const ok = this.timeline.replaceTyping(msgId, text, Number(data.timestamp||Date.now()));
-            if (!ok && text) this.timeline.appendAssistantMessage(text, Number(data.timestamp||Date.now()));
-            this.timeline.markReplied(msgId);
-          }
-        } catch {}
-        break;
-            case 'html_content':
-        try {
-          const payload = (data && data.data) ? data.data : { html: (data && data.html) || '', timestamp: data?.timestamp || Date.now() };
-          // 推送到内容管理器 → 由 UIManager 渲染到当前渲染容器（聊天或实时回显）
-          if (this.contentManager && typeof this.contentManager.handleContentUpdate === 'function') {
-            this.contentManager.handleContentUpdate(payload);
-          }
-          const timestamp = Number(payload?.timestamp || Date.now());
-          this.cursorStatusManager.recordContentUpdate(timestamp);
-        } catch {}
-                break;
-            case 'clear_content':
-                this.contentManager.handleClearContent(data);
-                this.cursorStatusManager.recordCursorActivity('clear_content');
-                break;
-            case 'delivery_ack':
-        try { if (this.timeline && data.msgId) this.timeline.markDelivered(data.msgId); } catch {}
-        try { this.uiManager.showNotification('已提交给 Cursor（网络回执）', 'success'); } catch {}
-                break;
-            case 'delivery_error':
-        try { this.uiManager.showNotification('注入失败：' + (data.reason || 'unknown'), 'warning'); } catch {}
-        break;
-      case 'assistant_hint':
-        try { this.uiManager.showNotification('模型已接收，等待回复…', 'info'); } catch {}
-                break;
-            case 'pong':
-                console.log('💓 收到心跳响应');
-                this.cursorStatusManager.recordCursorActivity('pong');
-                break;
-            default:
-                console.log('📥 收到未知消息类型：', data.type);
-                this.cursorStatusManager.recordCursorActivity('message_received');
-        }
-    }
-
-    handleWebSocketConnect() {
-        this.homePageStatusManager.updateHomePageStatus();
-    }
-
-    handleReconnectFailure() {
-    this.uiManager.showReconnectButton(() => this.wsManager.manualReconnect());
-  }
-
-  // ====== 其他工具 ======
-  broadcastStatus() {
-    if (!window.localStorage) return;
-    const status = {
-      timestamp: Date.now(),
-                isConnected: this.wsManager.isConnected(),
-                connectionState: this.wsManager.getConnectionState(),
-                reconnectAttempts: this.wsManager.reconnectAttempts || 0
-    };
-    localStorage.setItem('websocket_status', JSON.stringify(status));
-  }
-
-  cleanup() {
-    try { this.statusManager.stopAll(); } catch {}
-    try { this.cursorStatusManager.stopMonitoring(); } catch {}
-    try { this.wsManager.close(); } catch {}
-    try { this.eventManager.unbindAllEvents(); } catch {}
-    try { this.uiManager.hideClearNotification?.(); } catch {}
-  }
-
-  // 调试接口
-    testSendMessage(message = '测试消息') {
-        console.log('🧪 测试发送消息功能...');
-        console.log('  - 消息内容：', message);
-    console.log('  - WebSocket 管理器：', this.wsManager);
-        console.log('  - 连接状态：', this.wsManager ? this.wsManager.getConnectionState() : '未初始化');
-        console.log('  - 是否已连接：', this.wsManager ? this.wsManager.isConnected() : false);
-        if (this.wsManager && this.wsManager.isConnected()) {
-      const success = this.sendAndPoll(message);
-            console.log('  - 发送结果：', success);
-            return success;
-        } else {
-      console.error('  - 无法发送：WebSocket 未连接');
-            return false;
-        }
-    }
-}
-
-// ====== 全局调试方法 ======
-window.testSendMessage = (message) => {
-  if (window.simpleClient) return window.simpleClient.testSendMessage(message);
-        console.error('❌ simpleClient 未初始化');
+      const isNoiseLine = (s) => {
+        if (typeof s !== 'string') return true;
+        const v = s.trim();
+        if (!v) return true;
+        if (uuidRe.test(v)) return true;
+        if (shaRe.test(v)) return true;
+        if (longAlphaNumRe.test(v)) return true;
+        if (statusWordRe.test(v)) return true;
+        if (toolWordRe.test(v)) return true;
+        if (techHeadRe.test(v)) return true;
+        if (!options.keepThinking && thinkHeadRe.test(v)) return true;
+        if (fenceRe.test(v)) return true;
+        if (onlyUrlRe.test(v)) return true;
+        if (/^(file:\/\/|vscode-)/i.test(v)) return true;
         return false;
-};
+      };
 
-window.debugEventBinding = () => {
-    if (window.simpleClient && window.simpleClient.eventManager) {
-        console.log('🔍 事件绑定状态检查：');
-        console.log('  - 绑定的事件：', window.simpleClient.eventManager.getBoundEvents());
-        console.log('  - 表单元素：', {
-            sendForm: !!document.getElementById('send-form'),
-            sendInput: !!document.getElementById('send-input'),
-            sendBtn: !!document.getElementById('send-btn')
-        });
-    console.log('  - WebSocket 状态：', window.simpleClient.getConnectionState?.());
-    console.log('  - 是否已连接：', window.simpleClient.isConnected?.());
-    } else {
-        console.error('❌ simpleClient 或 eventManager 未初始化');
-    }
-};
-
-window.testWebSocketConnection = () => {
-  console.log('🔌 WebSocket 连接测试...');
-  console.log('  - 当前页面 URL:', window.location.href);
-    console.log('  - 协议：', window.location.protocol);
-    console.log('  - 主机：', window.location.hostname);
-    console.log('  - 端口：', window.location.port);
-    if (window.simpleClient && window.simpleClient.wsManager) {
-    console.log('  - WebSocket 管理器：', window.simpleClient.wsManager);
-        console.log('  - 连接状态：', window.simpleClient.wsManager.getConnectionState());
-        console.log('  - 是否已连接：', window.simpleClient.wsManager.isConnected());
-        console.log('  - 尝试手动重连...');
-        window.simpleClient.wsManager.manualReconnect();
-    } else {
-    console.error('  - WebSocket 管理器未初始化');
+      const cleaned = norm
+        .split(/\r?\n/)
+        .map(l => l.trim())
+        .filter(l => l && !isNoiseLine(l))
+        .join('\n')
+        .trim();
+      return cleaned;
+    } catch { return String(rawText || ''); }
   }
-};
 
-// 打印可用调试命令
-console.log('💡 调试命令：');
-console.log('  - testSendMessage("消息")');
-console.log('  - debugEventBinding()');
-console.log('  - testWebSocketConnection()');
+  highlightCodeIn(element){
+    try{
+      if (!element) return;
+      const nodes = element.querySelectorAll('pre code');
+      nodes.forEach(node => {
+        try {
+          // 规范化 language-xxx（兼容 ```cpp:test.cpp 这类带附加信息的围栏）
+          const classes = String(node.className || '').split(/\s+/).filter(Boolean);
+          const langClass = classes.find(c => c.startsWith('language-')) || '';
+          let lang = langClass ? langClass.replace(/^language-/, '') : '';
+          if (window.MarkdownRenderer && typeof window.MarkdownRenderer.normalizeLanguage === 'function'){
+            lang = window.MarkdownRenderer.normalizeLanguage(lang);
+          } else {
+            if (lang && /[:/]/.test(lang)) { lang = lang.split(/[:/]/)[0]; }
+            const map = { 'c#':'csharp', 'cs':'csharp', 'c++':'cpp', 'ts':'typescript', 'tsx':'typescript', 'js':'javascript', 'jsx':'javascript', 'py':'python', 'shell':'bash', 'sh':'bash', 'md':'markdown', 'html':'markup', 'xml':'markup' };
+            lang = map[String(lang||'').toLowerCase()] || lang;
+          }
+          if (!lang) lang = 'none';
+          const rest = classes.filter(c => !c.startsWith('language-'));
+          node.className = `language-${lang}` + (rest.length ? ` ${rest.join(' ')}` : '');
+        } catch {}
+      });
+      try { if (window.Prism && window.Prism.highlightAllUnder) requestIdleCallback?.(()=>window.Prism.highlightAllUnder(element)); } catch {}
+    }catch{}
+  }
+
+  sanitize(text) {
+    try {
+      if (window.MarkdownRenderer) {
+        return window.MarkdownRenderer.renderMarkdown(String(text || ''), { breaks: false });
+      }
+      const div = document.createElement('div');
+      div.textContent = String(text || '');
+      return div.innerHTML;
+    } catch { return ''; }
+  }
+
+  appendMessage(role, content, timestamp) {
+    if (!this.timeline) return;
+    const key = this.hashMessage(role, content, timestamp);
+    if (this.renderedHashSet.has(key)) return;
+    this.renderedHashSet.add(key);
+    const item = document.createElement('div');
+    item.className = `chat-message ${role === 'user' ? 'user-message' : 'assistant-message'}`;
+    item.innerHTML = `
+      <div class="bubble">
+        <div class="meta">${role === 'user' ? '👤 我' : '🤖 助手'} · ${timestamp ? new Date(timestamp).toLocaleTimeString() : ''}</div>
+        <div class="content">${this.sanitize(content)}</div>
+      </div>
+    `;
+    this.timeline.appendChild(item);
+    if (window.MarkdownRenderer) {
+      window.MarkdownRenderer.highlight(item);
+      try { requestAnimationFrame(()=> window.MarkdownRenderer.highlight(item)); } catch {}
+    } else {
+      this.highlightCodeIn(item);
+      try { requestAnimationFrame(()=> this.highlightCodeIn(item)); } catch {}
+    }
+    this.scrollToLatest(item);
+    try { if (!this._isRestoring) this._persistAppend({ role, content: String(content||''), timestamp: timestamp||Date.now() }); } catch {}
+  }
+
+  hashMessage(role, content) {
+    try {
+      const s = `${role}|${String(content||'')}`;
+      let h = 0;
+      for (let i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0; }
+      return String(h);
+    } catch { return String(Date.now()); }
+  }
+
+  appendUserMessage(text, msgId, timestamp) {
+    const ts = timestamp || Date.now();
+    this.appendMessage('user', text, ts);
+    const last = this.timeline?.lastElementChild;
+    if (last){
+      const bar = document.createElement('div');
+      bar.className = 'msg-progress';
+      bar.innerHTML = `
+        <span class=\"stage s-send on\">已发送</span>
+        <span class=\"stage s-route\">已路由</span>
+        <span class=\"stage s-deliver\">已提交</span>
+        <span class=\"stage s-reply\">已回复</span>`;
+      last.appendChild(bar);
+      if (msgId) this.msgIdToEl.set(msgId, last);
+    }
+  }
+
+  appendAssistantMessage(text, timestamp) {
+    this.clearTypingPlaceholders();
+    const { thinking, final } = this.extractThinkingAndFinal(String(text||''));
+    const ts = timestamp || Date.now();
+    try { this._removeRecentThinking(ts); } catch {}
+    if (final) {
+      if (thinking) this.appendThinkingBubble(thinking, ts, true);
+      const cleanedFinal = this.cleanMessageText(final, { keepThinking: false });
+      if (cleanedFinal) this.appendMessage('assistant', cleanedFinal, ts);
+      return;
+    }
+    const cleaned = this.cleanMessageText(text, { keepThinking: false });
+    if (!cleaned) return;
+    this.appendMessage('assistant', cleaned, ts);
+  }
+
+  // 不再渲染“正在生成”占位，只初始化内存缓冲
+  showTyping(msgId) { try { if (msgId) this.streamBuffer.set(msgId, ''); } catch {} }
+
+  // 仅在内存缓冲增量
+  appendTypingChunk(msgId, delta) {
+    try {
+      if (!msgId) return;
+      const chunk = String(delta == null ? '' : delta);
+      if (!chunk) return;
+      const prev = this.streamBuffer.get(msgId) || '';
+      this.streamBuffer.set(msgId, prev + chunk);
+    } catch {}
+  }
+
+  // 用真实文本收尾（将缓冲作为思考泡渲染，可选）
+  replaceTyping(msgId, text, timestamp) {
+    try {
+      const ts = timestamp || Date.now();
+      const buffered = this._stripTypingPrefix(this.streamBuffer.get(msgId) || '');
+      this.streamBuffer.delete(msgId);
+      try { this._removeRecentThinking(ts); } catch {}
+      const { thinking, final } = this.extractThinkingAndFinal(String(text||''));
+      const finalClean = this.cleanMessageText(final || String(text||''), { keepThinking: false });
+      const anyThought = (thinking && thinking.trim()) || (buffered && buffered.trim());
+      if (anyThought && this.showThinking) {
+        const thoughtText = this._stripTypingPrefix(String(thinking || buffered || ''));
+        if (thoughtText) this.appendThinkingBubble(thoughtText, ts, true);
+      }
+      if (finalClean) this.appendMessage('assistant', finalClean, ts);
+      const realHash = this.hashMessage('assistant', String(final || text || ''));
+      this.renderedHashSet.add(realHash);
+      return true;
+    } catch { return false; }
+  }
+
+  clearTypingPlaceholders(){
+    try{
+      for (const [id, el] of this.typingMsgIdToEl.entries()){
+        try { el.remove(); } catch {}
+        this.typingMsgIdToEl.delete(id);
+      }
+      this.streamBuffer.clear();
+    }catch{}
+  }
+
+  markRouted(msgId){ const el = this.msgIdToEl.get(msgId); if(!el) return; const s = el.querySelector('.msg-progress .s-route'); if(s) s.classList.add('on'); }
+  markDelivered(msgId){ const el = this.msgIdToEl.get(msgId); if(!el) return; const s = el.querySelector('.msg-progress .s-deliver'); if(s) s.classList.add('on'); }
+  markReplied(msgId){ const el = this.msgIdToEl.get(msgId); if(!el) return; const s = el.querySelector('.msg-progress .s-reply'); if(s) s.classList.add('on'); }
+
+  clear() {
+    if (this.timeline) this.timeline.innerHTML = '';
+    try { localStorage.removeItem(this.storageKey); } catch {}
+  }
+
+  // 去掉占位前缀“正在生成…”等噪声
+  _stripTypingPrefix(text){
+    try{
+      let s = String(text || '');
+      s = s.replace(/^\s*(正在生成(?:…|\.{3}|中)?[:：]?)\s*/i, '');
+      s = s.replace(/^\s*(typing|generating|loading)\s*(?:…|\.{3})?\s*/i, '');
+      return s;
+    }catch{ return String(text||''); }
+  }
+
+  // 本地“思考”清理：若思考后 windowMs 内紧跟助手最终，则丢弃该思考
+  _cleanupPersistedThinking(list, windowMs){
+    try{
+      const arr = Array.isArray(list) ? list.slice() : [];
+      const keep = [];
+      for (let i = 0; i < arr.length; i++){
+        const it = arr[i];
+        if (String(it.role) !== 'assistant_thinking') { keep.push(it); continue; }
+        const t0 = Number(it.timestamp||0);
+        let hasFinalNearby = false;
+        for (let j = i + 1; j < Math.min(i + 40, arr.length); j++){
+          const jt = arr[j];
+          if (String(jt.role) === 'assistant'){
+            const t1 = Number(jt.timestamp||0);
+            if (!t0 || !t1 || Math.abs(t1 - t0) <= windowMs) { hasFinalNearby = true; break; }
+          }
+        }
+        if (!hasFinalNearby) keep.push(it);
+      }
+      return keep;
+    }catch{ return Array.isArray(list) ? list : []; }
+  }
+
+  // 到达“最终”时立即清理最近思考（DOM + 本地存储）
+  _removeRecentThinking(){
+    try{
+      const list = this._persistLoad();
+      if (Array.isArray(list) && list.length){
+        const cleaned = this._cleanupPersistedThinking(list, 5*60*1000);
+        this._persistSave(cleaned);
+      }
+      try{
+        const last = this.timeline?.lastElementChild;
+        if (last && String(last.className||'').includes('thinking-message')) last.remove();
+      }catch{}
+    }catch{}
+  }
+
+  // TTL 过期：丢弃过旧的“思考”项
+  _expireOldThinking(list, ttlMs){
+    try{
+      const now = Date.now();
+      const arr = Array.isArray(list) ? list : [];
+      return arr.filter(it => {
+        if (String(it.role) !== 'assistant_thinking') return true;
+        const ts = Number(it.timestamp||0);
+        if (!ts) return false; // 无时间戳的思考，直接抛弃
+        return (now - ts) <= ttlMs;
+      });
+    }catch{ return Array.isArray(list) ? list : []; }
+  }
+}
 
 // 导出
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = SimpleWebClient;
+  module.exports = ChatTimeline;
 } else {
-    window.SimpleWebClient = SimpleWebClient;
+  window.ChatTimeline = ChatTimeline;
 }
 
+// 历史记录路由
+const express = require('express');
+const router = express.Router();
 
+class HistoryRoutes {
+    constructor(historyManager) {
+        this.historyManager = historyManager;
+        this.setupRoutes();
+    }
 
+    // 解析实例 openPath（支持根目录或 config/instances.json）
+    resolveInstanceOpenPath(instanceId){
+        try{
+            if (!instanceId) return null;
+            const fs = require('fs');
+            const path = require('path');
+            const cfg = require('../config');
+            const primary = path.isAbsolute(cfg.instances?.file || '')
+              ? cfg.instances.file
+              : path.join(process.cwd(), cfg.instances?.file || 'instances.json');
+            let file = primary;
+            if (!fs.existsSync(file)) {
+              const fallback = path.join(process.cwd(), 'config', 'instances.json');
+              if (fs.existsSync(fallback)) file = fallback; else return null;
+            }
+            const items = JSON.parse(fs.readFileSync(file,'utf8'));
+            const arr = Array.isArray(items) ? items : [];
+            const found = arr.find(x => String(x.id||'') === String(instanceId));
+            const openPath = (found && typeof found.openPath === 'string' && found.openPath.trim()) ? found.openPath.trim() : null;
+            return openPath || null;
+        }catch{
+            return null;
+        }
+    }
 
+    setupRoutes() {
+        // 获取历史记录列表
+        router.get('/history', this.getHistory.bind(this));
+        
+        // 获取统计信息
+        router.get('/history/stats', this.getStats.bind(this));
+        
+        // 调试信息
+        router.get('/history/debug', this.getDebugInfo.bind(this));
+        // 原始气泡采样（调试用）
+        router.get('/history/raw-bubbles', this.getRawBubbles.bind(this));
+        // 读取 Cursor 数据根（只读，来源于自动探测或环境变量）
+        router.get('/history/cursor-path', this.getCursorRoot.bind(this));
+        // 清空后端提取缓存
+        router.get('/history/cache/clear', this.clearCache.bind(this));
+        // 获取唯一项目列表（用于对齐 cursor-view-main 的项目视图）
+        router.get('/history/projects', this.getProjects.bind(this));
+        
+        // 搜索历史记录
+        router.get('/history/search', this.searchHistory.bind(this));
+        
+        // 导出历史记录
+        router.get('/history/export', this.exportHistory.bind(this));
+        
+        // 获取单个历史记录
+        router.get('/history/:id', this.getHistoryItem.bind(this));
+        
+        // 添加历史记录
+        router.post('/history', this.addHistory.bind(this));
+        
+        // 删除历史记录
+        router.delete('/history/:id', this.deleteHistory.bind(this));
+        
+        // 清除历史记录
+        router.delete('/history', this.clearHistory.bind(this));
+    }
+
+    // 原始 bubble 调试采样：用于观察是否存在可区分 thinking/最终 的字段
+    async getRawBubbles(req, res){
+        try{
+            const path = require('path');
+            const fs = require('fs');
+            let Database = null;
+            try { Database = require('better-sqlite3'); } catch { Database = null; }
+            if (!Database) return res.status(500).json({ success:false, error:'better-sqlite3 not available' });
+
+            const limit = Math.max(1, Math.min(parseInt(req.query.limit)||50, 200));
+            const preview = Math.max(0, Math.min(parseInt(req.query.preview)||400, 4000));
+            const scope = String(req.query.scope||'global').toLowerCase(); // global|workspaces|all
+            const like = String(req.query.like||'').trim();
+            const includeRaw = /^(1|true)$/i.test(String(req.query.raw||''));
+
+            const cursorRoot = this.historyManager.cursorStoragePath;
+            const items = [];
+
+            const extractItem = (dbPath, row) => {
+                let parsed = null; try { parsed = row && row.value ? JSON.parse(row.value) : null; } catch { parsed = null; }
+                let role = 'assistant'; let text = '';
+                try{
+                    if (this.historyManager && typeof this.historyManager.extractBubbleTextAndRole === 'function'){
+                        const r = this.historyManager.extractBubbleTextAndRole(parsed || {});
+                        role = r.role || 'assistant'; text = r.text || '';
+                    } else {
+                        role = (parsed?.role==='user'||parsed?.type===1)?'user':'assistant';
+                        text = String(parsed?.text||parsed?.content||parsed?.richText||parsed?.markdown||parsed?.md||parsed?.message?.content||parsed?.data?.content||parsed?.payload?.content||'');
+                    }
+                }catch{}
+                const thinkTag = /<think>[\s\S]*?<\/think>/i.test(String(text||'')) || /<think>[\s\S]*?<\/think>/i.test(String(row?.value||''));
+                const headThink = /^\s*(思考|思考过程|推理|反思|Reasoning|Thoughts?|CoT)\s*[:：]/i.test(String(text||''));
+                const headFinal = /^\s*(最终|答案|结论|结果|Final|Answer|Response|Conclusion)\s*[:：]/i.test(String(text||''));
+                const ts = parsed?.cTime || parsed?.timestamp || parsed?.time || parsed?.createdAt || parsed?.lastUpdatedAt || null;
+                const keyParts = String(row.key||'').split(':');
+                const composerId = keyParts.length>=3 ? keyParts[1] : null;
+                return {
+                    db: dbPath,
+                    key: row.key,
+                    composerId,
+                    role,
+                    type: parsed?.type || null,
+                    timestamp: ts || null,
+                    textPreview: String(text||'').slice(0, preview),
+                    flags: { thinkTag, headThink, headFinal },
+                    rawPreview: includeRaw ? String(row.value||'').slice(0, Math.max(200, preview)) : undefined
+                };
+            };
+
+            const scanDb = (dbPath, want, whereLike) => {
+                try{
+                    if (!fs.existsSync(dbPath)) return;
+                    const db = new Database(dbPath, { readonly: true });
+                    try{
+                        const has = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='cursorDiskKV'").get();
+                        if (!has) return;
+                        const sql = whereLike ?
+                          "SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE ? LIMIT ?" :
+                          "SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' LIMIT ?";
+                        const rows = whereLike ? db.prepare(sql).all(`%${whereLike}%`, want) : db.prepare(sql).all(want);
+                        for (const r of rows){
+                            if (items.length >= limit) break;
+                            items.push(extractItem(dbPath, r));
+                        }
+                    } finally { try { db.close(); } catch {} }
+                } catch {}
+            };
+
+            // global
+            if (scope==='global' || scope==='all'){
+                const globalDb = path.join(cursorRoot, 'User', 'globalStorage', 'state.vscdb');
+                scanDb(globalDb, limit - items.length, like || null);
+            }
+            // workspaces
+            if ((scope==='workspaces' || scope==='all') && items.length < limit){
+                try{
+                    const wsRoot = path.join(cursorRoot, 'User', 'workspaceStorage');
+                    const dirs = fs.existsSync(wsRoot) ? fs.readdirSync(wsRoot, { withFileTypes: true }) : [];
+                    for (const d of dirs){
+                        if (!d.isDirectory()) continue;
+                        const dbp = path.join(wsRoot, d.name, 'state.vscdb');
+                        scanDb(dbp, Math.max(1, limit - items.length), like || null);
+                        if (items.length >= limit) break;
+                    }
+                }catch{}
+            }
+
+            res.json({ success:true, data: { scopeUsed: scope, count: items.length, items } });
+        }catch(err){
+            res.status(500).json({ success:false, error: err?.message || 'raw-bubbles failed' });
+        }
+    }
+
+    // 获取历史记录列表
+    async getHistory(req, res) {
+        try {
+            const options = {
+                limit: parseInt(req.query.limit) || 50,
+                offset: parseInt(req.query.offset) || 0,
+                type: req.query.type,
+                startDate: req.query.startDate ? new Date(req.query.startDate) : undefined,
+                endDate: req.query.endDate ? new Date(req.query.endDate) : undefined,
+                searchQuery: req.query.search,
+                sortBy: req.query.sortBy || 'timestamp',
+                sortOrder: req.query.sortOrder || 'desc',
+                includeUnmapped: req.query.includeUnmapped,
+                mode: req.query.mode,
+                summary: (String(req.query.summary || '').trim() === '1' || String(req.query.summary || '').trim().toLowerCase() === 'true'),
+                instanceId: req.query.instance || null,
+                nocache: req.query.nocache || null,
+                maxAgeMs: req.query.maxAgeMs || null
+            };
+
+            // 缓存控制：支持 nocache/maxAgeMs
+            if (options.nocache) {
+                try { this.historyManager.clearCache?.(); } catch {}
+            }
+            const originalCacheTimeout = this.historyManager.cacheTimeout;
+            if (options.maxAgeMs) {
+                const n = Math.max(0, Math.min(Number(options.maxAgeMs) || 0, 10000));
+                if (n > 0) this.historyManager.cacheTimeout = n;
+            }
+
+            // 实例 openPath 过滤
+            if (options.instanceId) {
+                const openPath = this.resolveInstanceOpenPath(options.instanceId);
+                if (openPath) options.filterOpenPath = openPath;
+            }
+
+            let result = await this.historyManager.getHistory(options);
+            // 再次兜底按 openPath 过滤，确保 CV 模式与非 CV 模式统一
+            if (options.filterOpenPath && result && Array.isArray(result.items)) {
+                const norm = (p)=>{ try{ return String(p||'').replace(/\\/g,'/'); }catch{ return ''; } };
+                const toCv = (p)=>{
+                    const n = norm(p).toLowerCase();
+                    const withSlash = n.startsWith('/') ? n : ('/' + n);
+                    return withSlash.replace(/^\/([a-z]):\//, '/$1%3a/');
+                };
+                const base = norm(options.filterOpenPath).toLowerCase();
+                const baseCv = toCv(options.filterOpenPath);
+                const ensureSlash = (s)=> s.endsWith('/')?s:(s+'/');
+                const isPrefix = (root)=>{
+                    if (!root) return false;
+                    const r1 = norm(root).toLowerCase();
+                    const r2 = toCv(root);
+                    const ok1 = r1 === base || r1.startsWith(ensureSlash(base)) || base.startsWith(ensureSlash(r1));
+                    const ok2 = r2 === baseCv || r2.startsWith(ensureSlash(baseCv)) || baseCv.startsWith(ensureSlash(r2));
+                    return ok1 || ok2;
+                };
+                result = { ...result, items: result.items.filter(it => {
+                    const root = it?.project?.rootPath || '';
+                    if (!root || root === '(unknown)') return true; // 放宽：未知根路径保留，避免误过滤
+                    return isPrefix(root);
+                }) };
+            }
+
+            // 还原缓存超时
+            if (options.maxAgeMs) this.historyManager.cacheTimeout = originalCacheTimeout;
+            
+            res.json({
+                success: true,
+                data: result
+            });
+        } catch (error) {
+            console.error('获取历史记录失败：', error);
+            res.status(500).json({
+                success: false,
+                error: '获取历史记录失败'
+            });
+        }
+    }
+
+    // 获取单个历史记录
+    async getHistoryItem(req, res) {
+        try {
+            const { id } = req.params;
+            const debugOn = (String(req.query.debug||'').toLowerCase()==='1'||String(req.query.debug||'').toLowerCase()==='true');
+            const t0 = Date.now();
+            const options = { mode: req.query.mode, includeUnmapped: req.query.includeUnmapped, segmentMinutes: req.query.segmentMinutes, instanceId: req.query.instance || null, maxAgeMs: req.query.maxAgeMs || null, debug: debugOn };
+            let t1 = Date.now(); let t2 = null; let t3 = null;
+            if (options.instanceId) {
+                const openPath = this.resolveInstanceOpenPath(options.instanceId);
+                if (openPath) options.filterOpenPath = openPath;
+            }
+            t2 = Date.now();
+            const item = await this.historyManager.getHistoryItem(id, options);
+            if (!item) {
+                // 避免阻塞：不要触发全量兜底，直接返回 404
+                if (debugOn) console.warn('detail not found (fast path miss):', id);
+            }
+            t3 = Date.now();
+            
+            if (!item) {
+                return res.status(404).json({
+                    success: false,
+                    error: '历史记录不存在'
+                });
+            }
+            
+            const resp = { success: true, data: item };
+            if (debugOn) {
+                resp.debug = {
+                    timings: {
+                        receivedMs: t0,
+                        afterParseMs: t1 - t0,
+                        afterOpenPathMs: t2 - t0,
+                        managerCallMs: t3 - t2,
+                        totalMs: t3 - t0
+                    },
+                    messageCount: Array.isArray(item?.messages) ? item.messages.length : 0,
+                    projectRoot: item?.project?.rootPath || null,
+                    dataSource: item?.dataSource || null
+                };
+            }
+            res.json(resp);
+        } catch (error) {
+            console.error('获取历史记录详情失败：', error);
+            res.status(500).json({
+                success: false,
+                error: '获取历史记录详情失败'
+      });
+    }
+  }
+
+    // 添加历史记录
+    async addHistory(req, res) {
+        try {
+            const { content, type = 'chat', metadata = {} } = req.body;
+            
+            if (!content) {
+                return res.status(400).json({
+                    success: false,
+                    error: '内容不能为空'
+                });
+            }
+            
+            const historyItem = await this.historyManager.addHistoryItem(content, type, metadata);
+            
+            res.json({
+                success: true,
+                data: historyItem
+            });
+        } catch (error) {
+            console.error('添加历史记录失败：', error);
+            res.status(500).json({
+                success: false,
+                error: '添加历史记录失败'
+            });
+        }
+    }
+
+    // 删除历史记录
+    async deleteHistory(req, res) {
+        try {
+            const { id } = req.params;
+            const success = await this.historyManager.deleteHistoryItem(id);
+            
+            if (!success) {
+                return res.status(404).json({
+                    success: false,
+                    error: '历史记录不存在'
+                });
+            }
+            
+            res.json({
+                success: true,
+                message: '历史记录已删除'
+            });
+        } catch (error) {
+            console.error('删除历史记录失败：', error);
+            res.status(500).json({
+                success: false,
+                error: '删除历史记录失败'
+            });
+        }
+    }
+
+    // 清除历史记录
+    async clearHistory(req, res) {
+        try {
+            const options = {
+                type: req.query.type,
+                beforeDate: req.query.beforeDate ? new Date(req.query.beforeDate) : undefined
+            };
+            
+            await this.historyManager.clearHistory(options);
+            
+            res.json({
+                success: true,
+                message: '历史记录已清除'
+            });
+        } catch (error) {
+            console.error('清除历史记录失败：', error);
+            res.status(500).json({
+                success: false,
+                error: '清除历史记录失败'
+            });
+        }
+    }
+
+    // 搜索历史记录
+    async searchHistory(req, res) {
+        try {
+            const { q: query, ...options } = req.query;
+            
+            if (!query) {
+                return res.status(400).json({
+                    success: false,
+                    error: '搜索查询不能为空'
+                });
+            }
+            
+            const result = await this.historyManager.searchHistory(query, options);
+            
+            res.json({
+                success: true,
+                data: result
+            });
+        } catch (error) {
+            console.error('搜索历史记录失败：', error);
+            res.status(500).json({
+                success: false,
+                error: '搜索历史记录失败'
+            });
+        }
+    }
+
+    // 获取统计信息
+    async getStats(req, res) {
+        try {
+            const options = {
+                includeUnmapped: req.query.includeUnmapped,
+                segmentMinutes: req.query.segmentMinutes,
+                instanceId: req.query.instance || null
+            };
+            if (options.instanceId) {
+                const openPath = this.resolveInstanceOpenPath(options.instanceId);
+                if (openPath) options.filterOpenPath = openPath;
+            }
+            const stats = await this.historyManager.getStatistics(options);
+            
+            res.json({
+                success: true,
+                data: stats
+            });
+        } catch (error) {
+            console.error('获取统计信息失败：', error);
+            res.status(500).json({
+                success: false,
+                error: '获取统计信息失败'
+            });
+        }
+    }
+
+    // 导出历史记录
+    async exportHistory(req, res) {
+        try {
+            const options = {
+                format: req.query.format || 'json',
+                type: req.query.type,
+                startDate: req.query.startDate ? new Date(req.query.startDate) : undefined,
+                endDate: req.query.endDate ? new Date(req.query.endDate) : undefined,
+                instanceId: req.query.instance || null
+            };
+            if (options.instanceId) {
+                const openPath = this.resolveInstanceOpenPath(options.instanceId);
+                if (openPath) options.filterOpenPath = openPath;
+            }
+            
+            const exportData = await this.historyManager.exportHistory(options);
+            
+            // 设置响应头
+            let contentType = 'application/json';
+            let filename = `history.${options.format}`;
+            
+            switch (options.format) {
+                case 'csv':
+                    contentType = 'text/csv';
+                    filename = `history.csv`;
+                    break;
+                case 'html':
+                    contentType = 'text/html';
+                    filename = `history.html`;
+                    break;
+                default:
+                    contentType = 'application/json';
+                    filename = `history.json`;
+            }
+            
+            res.setHeader('Content-Type', contentType);
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            
+            res.send(exportData);
+        } catch (error) {
+            console.error('导出历史记录失败：', error);
+            res.status(500).json({
+                success: false,
+                error: '导出历史记录失败'
+            });
+        }
+    }
+
+    // 获取项目汇总
+    async getProjects(req, res) {
+        try {
+            const opts = { instanceId: req.query.instance || null };
+            if (opts.instanceId) {
+                const openPath = this.resolveInstanceOpenPath(opts.instanceId);
+                if (openPath) opts.filterOpenPath = openPath;
+            }
+            const projects = await this.historyManager.getProjectsSummary(opts);
+            res.json({ success: true, data: projects });
+        } catch (error) {
+            console.error('获取项目列表失败：', error);
+            res.status(500).json({ success: false, error: '获取项目列表失败' });
+        }
+    }
+
+    // 清空缓存
+    async clearCache(req, res){
+        try{
+            if (this.historyManager?.clearCache) this.historyManager.clearCache();
+            res.json({success:true, message:'cache cleared'});
+        }catch(err){
+            res.status(500).json({success:false, error:'clear cache failed'});
+        }
+    }
+
+    // 调试信息端点
+    async getDebugInfo(req, res) {
+        try {
+            console.log('📊 获取调试信息...');
+            
+            const debugInfo = {
+                timestamp: new Date().toISOString(),
+                cursorPath: this.historyManager.cursorStoragePath,
+                platform: process.platform
+            };
+
+            // 检查路径是否存在
+            const fs = require('fs');
+            const path = require('path');
+            
+            const globalDbPath = path.join(this.historyManager.cursorStoragePath, 'User/globalStorage/state.vscdb');
+            debugInfo.globalDbExists = fs.existsSync(globalDbPath);
+            debugInfo.globalDbPath = globalDbPath;
+            
+            if (debugInfo.globalDbExists) {
+                const stats = fs.statSync(globalDbPath);
+                debugInfo.globalDbSize = stats.size;
+                debugInfo.globalDbModified = stats.mtime;
+            }
+
+            // 尝试测试 SQLite
+            try {
+                const Database = require('better-sqlite3');
+                debugInfo.betterSqlite3Available = true;
+                
+                if (debugInfo.globalDbExists) {
+                    const db = new Database(globalDbPath, { readonly: true });
+                    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+                    debugInfo.tables = tables.map(t => t.name);
+                    
+                    if (tables.some(t => t.name === 'cursorDiskKV')) {
+                        const bubbleCount = db.prepare("SELECT COUNT(*) as count FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'").get();
+                        debugInfo.bubbleCount = bubbleCount.count;
+                        
+                        if (bubbleCount.count > 0) {
+                            const sample = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' LIMIT 1").get();
+                            debugInfo.sampleBubble = {
+                                key: sample.key,
+                                valueLength: sample.value ? sample.value.length : 0,
+                                valuePreview: sample.value ? sample.value.substring(0, 200) : null
+                            };
+                            // 额外：采样用户/助手各一条，便于排查结构
+                            try {
+                                const sampleUser = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE '%\"type\":1%' LIMIT 1").get();
+                                if (sampleUser) debugInfo.sampleUserBubble = { key: sampleUser.key, valuePreview: sampleUser.value?.substring(0, 400) };
+                            } catch {}
+                            try {
+                                const sampleAssistant = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' AND value LIKE '%\"type\":2%' LIMIT 1").get();
+                                if (sampleAssistant) debugInfo.sampleAssistantBubble = { key: sampleAssistant.key, valuePreview: sampleAssistant.value?.substring(0, 800) };
+                            } catch {}
+
+                            // 统计前 2000 条气泡的关键字段分布（conversationId、composerId 等）
+                            try {
+                                const rows = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' LIMIT 2000").all();
+                                const keyComposerSet = new Set();
+                                const valueComposerSet = new Set();
+                                const conversationIdSet = new Set();
+                                const conversationAltSet = new Set();
+                                let parsed = 0;
+                                for (const r of rows) {
+                                    const parts = typeof r.key === 'string' ? r.key.split(':') : [];
+                                    if (parts.length >= 3) keyComposerSet.add(parts[1]);
+                                    try {
+                                        const v = JSON.parse(r.value);
+                                        parsed++;
+                                        const valComposer = v?.composerId || v?.composerID || v?.composer || v?.authorId || null;
+                                        if (valComposer) valueComposerSet.add(String(valComposer));
+                                        const conv = v?.conversationId || v?.conversationID || v?.conversation || v?.sessionId || v?.sessionID || v?.tabId || null;
+                                        if (conv) conversationIdSet.add(String(conv));
+                                        // 某些结构会把会话 ID 放在 message/conversation 字段里
+                                        const conv2 = v?.message?.conversationId || v?.payload?.conversationId || null;
+                                        if (conv2) conversationAltSet.add(String(conv2));
+                                    } catch {}
+                                }
+                                debugInfo.sampleStats = {
+                                    scanned: rows.length,
+                                    parsed,
+                                    uniqueKeyComposer: keyComposerSet.size,
+                                    uniqueValueComposer: valueComposerSet.size,
+                                    uniqueConversationId: conversationIdSet.size,
+                                    uniqueConversationAlt: conversationAltSet.size
+                                };
+    } catch {}
+  }
+                    }
+                    
+                    db.close();
+                }
+            } catch (error) {
+                debugInfo.betterSqlite3Available = false;
+                debugInfo.betterSqlite3Error = error.message;
+            }
+
+            // 尝试调用实际的数据提取
+            try {
+                console.log('🔍 测试实际数据提取...');
+                const chats = await this.historyManager.getChats();
+                debugInfo.extractedChats = chats.length;
+                debugInfo.extractionSuccess = true;
+                
+                if (chats.length > 0) {
+                    debugInfo.sampleChat = {
+                        sessionId: chats[0].sessionId,
+                        messageCount: chats[0].messages.length,
+                        projectName: chats[0].project?.name,
+                        isRealData: chats[0].isRealData,
+                        dataSource: chats[0].dataSource
+                    };
+                }
+            } catch (error) {
+                debugInfo.extractionSuccess = false;
+                debugInfo.extractionError = error.message;
+                debugInfo.extractionStack = error.stack;
+            }
+
+            res.json({
+                success: true,
+                data: debugInfo
+            });
+        } catch (error) {
+            console.error('获取调试信息失败：', error);
+            res.status(500).json({
+                success: false,
+                error: '获取调试信息失败',
+                details: error.message
+            });
+        }
+    }
+
+    // 获取/设置 Cursor 根目录，便于与 cursor-view 对齐
+    async getCursorRoot(req, res){
+        try{
+            res.json({success:true, data:{ cursorPath: this.historyManager.cursorStoragePath, env: process.env.CURSOR_STORAGE_PATH || null }});
+        }catch(err){
+            res.status(500).json({success:false, error: err.message});
+        }
+    }
+    // 去掉设置能力
+
+    getRouter() {
+        return router;
+    }
+}
+
+module.exports = HistoryRoutes;
