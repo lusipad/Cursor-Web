@@ -8,7 +8,9 @@ class CursorHistoryManager {
         this.cursorStoragePath = this.getCursorStoragePath();
         this.cachedHistory = null;
         this.lastCacheTime = 0;
-        this.cacheTimeout = 3000; // 默认 3 秒缓存，前端可通过 maxAgeMs 调整
+        this.cacheTimeout = 10000; // 默认 10 秒缓存，前端可通过 maxAgeMs 调整（发送后精确查询可绕过）
+        // 读取时优先走“只读副本”，规避 Cursor 写锁（可按需关闭）
+        this.useReadonlyCopy = true;
         this.sqliteEngine = null;
         this._historyCache = new Map();
         this._historyItemCache = new Map(); // sessionId -> { ts, item }
@@ -23,6 +25,29 @@ class CursorHistoryManager {
         this.initializeSQLiteEngine();
         // 启动后延迟构建一次索引，并每 60s 增量刷新，降低首次详情耗时
         try { this.scheduleSessionIndexRebuild(); } catch {}
+    }
+
+    // ====== 只读副本支持 ======
+    makeReadonlyCopy(dbPath){
+        try{
+            const src = String(dbPath||''); if (!src) return null;
+            const tmpRoot = path.join(os.tmpdir ? os.tmpdir() : (os.tmpDir?.()||'.'), 'cursor_web_db_cache');
+            try{ if (!fs.existsSync(tmpRoot)) fs.mkdirSync(tmpRoot, { recursive: true }); }catch{}
+            const base = path.basename(src).replace(/[^A-Za-z0-9_.-]/g,'_');
+            const tmp = path.join(tmpRoot, `${base}.${process.pid}.${Date.now()}.sqlite`);
+            fs.copyFileSync(src, tmp);
+            return tmp;
+        }catch{ return null; }
+    }
+
+    openReadonlyDatabase(dbPath){
+        const Database = require('better-sqlite3');
+        let copied = null;
+        try{ if (this.useReadonlyCopy) copied = this.makeReadonlyCopy(dbPath); }catch{}
+        const openPath = copied || dbPath;
+        const db = new Database(openPath, { readonly: true });
+        const cleanup = () => { try{ db.close(); }catch{} try{ if (copied && fs.existsSync(copied)) fs.unlinkSync(copied); }catch{} };
+        return { db, cleanup };
     }
 
     // ====== cursor-view 等价实现（提取口径完全对齐） ======
@@ -63,8 +88,7 @@ class CursorHistoryManager {
                 const dbPath = (ws && (ws.workspaceDb || ws.dbPath)) || (typeof ws === 'string' ? ws : (ws && (ws.workspaceDb || ws.db)));
                 if (!dbPath || !fsLib.existsSync(dbPath)) continue;
 
-                const Database = require('better-sqlite3');
-                const db = new Database(dbPath, { readonly: true });
+                const { db, cleanup } = this.openReadonlyDatabase(dbPath);
                 try {
                     // 1) 项目根：ItemTable['history.entries'] 的 editor.resource file:/// 路径求公共前缀
                     //    失败则用 debug.selectedroot 兜底；若仍然过浅/未知，再用“众数根”作为最后兜底
@@ -656,8 +680,7 @@ class CursorHistoryManager {
                     // 尝试用 better-sqlite3 统计 bubbleId 数量
                     let bubbles = -1;
                     try {
-                        const Database = require('better-sqlite3');
-                        const db = new Database(dbPath, { readonly: true });
+                const { db, cleanup } = this.openReadonlyDatabase(dbPath);
                         try {
                             const row = db.prepare("SELECT COUNT(*) AS c FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'").get();
                             bubbles = (row && row.c) || 0;
@@ -2585,7 +2608,7 @@ class CursorHistoryManager {
                         console.log(`⏱️  getHistoryItemFast scan ${dbPath} rows≈${readRows} in ${ms}ms`);
                     }
                     return messages.length - before;
-                } finally { try{ db.close(); }catch{} }
+                } finally { try{ cleanup(); }catch{} }
             };
 
             // 若有历史索引，先尝试命中的 DB，命中则直接返回
@@ -2648,7 +2671,7 @@ class CursorHistoryManager {
                                 }catch{}
                             }
                             project = proj;
-                        } finally { try{ Database2.close(); }catch{} }
+                } finally { try{ Database2.close(); }catch{} }
                         sourceDbPath = dbPath;
                         // 已找到消息且拿到项目后，提前结束扫描（避免遍历所有 workspace）
                         break;
