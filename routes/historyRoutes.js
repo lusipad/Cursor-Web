@@ -5,6 +5,7 @@ const router = express.Router();
 class HistoryRoutes {
     constructor(historyManager) {
         this.historyManager = historyManager;
+        this._inflightMsg = new Map();
         this.setupRoutes();
     }
 
@@ -59,6 +60,8 @@ class HistoryRoutes {
         
         // 获取单个历史记录
         router.get('/history/:id', this.getHistoryItem.bind(this));
+        // 分页读取单个会话消息
+        router.get('/history/:id/messages', this.getHistoryMessagesPaged.bind(this));
         
         // 添加历史记录
         router.post('/history', this.addHistory.bind(this));
@@ -163,7 +166,7 @@ class HistoryRoutes {
         }
     }
 
-    // 获取历史记录列表
+    // 获取历史记录列表（含 ETag/Cache-Control）
     async getHistory(req, res) {
         try {
             const options = {
@@ -199,6 +202,65 @@ class HistoryRoutes {
                 if (openPath) options.filterOpenPath = openPath;
             }
 
+            // HTTP 缓存：ETag
+            try{
+                const token = (this.historyManager.getSignatureToken && typeof this.historyManager.getSignatureToken === 'function') ? this.historyManager.getSignatureToken() : 'h';
+                const etagKey = JSON.stringify({
+                    kind:'list',
+                    limit: options.limit,
+                    offset: options.offset,
+                    type: options.type || '',
+                    startDate: options.startDate ? Number(options.startDate) : null,
+                    endDate: options.endDate ? Number(options.endDate) : null,
+                    search: options.searchQuery || '',
+                    sortBy: options.sortBy,
+                    sortOrder: options.sortOrder,
+                    includeUnmapped: !!options.includeUnmapped,
+                    mode: options.mode || '',
+                    instanceId: options.instanceId || '',
+                    t: token
+                });
+                const etag = 'W/"' + Buffer.from(etagKey).toString('base64').slice(0,48) + '"';
+                if (req.headers['if-none-match'] && req.headers['if-none-match'] === etag){
+                    res.status(304);
+                    res.setHeader('ETag', etag);
+                    res.setHeader('Cache-Control', 'public, max-age=5, stale-while-revalidate=60');
+                    return res.end();
+                }
+                // 计算数据
+                let result = await this.historyManager.getHistory(options);
+                // 再次兜底按 openPath 过滤，确保 CV 模式与非 CV 模式统一
+                if (options.filterOpenPath && result && Array.isArray(result.items)) {
+                    const norm = (p)=>{ try{ return String(p||'').replace(/\\/g,'/'); }catch{ return ''; } };
+                    const toCv = (p)=>{
+                        const n = norm(p).toLowerCase();
+                        const withSlash = n.startsWith('/') ? n : ('/' + n);
+                        return withSlash.replace(/^\/([a-z]):\//, '/$1%3a/');
+                    };
+                    const base = norm(options.filterOpenPath).toLowerCase();
+                    const baseCv = toCv(options.filterOpenPath);
+                    const ensureSlash = (s)=> s.endsWith('/')?s:(s+'/');
+                    const isPrefix = (root)=>{
+                        if (!root) return false;
+                        const r1 = norm(root).toLowerCase();
+                        const r2 = toCv(root);
+                        const ok1 = r1 === base || r1.startsWith(ensureSlash(base)) || base.startsWith(ensureSlash(r1));
+                        const ok2 = r2 === baseCv || r2.startsWith(ensureSlash(baseCv)) || baseCv.startsWith(ensureSlash(r2));
+                        return ok1 || ok2;
+                    };
+                    result = { ...result, items: result.items.filter(it => {
+                        const root = it?.project?.rootPath || '';
+                        if (!root || root === '(unknown)') return true; // 放宽：未知根路径保留，避免误过滤
+                        return isPrefix(root);
+                    }) };
+                }
+                res.setHeader('ETag', etag);
+                res.setHeader('Cache-Control', 'public, max-age=5, stale-while-revalidate=60');
+                return res.json({ success: true, data: result });
+            }catch{
+                // 失败回退：不使用 ETag
+            }
+
             let result = await this.historyManager.getHistory(options);
             // 再次兜底按 openPath 过滤，确保 CV 模式与非 CV 模式统一
             if (options.filterOpenPath && result && Array.isArray(result.items)) {
@@ -229,10 +291,7 @@ class HistoryRoutes {
             // 还原缓存超时
             if (options.maxAgeMs) this.historyManager.cacheTimeout = originalCacheTimeout;
             
-            res.json({
-                success: true,
-                data: result
-            });
+            res.json({ success: true, data: result });
         } catch (error) {
             console.error('获取历史记录失败:', error);
             res.status(500).json({
@@ -242,7 +301,7 @@ class HistoryRoutes {
         }
     }
 
-    // 获取单个历史记录
+    // 获取单个历史记录（含 ETag/Cache-Control）
     async getHistoryItem(req, res) {
         try {
             const { id } = req.params;
@@ -255,6 +314,39 @@ class HistoryRoutes {
                 if (openPath) options.filterOpenPath = openPath;
             }
             t2 = Date.now();
+            // 先做 ETag 协商
+            try{
+                const token = (this.historyManager.getSignatureToken && typeof this.historyManager.getSignatureToken === 'function') ? this.historyManager.getSignatureToken() : 'h';
+                const etagKey = JSON.stringify({ kind:'detail', id, mode: options.mode||'', instanceId: options.instanceId||'', t: token });
+                const etag = 'W/"' + Buffer.from(etagKey).toString('base64').slice(0,48) + '"';
+                if (req.headers['if-none-match'] && req.headers['if-none-match'] === etag){
+                    res.status(304);
+                    res.setHeader('ETag', etag);
+                    res.setHeader('Cache-Control', 'public, max-age=5, stale-while-revalidate=60');
+                    return res.end();
+                }
+                // 首屏仅取元数据，避免全量消息
+                const metaOpt = { ...options, summary: true };
+                const item0 = await this.historyManager.getHistoryItem(id, metaOpt);
+                if (!item0) {
+                    if (debugOn) console.warn('detail not found (fast path miss):', id);
+                    return res.status(404).json({ success:false, error:'历史记录不存在' });
+                }
+                const resp0 = { success:true, data: item0 };
+                if (debugOn) {
+                    const t3 = Date.now();
+                    resp0.debug = {
+                        timings: { receivedMs: t0, afterParseMs: 0, afterOpenPathMs: 0, managerCallMs: t3 - t0, totalMs: t3 - t0 },
+                        messageCount: Array.isArray(item0?.messages) ? item0.messages.length : 0,
+                        projectRoot: item0?.project?.rootPath || null,
+                        dataSource: item0?.dataSource || null
+                    };
+                }
+                res.setHeader('ETag', etag);
+                res.setHeader('Cache-Control', 'public, max-age=5, stale-while-revalidate=60');
+                return res.json(resp0);
+            }catch{}
+
             const item = await this.historyManager.getHistoryItem(id, options);
             if (!item) {
                 // 避免阻塞：不要触发全量兜底，直接返回 404
@@ -641,6 +733,38 @@ class HistoryRoutes {
         }
     }
     // 去掉设置能力
+
+    // 分页消息（带 singleflight 与 ETag）
+    async getHistoryMessagesPaged(req, res){
+        try{
+            const { id } = req.params;
+            const offset = Math.max(0, parseInt(req.query.offset||0));
+            const limit = Math.max(1, Math.min(parseInt(req.query.limit||200), 500));
+            const cursorKey = typeof req.query.cursorKey === 'string' ? req.query.cursorKey : null;
+            const sfKey = `${id}|${cursorKey||''}|${offset}|${limit}`;
+            let promise = this._inflightMsg.get(sfKey);
+            if (!promise){
+                promise = this.historyManager.getHistoryMessagesPaged(id, { offset, limit, cursorKey });
+                this._inflightMsg.set(sfKey, promise);
+                promise.finally(()=>{ try{ this._inflightMsg.delete(sfKey); }catch{} });
+            }
+            const token = (this.historyManager.getSignatureToken && typeof this.historyManager.getSignatureToken === 'function') ? this.historyManager.getSignatureToken() : 'h';
+            const etagKey = JSON.stringify({ id, offset, limit, cursorKey, t: token });
+            const etag = 'W/"' + Buffer.from(etagKey).toString('base64').slice(0,48) + '"';
+            if (req.headers['if-none-match'] && req.headers['if-none-match'] === etag) {
+                res.status(304);
+                res.setHeader('ETag', etag);
+                res.setHeader('Cache-Control', 'public, max-age=5, stale-while-revalidate=60');
+                return res.end();
+            }
+            const result = await promise;
+            res.setHeader('ETag', etag);
+            res.setHeader('Cache-Control', 'public, max-age=5, stale-while-revalidate=60');
+            res.json({ success:true, data: result });
+        }catch(err){
+            res.status(500).json({ success:false, error: '分页消息获取失败' });
+        }
+    }
 
     getRouter() {
         return router;

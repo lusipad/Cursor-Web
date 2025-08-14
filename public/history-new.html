@@ -132,6 +132,12 @@
     let initialAutoLoads = 0;
     let userScrolled = false;
     let lastLoadTime = 0;
+    // 懒加载：当为 true 时，分组/活动目录视图不进行 autoLoadAllPages 预加载
+    let noAutoPreload = true;
+    // 跨窗口首屏缓存（降低第二窗口首屏等待）
+    function hcKey(){ try{ const inst=detectInstanceId()||'default'; return `cw_hist_cache_v1_${inst}_${currentViewMode||'list'}`; }catch{ return 'cw_hist_cache_v1_default_list'; } }
+    function hcLoad(){ try{ const raw=localStorage.getItem(hcKey()); return raw?JSON.parse(raw):null; }catch{ return null; } }
+    function hcSave(payload, etag){ try{ const data={ ts:Date.now(), etag: etag||'', payload }; localStorage.setItem(hcKey(), JSON.stringify(data)); }catch{} }
 
     document.addEventListener('DOMContentLoaded', async () => {
         try{ InstanceUtils && InstanceUtils.renderBadge(document.getElementById('instanceBadge')); }catch{}
@@ -222,7 +228,27 @@
         const params = new URLSearchParams({ limit: String(pageSize), offset: String(nextOffset), includeUnmapped: 'false', summary: '1', maxAgeMs: '8000', mode: 'cv' });
         if (q) params.append('search', q);
         try{
-            const res = await fetch(`/api/history?${params}`);
+            // 首屏尝试使用跨窗口缓存快速填充（仅 list 或 grouped 模式；active 视图不使用）
+            if (nextOffset===0 && !q && currentViewMode!=='active'){
+                const cached = hcLoad();
+                if (cached && (Date.now()-Number(cached.ts||0) < 60000) && cached.payload && Array.isArray(cached.payload.items)){
+                    const itemsCached = cached.payload.items.slice(0, pageSize);
+                    if (itemsCached.length>0){
+                        currentHistory.push(...itemsCached.map(ensurePrimaryTimestamp));
+                        nextOffset += itemsCached.length;
+                        renderAccordingToMode(itemsCached);
+                        updateLoadMoreText('使用缓存，继续加载...');
+                    }
+                }
+            }
+            const etagCached = (hcLoad() && hcLoad().etag) || '';
+            const headers = etagCached ? { 'If-None-Match': etagCached } : {};
+            const res = await fetch(`/api/history?${params}`, { headers });
+            if (res.status === 304){
+                updateLoadMoreText('未变化');
+                isLoading = false; lastLoadTime = Date.now();
+                return;
+            }
             const result = await res.json();
             if (!result || !result.success){
                 updateLoadMoreText('加载失败');
@@ -230,6 +256,8 @@
             }
             const payload = result.data || {};
             const items = Array.isArray(payload.items) ? payload.items : (Array.isArray(payload) ? payload : []);
+            // 保存跨窗口缓存（仅首屏成功时）
+            try{ if (nextOffset===0) hcSave(payload, res.headers.get('ETag')||''); }catch{}
             // 累计数据
             if (items.length > 0){
                 currentHistory.push(...items.map(ensurePrimaryTimestamp));
