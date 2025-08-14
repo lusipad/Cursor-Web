@@ -23,7 +23,7 @@ const config = {
     websocket: {
         heartbeatInterval: 30000, // 30秒心跳检测
         clientTimeout: 1000, // 客户端关闭超时
-        // 新增：是否广播 html_content 到 WebSocket（默认关闭，仅调试用）
+        // 实时回显功能已移除，保持关闭
         broadcastHtmlEnabled: false
     },
 
