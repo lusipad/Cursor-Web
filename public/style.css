@@ -621,6 +621,24 @@ body {
     background-color: #0891b2;
 }
 
+.btn-warning {
+    background-color: #f59e0b;
+    color: #ffffff;
+}
+
+.btn-warning:hover {
+    background-color: #d97706;
+}
+
+.btn-soft {
+    background-color: #8b5cf6;
+    color: #ffffff;
+}
+
+.btn-soft:hover {
+    background-color: #7c3aed;
+}
+
 .btn-danger {
     background-color: #ef4444;
     color: #ffffff;
@@ -1153,5 +1171,295 @@ body {
     
     .history-item-actions {
         align-self: flex-end;
+    }
+}
+
+/* 导航页面样式 */
+.navigation-panel {
+    padding: 40px 20px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.welcome-section {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.welcome-section h2 {
+    font-size: 32px;
+    color: #ffffff;
+    margin-bottom: 16px;
+}
+
+.welcome-section p {
+    font-size: 18px;
+    color: #888888;
+    line-height: 1.6;
+}
+
+.feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 24px;
+    margin-bottom: 40px;
+}
+
+.feature-card {
+    background-color: #2d2d2d;
+    border: 1px solid #404040;
+    border-radius: 12px;
+    padding: 24px;
+    transition: all 0.3s ease;
+}
+
+.feature-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+    border-color: #4f8cff;
+}
+
+.feature-card h3 {
+    font-size: 20px;
+    color: #ffffff;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.feature-card p {
+    font-size: 14px;
+    color: #888888;
+    margin-bottom: 20px;
+    line-height: 1.5;
+}
+
+.feature-card .btn {
+    width: 100%;
+    justify-content: center;
+}
+
+/* 快速操作区域已移除，相关样式也不再需要 */
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .feature-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+    
+    /* 快速操作按钮已移除，相关响应式样式也不再需要 */
+    
+    .navigation-panel {
+        padding: 20px 16px;
+    }
+    
+    .welcome-section h2 {
+        font-size: 24px;
+    }
+    
+    .welcome-section p {
+        font-size: 16px;
+    }
+}
+
+/* 统一页眉样式 */
+.page-header {
+    background: #2d2d2d;
+    border-bottom: 1px solid #404040;
+    padding: 16px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.header-center {
+    flex: 1;
+    text-align: center;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+/* 返回按钮样式 */
+.btn-back {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: #404040;
+    color: #ffffff;
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+.btn-back:hover {
+    background: #505050;
+    transform: translateX(-2px);
+}
+
+.back-icon {
+    font-size: 16px;
+    font-weight: bold;
+}
+
+/* Logo样式 */
+.logo h1 {
+    margin: 0;
+    font-size: 20px;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+/* 欢迎文字样式已移到页面中间 */
+
+/* 实例状态样式 */
+.instance-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #1a1a1a;
+    border: 1px solid #404040;
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+.instance-label {
+    color: #888888;
+}
+
+.instance-name {
+    color: #ffffff;
+    font-weight: 600;
+    min-width: 60px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .page-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        padding: 12px 16px;
+    }
+    
+    .header-left,
+    .header-center,
+    .header-right {
+        justify-content: center;
+    }
+    
+    .header-center {
+        order: -1;
+    }
+    
+    .logo h1 {
+        font-size: 18px;
+    }
+    
+    /* 欢迎文字样式已移到页面中间 */
+    
+    .instance-status {
+        justify-content: center;
+        font-size: 11px;
+    }
+}
+
+/* 状态指示器样式 */
+.status-indicators {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    font-size: 11px;
+    min-width: 80px;
+    justify-content: center;
+}
+
+.status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+.status-text {
+    color: #ffffff;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* 状态颜色定义 */
+.status-dot.status-connecting {
+    background-color: #f59e0b;
+    animation: pulse 2s infinite;
+}
+
+.status-dot.status-connected {
+    background-color: #22c55e;
+}
+
+.status-dot.status-disconnected {
+    background-color: #ef4444;
+}
+
+.status-dot.status-inactive {
+    background-color: #6b7280;
+}
+
+.status-dot.status-error {
+    background-color: #dc2626;
+    animation: blink 1s infinite;
+}
+
+/* 状态动画 */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0.3; }
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .status-indicators {
+        flex-direction: column;
+        gap: 8px;
+        align-items: stretch;
+    }
+    
+    .status-item {
+        justify-content: center;
+        min-width: auto;
     }
 }

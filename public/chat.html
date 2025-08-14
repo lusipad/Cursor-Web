@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>聊天 - Cursor Web</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="js/instance-utils.js"></script>
+    <script>
+      try{ InstanceUtils && InstanceUtils.ensureOrRedirect('/instances.html?first=1&return=/chat.html'); }catch{}
+    </script>
+</head>
+<body>
+    <div class="container">
+        <!-- 统一页眉 -->
+        <header class="page-header">
+            <div class="header-left">
+                <a href="/" class="btn btn-back">
+                    <span class="back-icon">←</span>
+                    返回主页
+                </a>
+            </div>
+            <div class="header-center">
+                <h1>聊天</h1>
+            </div>
+            <div class="header-right">
+                <div class="instance-status">
+                    <span class="instance-label">实例：</span>
+                    <span class="instance-name" id="currentInstanceName">default</span>
+                </div>
+                <div class="status-indicators">
+                    <div class="status-item">
+                        <span class="status-dot" id="connectionStatusDot"></span>
+                        <span class="status-text" id="connectionStatus">检查中...</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-dot" id="injectStatusDot"></span>
+                        <span class="status-text" id="injectStatus">检查中...</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main class="main">
+            <div id="messages-container" class="messages-container">
+                <div class="welcome-message">
+                    <h2>欢迎使用 Cursor Web 聊天</h2>
+                    <p>展示机制：</p>
+                    <p>🔁 <strong>基于历史拉取显示</strong>：发送消息后，客户端会短期快速轮询，并在后台以固定频率拉取 <code>/api/chats</code>/<code>/api/chats/latest</code> 显示最新回复。</p>
+                    <p>⚙️ 可选：如需实时 HTML 回显，可在诊断页临时开启 WebSocket <code>html_content</code> 广播（默认关闭，仅调试使用）。</p>
+                    <br>
+                    <p class="instruction">使用方法：在 Cursor 运行注入脚本（用于消息发送与控制），界面显示由历史拉取完成。</p>
+                    <a href="/script.html" class="btn btn-primary" style="display:inline-block;margin:10px 0;">前往一键复制注入脚本 &gt;&gt;</a>
+                    <p class="instruction">注入脚本负责投递消息与辅助控制；不再强制依赖 HTML 回显。</p>
+                </div>
+            </div>
+            <footer class="footer">
+                <form id="send-form" autocomplete="off" onsubmit="return false">
+                    <textarea id="send-input" placeholder="输入消息... (支持 Markdown 及代码块)" rows="1" autocomplete="off" style="resize:vertical"></textarea>
+                    <button id="send-btn" type="button">发送</button>
+                    <button id="clear-btn" type="button">清除</button>
+                </form>
+            </footer>
+        </main>
+    </div>
+
+    <!-- 聊天页面专用脚本 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="js/modules/module-loader.js"></script>
+    <script>
+        // 阻止自动加载 InjectBar 模块，避免创建悬浮窗
+        if (window.ModuleLoader) {
+            // 从依赖中移除 InjectBar
+            if (window.ModuleLoader.moduleDependencies) {
+                delete window.ModuleLoader.moduleDependencies['InjectBar'];
+            }
+            // 从必要模块检查中移除 InjectBar
+            if (window.ModuleLoader.checkModulesAvailability) {
+                const originalCheck = window.ModuleLoader.checkModulesAvailability;
+                window.ModuleLoader.checkModulesAvailability = function() {
+                    const need=['WebSocketManager','ChatTimeline','ContentManager','StatusManager','CursorStatusManager','UIManager','EventManager','HomePageStatusManager','DebugManager','SimpleWebClient'];
+                    const miss=need.filter(n=>!window[n]);
+                    if(miss.length){ console.error('❌ 缺少必要模块:', miss); return false; }
+                    return true;
+                };
+            }
+        }
+        
+        // 初始化 SimpleWebClient：稳妥轮询方式，最多重试 ~4s
+        (function(){
+          let tries = 0; const max = 20;
+          function boot(){
+            try{
+              if (window.simpleClient) return true;
+              if (window.SimpleWebClient){
+                try{ window.Audit && Audit.log('boot','instantiate_simple_client'); }catch{}
+                window.simpleClient = new window.SimpleWebClient();
+                return true;
+              }
+            }catch{}
+            return false;
+          }
+          if (!boot()){
+            const t = setInterval(()=>{ tries++; if (boot() || tries>=max) clearInterval(t); }, 200);
+          }
+        })();
+    </script>
+    <script src="js/modules/AuditLogger.js"></script>
+    <script src="js/status-checker.js"></script>
+    <script>
+        // 确保公共渲染工具加载
+        if (window.ModuleLoader){
+          // MarkdownRenderer 只有 ErrorHandler 依赖，若未自动加载则手动加载一次
+          if (!window.MarkdownRenderer){
+            const s = document.createElement('script');
+            s.src = 'js/modules/MarkdownRenderer.js';
+            document.head.appendChild(s);
+          }
+        }
+    </script>
+
+    <script>
+        // 聊天页面专用逻辑
+        window.__renderTargetId = 'messages-container';
+        window.__enableRealtimeRender = false;
+        
+        // 页面加载完成后初始化
+        window.addEventListener('load', function() {
+            // 如果 URL 带有 ?instance=，同步给历史 iframe
+            try{
+                const u = new URL(window.location.href);
+                const inst = u.searchParams.get('instance');
+                if (inst) {
+                    // 存储实例并刷新顶部标识
+                    try{ InstanceUtils && InstanceUtils.set(inst); }catch{}
+                }
+            }catch{}
+            
+            // 更新实例状态
+            updateInstanceStatus();
+            
+            // 启动状态检查
+            if (window.statusChecker) {
+                window.statusChecker.startAutoCheck();
+            }
+        });
+
+        // 更新实例状态
+        function updateInstanceStatus() {
+            try {
+                if (window.InstanceUtils) {
+                    const instanceName = InstanceUtils.get() || 'default';
+                    document.getElementById('currentInstanceName').textContent = instanceName;
+                }
+            } catch (e) {
+                console.log('更新实例状态失败:', e);
+            }
+        }
+    </script>
+</body>
+</html>

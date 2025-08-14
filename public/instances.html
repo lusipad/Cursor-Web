@@ -20,51 +20,103 @@
 </head>
 <body>
   <div class="container">
-     <div class="title">实例管理</div>
-     <div id="firstRunTip" style="display:none;background:#0f172a;border:1px solid #1f2937;border-radius:10px;padding:10px 12px;margin-bottom:12px;">
-       <div style="font-size:13px;color:#cbd5e1;">
-         检测到首次访问：请从下方选择一个实例，并点击“设为默认”。完成后将自动返回 <span id="firstRunReturn" style="color:#93c5fd;">/</span>
-       </div>
-     </div>
-     <div id="instanceBadge"></div>
-     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0 14px 0;">
-       <div id="instancesCurrentLabel" class="meta"></div>
-       <div class="row">
-         <button id="instances-refresh" class="btn btn-secondary">刷新</button>
-         <button id="instances-scan-inject" class="btn btn-info">扫描注入</button>
-         <button id="instances-kill-all" class="btn btn-danger">杀死全部</button>
-       </div>
-     </div>
-     <div id="instances-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-bottom:16px;"></div>
-     <div class="card" style="background:#161616;border:1px solid #2a2a2a;border-radius:12px;padding:16px;margin-bottom:12px;">
-       <h3 style="margin:0 0 8px 0;">进程列表</h3>
-       <div id="instances-processes" class="meta">加载中...</div>
-     </div>
-     <div class="card" style="background:#161616;border:1px solid #2a2a2a;border-radius:12px;padding:16px;margin-bottom:12px;">
-       <h3 style="margin:0 0 8px 0;">已连接客户端</h3>
-       <div id="instances-clients" class="meta">加载中...</div>
-     </div>
-     <div class="foot">默认实例为 <code>default</code>，其 openPath 为程序当前目录。</div>
+    <!-- 统一页眉 -->
+    <header class="page-header">
+      <div class="header-left">
+        <a href="/" class="btn btn-back">
+          <span class="back-icon">←</span>
+          返回主页
+        </a>
+      </div>
+      <div class="header-center">
+        <h1>实例管理</h1>
+      </div>
+      <div class="header-right">
+        <div class="instance-status">
+          <span class="instance-label">实例：</span>
+          <span class="instance-name" id="currentInstanceName">default</span>
+        </div>
+        <div class="status-indicators">
+          <div class="status-item">
+            <span class="status-dot" id="connectionStatusDot"></span>
+            <span class="status-text" id="connectionStatus">检查中...</span>
+          </div>
+          <div class="status-item">
+            <span class="status-dot" id="injectStatusDot"></span>
+            <span class="status-text" id="injectStatus">检查中...</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div id="firstRunTip" style="display:none;background:#0f172a;border:1px solid #1f2937;border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+      <div style="font-size:13px;color:#cbd5e1;">
+        检测到首次访问：请从下方选择一个实例，并点击"设为默认"。完成后将自动返回 <span id="firstRunReturn" style="color:#93c5fd;">/</span>
+      </div>
+    </div>
+    <div id="instanceBadge"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0 14px 0;">
+      <div id="instancesCurrentLabel" class="meta"></div>
+      <div class="row">
+        <button id="instances-refresh" class="btn btn-secondary">刷新</button>
+        <button id="instances-scan-inject" class="btn btn-info">扫描注入</button>
+        <button id="instances-kill-all" class="btn btn-danger">杀死全部</button>
+      </div>
+    </div>
+    <div id="instances-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-bottom:16px;"></div>
+    <div class="card" style="background:#161616;border:1px solid #2a2a2a;border-radius:12px;padding:16px;margin-bottom:12px;">
+      <h3 style="margin:0 0 8px 0;">进程列表</h3>
+      <div id="instances-processes" class="meta">加载中...</div>
+    </div>
+    <div class="card" style="background:#161616;border:1px solid #2a2a2a;border-radius:12px;padding:16px;margin-bottom:12px;">
+      <h3 style="margin:0 0 8px 0;">已连接客户端</h3>
+      <div id="instances-clients" class="meta">加载中...</div>
+    </div>
+    <div class="foot">默认实例为 <code>default</code>，其 openPath 为程序当前目录。</div>
   </div>
-  <script>
-    try{ InstanceUtils && InstanceUtils.renderBadge(document.getElementById('instanceBadge')); }catch{}
-    // 首次引导提示
-    (function(){
-      try{
-        const u = new URL(window.location.href);
-        const first = u.searchParams.get('first');
-        const ret = u.searchParams.get('return') || '/';
-        if (first === '1'){
-          const tip = document.getElementById('firstRunTip');
-          const span = document.getElementById('firstRunReturn');
-          if (tip) tip.style.display = '';
-          if (span) span.textContent = ret;
-        }
-      }catch{}
-    })();
-  </script>
   <script src="/js/modules/InjectBar.js"></script>
   <script src="/js/instances-tab.js"></script>
+  <script src="/js/status-checker.js"></script>
+  <script>
+      try{ InstanceUtils && InstanceUtils.renderBadge(document.getElementById('instanceBadge')); }catch{}
+      
+      // 首次引导提示
+      (function(){
+          try{
+              const u = new URL(window.location.href);
+              const first = u.searchParams.get('first');
+              const ret = u.searchParams.get('return') || '/';
+              if (first === '1'){
+                  const tip = document.getElementById('firstRunTip');
+                  const span = document.getElementById('firstRunReturn');
+                  if (tip) tip.style.display = '';
+                  if (span) span.textContent = ret;
+              }
+          }catch{}
+      })();
+
+      // 更新实例状态
+      function updateInstanceStatus() {
+          try {
+              if (window.InstanceUtils) {
+                  const instanceName = InstanceUtils.get() || 'default';
+                  document.getElementById('currentInstanceName').textContent = instanceName;
+              }
+          } catch (e) {
+              console.log('更新实例状态失败:', e);
+          }
+      }
+
+      // 页面加载完成后更新实例状态和启动状态检查
+      window.addEventListener('load', function() {
+          updateInstanceStatus();
+          
+          // 启动状态检查
+          if (window.statusChecker) {
+              window.statusChecker.startAutoCheck();
+          }
+      });
+  </script>
 </body>
 </html>
 
