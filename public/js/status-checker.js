@@ -103,14 +103,28 @@
                     if (data && data.success && data.data) {
                         const instances = Array.isArray(data.data) ? data.data : [data.data];
                         
-                        // 检查是否有正在运行的实例
+                        // 查找当前实例
+                        const currentInstance = instances.find(instance => 
+                            instance && instance.instanceId === this.instanceId
+                        );
+                        
+                        if (currentInstance) {
+                            // 检查注入状态
+                            if (currentInstance.injected === true || currentInstance.status === 'injected') {
+                                return '已注入';
+                            } else if (currentInstance.status === 'running' || currentInstance.status === 'active') {
+                                return '运行中';
+                            } else {
+                                return '未运行';
+                            }
+                        }
+                        
+                        // 如果没有找到当前实例，检查是否有任何实例在运行
                         const runningInstances = instances.filter(instance => 
-                            instance && (instance.status === 'running' || instance.status === 'active' || instance.injected)
+                            instance && (instance.status === 'running' || instance.status === 'active')
                         );
                         
                         if (runningInstances.length > 0) {
-                            return '已注入';
-                        } else if (instances.length > 0) {
                             return '运行中';
                         }
                     }
@@ -140,7 +154,7 @@
                     // 进程检查失败，继续使用实例检查结果
                 }
 
-                return '未注入';
+                return '未运行';
             } catch (e) {
                 return '检查失败';
             }
@@ -179,11 +193,13 @@
             dotElement.classList.remove('status-connecting', 'status-connected', 'status-disconnected', 'status-inactive', 'status-error');
 
             // 根据状态添加对应的类
-            if (status === '已连接' || status === '已注入') {
+            if (status === '已连接') {
+                dotElement.classList.add('status-connected');
+            } else if (status === '已注入') {
                 dotElement.classList.add('status-connected');
             } else if (status === '运行中') {
                 dotElement.classList.add('status-connecting');
-            } else if (status === '未连接' || status === '未注入') {
+            } else if (status === '未连接' || status === '未运行') {
                 dotElement.classList.add('status-disconnected');
             } else if (status === '检查中...') {
                 dotElement.classList.add('status-connecting');

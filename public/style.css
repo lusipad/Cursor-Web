@@ -85,10 +85,12 @@ body {
 
 .messages-container {
     flex: 1 1 auto;
-    overflow: visible;   /* 不在内部生成滚动条 */
-    padding: 24px 28px;  /* 更舒适的页边距 */
+    overflow-x: hidden;        /* 防止横向溢出 */
+    overflow-y: auto;          /* 允许纵向滚动 */
+    padding: 24px 28px;        /* 更舒适的页边距 */
     background-color: #1a1a1a;
     min-height: 0;
+    max-width: 100%;           /* 确保不超出容器宽度 */
 }
 
 /* 仅聊天页强制可增长，不影响历史/诊断等使用内滚的区域 */
@@ -98,7 +100,16 @@ body {
 /* 轻量聊天时间线样式 */
 .chat-timeline { display: flex; flex-direction: column; gap: 14px; }
 .chat-message { display: flex; padding: 4px 0; }
-.chat-message .bubble { max-width: 860px; padding: 14px 16px; border-radius: 10px; background: #0e0e0e; border: 1px solid #2a2a2a; }
+.chat-message .bubble { 
+    max-width: 860px; 
+    width: 100%;               /* 确保不超出容器 */
+    padding: 14px 16px; 
+    border-radius: 10px; 
+    background: #0e0e0e; 
+    border: 1px solid #2a2a2a; 
+    word-wrap: break-word;     /* 长单词自动换行 */
+    overflow-wrap: break-word; /* 现代浏览器的换行支持 */
+}
 .chat-message .meta { font-size: 12px; color: #8a8a8a; margin-bottom: 6px; }
 .chat-message .content { white-space: normal; word-break: break-word; font-size: 14px; line-height: 1.7; color: #eaeaea; }
 .chat-message .content p { margin: 8px 0; }
@@ -108,12 +119,14 @@ body {
   border: 1px solid #2a2a2a;
   padding: 10px 12px;
   border-radius: 8px;
-  /* 让代码块自身可滚动，避免撑爆页面 */
-  white-space: pre;            /* 保留代码原始换行与缩进，不强制折行 */
-  word-break: normal;          /* 代码按单词边界 */
-  overflow: auto;              /* 同时允许横纵向滚动条 */
+  /* 防止代码块撑开页面宽度 */
+  white-space: pre-wrap;       /* 允许换行，避免撑爆页面 */
+  word-break: break-all;       /* 强制换行，确保不超出容器 */
+  overflow-x: auto;            /* 只允许横向滚动条 */
+  overflow-y: auto;            /* 允许纵向滚动条 */
   max-height: 60vh;            /* 大块代码出现右侧滚动条 */
-  margin: 12px 0;           /* 代码块与段落的间距更舒适 */
+  margin: 12px 0;              /* 代码块与段落的间距更舒适 */
+  max-width: 100%;             /* 确保不超出容器宽度 */
 }
 
 /* 代码块滚动条样式（与消息容器一致的风格） */
@@ -135,6 +148,55 @@ body {
 .user-message .bubble { background: #13233a; border-color: #274565; }
 .assistant-message { justify-content: flex-start; }
 .assistant-message .bubble { background: #121212; border-color: #2f2f2f; }
+
+/* 消息类型样式 */
+.system-message .bubble {
+    background: #1a1a2e !important;
+    border-color: #4a4a6a !important;
+}
+
+.debug-message .bubble {
+    background: #2a1a1a !important;
+    border-color: #6a4a4a !important;
+    opacity: 0.8;
+}
+
+/* 消息统计信息样式 */
+.message-stats {
+    background: #2d2d2d;
+    border: 1px solid #404040;
+    border-radius: 8px;
+    margin: 16px 0;
+    padding: 12px 16px;
+}
+
+.stats-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: #888888;
+    font-size: 14px;
+}
+
+.stats-detail {
+    color: #666666;
+    font-size: 12px;
+}
+
+.btn-show-all {
+    background: none;
+    border: none;
+    color: #888888;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0;
+    margin-left: auto;
+    transition: color 0.2s;
+}
+
+.btn-show-all:hover {
+    color: #ffffff;
+}
 
 /* 消息进度条 */
 .msg-progress{ margin-top:6px; display:flex; gap:10px; }
@@ -1462,4 +1524,125 @@ body {
         justify-content: center;
         min-width: auto;
     }
+}
+
+/* 消息过滤控制面板样式 */
+.filter-panel-container {
+    background: #1a1a1a;
+    border-bottom: 1px solid #404040;
+    padding: 0;
+    position: sticky;
+    top: 0;
+    z-index: 999;
+    margin-bottom: 0;
+}
+
+.filter-panel {
+    background: #2d2d2d;
+    border: 1px solid #404040;
+    border-radius: 8px;
+    margin: 16px 20px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.filter-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: #1a1a1a;
+    border-bottom: 1px solid #404040;
+    color: #ffffff;
+    font-weight: 500;
+}
+
+.btn-toggle-filters {
+    background: #404040;
+    border: none;
+    color: #ffffff;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background 0.2s;
+}
+
+.btn-toggle-filters:hover {
+    background: #505050;
+}
+
+.filter-content {
+    padding: 16px;
+}
+
+.filter-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.filter-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #ffffff;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.filter-option input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: #4f8cff;
+}
+
+.filter-settings {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.filter-setting {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #ffffff;
+    font-size: 14px;
+}
+
+.filter-setting input[type="number"] {
+    background: #1a1a1a;
+    border: 1px solid #404040;
+    color: #ffffff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    width: 80px;
+}
+
+/* 移除操作按钮样式，因为不再需要 */
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .filter-panel-container {
+        position: relative;
+    }
+    
+    .filter-panel {
+        margin: 12px 16px;
+    }
+    
+    .filter-options {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+    
+    .filter-settings {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+    
+    /* 移除操作按钮相关的响应式样式 */
 }

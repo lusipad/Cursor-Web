@@ -39,6 +39,15 @@ class ChatTimeline {
 
     // 本地存储键（按实例隔离）
     this.storageKey = this._computeStorageKey();
+    
+    // 消息类型过滤设置
+    this.messageFilters = {
+      showUserMessages: true,      // 显示用户消息
+      showAssistantMessages: true, // 显示助手回复
+      maxMessages: 100,            // 最多显示100条消息（从30增加到100）
+      minMessageLength: 1          // 最小消息长度（从5减少到1，避免过滤掉短消息）
+    };
+    
     try { this.restoreFromStorage(); } catch {}
   }
 
@@ -51,23 +60,126 @@ class ChatTimeline {
       return `cw_timeline_${iid}`;
     }catch{ return 'cw_timeline_default'; }
   }
+  
   _persistLoad(){ try{ const raw = localStorage.getItem(this.storageKey); return raw ? (JSON.parse(raw)||[]) : []; }catch{ return []; } }
   _persistSave(list){ try{ localStorage.setItem(this.storageKey, JSON.stringify(list||[])); }catch{} }
-  _persistAppend(item){ const list=this._persistLoad(); list.push(item); if(list.length>200) list.splice(0, list.length-200); this._persistSave(list); }
+  _persistAppend(item){ 
+    const list=this._persistLoad(); 
+    list.push(item); 
+    // 限制存储的消息数量，避免占用过多空间
+    if(list.length > this.messageFilters.maxMessages * 2) {
+      list.splice(0, list.length - this.messageFilters.maxMessages * 2); 
+    }
+    this._persistSave(list); 
+  }
+
+  // 判断消息类型
+  _getMessageType(message) {
+    const content = String(message.content || message.text || message.value || '');
+    const role = String(message.role || 'assistant');
+    
+    // 系统消息检测 - 更严格的检测条件
+    if (role === 'system' && (content.startsWith('System:') || content.startsWith('系统:'))) {
+      return 'system';
+    }
+    
+    // 调试消息检测 - 更严格的检测条件
+    if (content.includes('DEBUG:') && content.includes('调试:') && 
+        content.includes('console.log') && content.includes('错误:')) {
+      return 'debug';
+    }
+    
+    // 用户消息
+    if (role === 'user') {
+      return 'user';
+    }
+    
+    // 助手回复
+    if (role === 'assistant') {
+      return 'assistant';
+    }
+    
+    return 'unknown';
+  }
+
+  // 过滤消息
+  _filterMessage(message) {
+    const messageType = this._getMessageType(message);
+    
+    // 根据过滤设置决定是否显示
+    switch (messageType) {
+      case 'user':
+        return this.messageFilters.showUserMessages;
+      case 'assistant':
+        return this.messageFilters.showAssistantMessages;
+      case 'system':
+        return false; // 系统消息仍然不显示
+      case 'debug':
+        return false; // 调试消息仍然不显示
+      case 'unknown':
+        return true;  // 未知类型的消息也显示，避免过度过滤
+      default:
+        return true;  // 默认显示，避免过度过滤
+    }
+  }
 
   restoreFromStorage(){
     try{
       const list = this._persistLoad();
       if (!Array.isArray(list) || !list.length) return;
-      for (const it of list){
-        const role = String(it.role||'assistant');
-        const ts = Number(it.timestamp||Date.now());
-        const text = String(it.content||'');
-        if (!text) continue;
-        if (role === 'user') this.appendUserMessage(text, null, ts);
-        else this.appendAssistantMessage(text, ts);
+      
+      // 过滤并排序消息
+      const filteredMessages = list
+        .filter(msg => this._filterMessage(msg))
+        .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0))
+        .slice(-this.messageFilters.maxMessages); // 只显示最新的消息
+      
+      // 清空现有内容
+      if (this.timeline) {
+        this.timeline.innerHTML = '';
       }
-    }catch{}
+      
+      // 渲染过滤后的消息
+      for (const msg of filteredMessages) {
+        const role = String(msg.role || 'assistant');
+        const ts = Number(msg.timestamp || Date.now());
+        const text = String(msg.content || '');
+        if (!text) continue;
+        
+        if (role === 'user') {
+          this.appendUserMessage(text, null, ts);
+        } else {
+          this.appendAssistantMessage(text, ts);
+        }
+      }
+      
+      // 显示消息统计
+      this._showMessageStats(list.length, filteredMessages.length);
+      
+    }catch(e) {
+      console.error('恢复聊天记录失败:', e);
+    }
+  }
+
+  // 显示消息统计信息
+  _showMessageStats(totalMessages, filteredMessages) {
+    if (totalMessages === filteredMessages) return;
+    
+    const statsEl = document.createElement('div');
+    statsEl.className = 'message-stats';
+    statsEl.innerHTML = `
+      <div class="stats-info">
+        <span>📊 显示 ${filteredMessages} 条聊天记录</span>
+        <span class="stats-detail">（已过滤 ${totalMessages - filteredMessages} 条系统/调试消息）</span>
+        <button class="btn-show-all" onclick="this.parentElement.parentElement.remove()">×</button>
+      </div>
+    `;
+    
+    if (this.timeline && this.timeline.firstChild) {
+      this.timeline.insertBefore(statsEl, this.timeline.firstChild);
+    } else if (this.timeline) {
+      this.timeline.appendChild(statsEl);
+    }
   }
 
   sanitize(text){
@@ -88,27 +200,76 @@ class ChatTimeline {
 
   appendMessage(role, content, timestamp){
     if (!this.timeline) return;
+    
+    // 检查消息是否符合过滤条件
+    const message = { role, content, timestamp };
+    if (!this._filterMessage(message)) return;
+    
     const key = this.hashMessage(role, content);
     if (this.renderedHashSet.has(key)) return;
     this.renderedHashSet.add(key);
+    
     const item = document.createElement('div');
     item.className = `chat-message ${role==='user'?'user-message':'assistant-message'}`;
+    
+    // 根据消息类型添加不同的图标和样式
+    const messageType = this._getMessageType(message);
+    let icon = '🤖';
+    let typeClass = '';
+    
+    if (role === 'user') {
+      icon = '👤';
+    } else if (messageType === 'system') {
+      icon = '⚙️';
+      typeClass = 'system-message';
+    } else if (messageType === 'debug') {
+      icon = '🐛';
+      typeClass = 'debug-message';
+    }
+    
     item.innerHTML = `
-      <div class="bubble">
-        <div class="meta">${role==='user'?'👤 我':'🤖 助手'} · ${timestamp?new Date(timestamp).toLocaleTimeString():''}</div>
+      <div class="bubble ${typeClass}">
+        <div class="meta">${icon} ${role==='user'?'我':'助手'} · ${timestamp?new Date(timestamp).toLocaleTimeString():''}</div>
         <div class="content">${this.sanitize(content)}</div>
       </div>`;
+    
     this.timeline.appendChild(item);
-    if (window.MarkdownRenderer) { try{ window.MarkdownRenderer.highlight(item); requestAnimationFrame(()=>window.MarkdownRenderer.highlight(item)); }catch{} }
+    
+    // 限制显示的消息数量
+    this._limitDisplayedMessages();
+    
+    if (window.MarkdownRenderer) { 
+      try{ window.MarkdownRenderer.highlight(item); 
+      requestAnimationFrame(()=>window.MarkdownRenderer.highlight(item)); }catch{} 
+    }
+    
     this.scrollToLatest(item);
     try { this._persistAppend({ role, content:String(content||''), timestamp: Number(timestamp||Date.now()) }); } catch {}
+  }
+
+  // 限制显示的消息数量
+  _limitDisplayedMessages() {
+    if (!this.timeline) return;
+    
+    const messages = this.timeline.querySelectorAll('.chat-message');
+    if (messages.length > this.messageFilters.maxMessages) {
+      // 移除最旧的消息，保留统计信息
+      const statsEl = this.timeline.querySelector('.message-stats');
+      const messagesToRemove = messages.length - this.messageFilters.maxMessages;
+      
+      for (let i = 0; i < messagesToRemove; i++) {
+        if (messages[i] && !messages[i].classList.contains('message-stats')) {
+          messages[i].remove();
+        }
+      }
+    }
   }
 
   appendUserMessage(text, msgId, timestamp){
     const ts = timestamp || Date.now();
     this.appendMessage('user', text, ts);
     const last = this.timeline?.lastElementChild;
-    if (last){
+    if (last && last.classList.contains('user-message')){
       const bar = document.createElement('div');
       bar.className = 'msg-progress';
       bar.innerHTML = `
@@ -150,6 +311,18 @@ class ChatTimeline {
   clear(){
     try { if (this.timeline) this.timeline.innerHTML = ''; } catch {}
     try { localStorage.removeItem(this.storageKey); } catch {}
+  }
+  
+  // 设置消息过滤选项
+  setMessageFilters(filters) {
+    Object.assign(this.messageFilters, filters);
+    // 重新加载消息
+    this.restoreFromStorage();
+  }
+  
+  // 获取当前过滤设置
+  getMessageFilters() {
+    return { ...this.messageFilters };
   }
 }
 
