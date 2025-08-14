@@ -14,6 +14,8 @@
     STICKY_MS: 15000,
     MISS_LIMIT: 2,
   };
+  // 仅在状态变化时打审计日志，避免刷屏
+  let __lastWsConnected = null;
   function detectInstance(){
     try{ const u=new URL(window.location.href); const v=u.searchParams.get('instance'); if (v) return v; }catch{}
     try{ return (window.InstanceUtils && InstanceUtils.get()) || ''; }catch{ return ''; }
@@ -103,7 +105,7 @@
       if (!connected){
         try{ const raw = window.localStorage && localStorage.getItem('websocket_status'); if (raw){ const j = JSON.parse(raw); connected = !!j.isConnected; } }catch{}
       }
-      try{ window.Audit && Audit.log('status', 'ws_indicator', { connected }); }catch{}
+      try{ if (__lastWsConnected !== connected){ window.Audit && Audit.log('status', 'ws_indicator', { connected }); __lastWsConnected = connected; } }catch{}
       const dot = document.getElementById('ib-ws-dot');
       const txt = document.getElementById('ib-ws-text');
       if (dot) dot.className = 'dot ' + (connected ? 'ok' : 'off');
