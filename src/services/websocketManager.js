@@ -15,34 +15,69 @@ class WebSocketManager {
   setup(){
     this.wss.on('connection', (ws, req) => {
       const ip = req.socket.remoteAddress;
+      console.log(`🔌 新的WebSocket连接: ${ip}`);
       ws._meta = { role:'unknown', instanceId:null, ip, connectedAt: Date.now(), lastPongAt:null, injected:false, url:null };
       ws.isAlive = true;
       ws.on('pong', () => { ws.isAlive = true; ws._meta.lastPongAt = Date.now(); });
       this.connectedClients.add(ws);
+      console.log(`📊 当前连接数: ${this.connectedClients.size}`);
       ws.on('message', (buf)=>{ this.handleMessage(ws, buf); });
-      ws.on('close', ()=>{ this.connectedClients.delete(ws); });
-      ws.on('error', ()=>{ this.connectedClients.delete(ws); });
+      ws.on('close', ()=>{ 
+        console.log(`❌ WebSocket连接关闭: ${ws._meta?.role || 'unknown'} (${ws._meta?.instanceId || 'no-instance'})`);
+        this.connectedClients.delete(ws); 
+        console.log(`📊 当前连接数: ${this.connectedClients.size}`);
+      });
+      ws.on('error', (err)=>{ 
+        console.log(`⚠️ WebSocket错误: ${err.message}`);
+        this.connectedClients.delete(ws); 
+      });
     });
   }
 
   handleMessage(ws, data){
-    let msg; try{ msg = JSON.parse(data.toString()); }catch (e){ return; }
-    const t = msg.type;
-    if (t==='register') return this.handleRegister(ws, msg);
-    if (t==='html_content') return this.handleHtmlContent(ws, msg);
-    if (t==='user_message') return this.handleUserMessage(ws, msg);
-    if (t==='assistant_stream' || t==='assistant_done') return this.handleAssistantStream(ws, msg);
-    if (t==='ping') return ws.send(JSON.stringify({ type:'pong', timestamp:Date.now() }));
-    if (t==='delivery_ack' || t==='delivery_error') return this.handleDeliveryEvent(ws, msg);
-    if (t==='assistant_hint') return this.handleAssistantHint(ws, msg);
+    try {
+      let msg;
+      try { 
+        msg = JSON.parse(data.toString()); 
+      } catch (e) { 
+        console.log('⚠️ 无法解析WebSocket消息:', data.toString().substring(0, 100)); 
+        return; 
+      }
+      
+      const t = msg.type;
+      console.log(`📥 收到消息: ${t} 来自 ${ws._meta?.role || 'unknown'} (${ws._meta?.instanceId || 'no-instance'})`);
+      
+      if (t==='register') return this.handleRegister(ws, msg);
+      if (t==='html_content') return this.handleHtmlContent(ws, msg);
+      if (t==='user_message') return this.handleUserMessage(ws, msg);
+      if (t==='assistant_stream' || t==='assistant_done') return this.handleAssistantStream(ws, msg);
+      if (t==='ping') {
+        try {
+          ws.send(JSON.stringify({ type:'pong', timestamp:Date.now() }));
+        } catch (e) {
+          console.log('⚠️ 发送pong失败:', e.message);
+          this.connectedClients.delete(ws);
+        }
+        return;
+      }
+      if (t==='delivery_ack' || t==='delivery_error') return this.handleDeliveryEvent(ws, msg);
+      if (t==='assistant_hint') return this.handleAssistantHint(ws, msg);
+      console.log(`❓ 未知消息类型: ${t}`);
+    } catch (error) {
+      console.error('💥 handleMessage中发生错误:', error.message);
+      console.error('💥 错误堆栈:', error.stack);
+      // 不要让错误传播，避免崩溃
+    }
   }
 
   handleRegister(ws, message){
     const role = typeof message.role==='string' ? message.role : 'unknown';
     const instanceId = (typeof message.instanceId==='string' && message.instanceId.trim()) ? message.instanceId.trim() : null;
-    ws._meta = { ...(ws._meta||{}), role, instanceId, injected: Boolean(message.injected), url: typeof message.url==='string'? message.url : null };
+    const injected = Boolean(message.injected);
+    console.log(`✅ 客户端注册: role=${role}, instanceId=${instanceId}, injected=${injected}`);
+    ws._meta = { ...(ws._meta||{}), role, instanceId, injected, url: typeof message.url==='string'? message.url : null };
     try{ ws.send(JSON.stringify({ type:'register_ack', ok:true, role, instanceId })); }catch (e){}
-    // 注册后立即推送一次在线/注入状态给所有 web 端，提升“立即显示在线”的体验
+    // 注册后立即推送一次在线/注入状态给所有 web 端，提升"立即显示在线"的体验
     this.pushClientsUpdate();
   }
 
@@ -83,17 +118,66 @@ class WebSocketManager {
     const target = typeof message.targetInstanceId==='string' && message.targetInstanceId.trim() ? message.targetInstanceId.trim() : null;
     const payload = { type:'user_message', data: message.data, timestamp: Date.now(), targetInstanceId: target||undefined, msgId: message.msgId||null };
     const msgStr = JSON.stringify(payload);
-    if (!target) return this.broadcastToClients(payload, ws);
+    const dataPreview = message.data ? 
+      (typeof message.data === 'string' ? message.data.substring(0, 50) + '...' : JSON.stringify(message.data).substring(0, 50) + '...') 
+      : 'undefined';
+    console.log(`💬 处理用户消息: target=${target}, msgId=${message.msgId}, data=${dataPreview}`);
+    
+    if (!target) {
+      console.log(`📡 广播消息到所有客户端`);
+      return this.broadcastToClients(payload, ws);
+    }
 
     // 只选匹配实例的最新一个 cursor 客户端
     let best=null;
+    let cursorClients = [];
     this.connectedClients.forEach(c=>{
       if (c!==ws && c.readyState===c.OPEN){
-        const m=c._meta||{}; if (m.role==='cursor' && m.instanceId===target){ if(!best || (m.connectedAt||0)>(best._meta?.connectedAt||0)) best=c; }
+        const m=c._meta||{}; 
+        if (m.role==='cursor') {
+          cursorClients.push({client: c, meta: m});
+          if (m.instanceId===target){ 
+            if(!best || (m.connectedAt||0)>(best._meta?.connectedAt||0)) best=c; 
+          }
+        }
       }
     });
-    if (best){ try{ best.send(msgStr); }catch (e){ this.connectedClients.delete(best); } }
+    
+    console.log(`🔍 查找目标客户端: target=${target}`);
+    console.log(`📋 所有cursor客户端:`, cursorClients.map(c => `${c.meta.instanceId}(${c.meta.injected ? '已注入' : '未注入'})`));
+    
+    if (best){ 
+      console.log(`✅ 找到目标客户端: ${best._meta?.instanceId} (${best._meta?.injected ? '已注入' : '未注入'})`);
+      try{ 
+        if (best.readyState === best.OPEN) {
+          best.send(msgStr); 
+          console.log(`✅ 消息已发送到目标客户端`);
+          
+          // 发送投递确认给发送方
+          const ackMessage = {
+            type: 'delivery_ack',
+            msgId: message.msgId || null,
+            instanceId: target,
+            timestamp: Date.now()
+          };
+          const ackStr = JSON.stringify(ackMessage);
+          try {
+            ws.send(ackStr);
+            console.log(`✅ 投递确认已发送: ${message.msgId}`);
+          } catch (ackError) {
+            console.log(`❌ 发送投递确认失败:`, ackError.message);
+          }
+        } else {
+          console.log(`❌ 目标客户端连接状态异常: ${best.readyState}`);
+          this.connectedClients.delete(best);
+        }
+      } catch (e){ 
+        console.log(`❌ 发送消息失败:`, e.message);
+        this.connectedClients.delete(best); 
+      } 
+    }
     else { // 通知 web 端无目标
+      console.log(`❌ 未找到目标客户端: ${target}`);
       const fb = JSON.stringify({ type:'delivery_error', msgId: message.msgId||null, instanceId: target, reason:'no_target', timestamp: Date.now() });
       this.connectedClients.forEach(c=>{ if (c!==ws && c.readyState===c.OPEN && (c._meta?.role==='web' && c._meta?.instanceId===target)) { try{ c.send(fb); }catch (e){ this.connectedClients.delete(c);} } });
     }
@@ -102,6 +186,7 @@ class WebSocketManager {
   handleDeliveryEvent(ws, message){
     const payload = { type: message.type, msgId: message.msgId||null, instanceId: message.instanceId||null, reason: message.reason||null, timestamp: message.timestamp||Date.now() };
     const msgStr = JSON.stringify(payload);
+    console.log(`📬 处理投递事件: ${message.type}, msgId=${message.msgId}, reason=${message.reason}`);
     this.connectedClients.forEach(c=>{
       if (c!==ws && c.readyState===c.OPEN){ const m=c._meta||{}; if (m.role==='web' && (!payload.instanceId || m.instanceId===payload.instanceId)) { try{ c.send(msgStr); }catch (e){ this.connectedClients.delete(c);} } }
     });
@@ -110,6 +195,7 @@ class WebSocketManager {
   handleAssistantHint(ws, message){
     const payload = { type:'assistant_hint', msgId: message.msgId||null, instanceId: message.instanceId||ws._meta?.instanceId||null, timestamp: message.timestamp||Date.now() };
     const msgStr = JSON.stringify(payload);
+    console.log(`💡 处理助手提示: msgId=${message.msgId}, instanceId=${payload.instanceId}`);
     this.connectedClients.forEach(c=>{ if (c!==ws && c.readyState===c.OPEN){ const m=c._meta||{}; if (m.role==='web' && (!payload.instanceId || m.instanceId===payload.instanceId)){ try{ c.send(msgStr); }catch (e){ this.connectedClients.delete(c);} } } });
   }
 

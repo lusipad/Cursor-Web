@@ -92,47 +92,41 @@
         // 检查注入状态
         async checkInjectStatus() {
             try {
-                // 检查实例列表，看是否有活跃的实例
-                const response = await fetch('/api/instances', {
+                // 检查客户端连接状态，这与instances-tab.js的逻辑保持一致
+                const response = await fetch('/api/inject/clients', {
                     method: 'GET',
                     headers: { 'Content-Type': 'application/json' }
                 });
 
                 if (response.ok) {
                     const data = await response.json();
-                    if (data && data.success && data.data) {
-                        const instances = Array.isArray(data.data) ? data.data : [data.data];
+                    if (data && data.success && Array.isArray(data.data)) {
+                        const clients = data.data;
                         
-                        // 查找当前实例
-                        const currentInstance = instances.find(instance => 
-                            instance && instance.instanceId === this.instanceId
+                        // 查找当前实例的客户端
+                        const currentInstanceClients = clients.filter(client => 
+                            client && client.instanceId === this.instanceId
                         );
                         
-                        if (currentInstance) {
-                            // 检查注入状态
-                            if (currentInstance.injected === true || currentInstance.status === 'injected') {
+                        if (currentInstanceClients.length > 0) {
+                            // 检查是否有已注入的客户端
+                            const injectedClient = currentInstanceClients.find(client => client.injected);
+                            if (injectedClient) {
                                 return '已注入';
-                            } else if (currentInstance.status === 'running' || currentInstance.status === 'active') {
-                                return '运行中';
-                            } else {
-                                return '未运行';
                             }
-                        }
-                        
-                        // 如果没有找到当前实例，检查是否有任何实例在运行
-                        const runningInstances = instances.filter(instance => 
-                            instance && (instance.status === 'running' || instance.status === 'active')
-                        );
-                        
-                        if (runningInstances.length > 0) {
-                            return '运行中';
+                            
+                            // 检查是否有在线的客户端
+                            const onlineClient = currentInstanceClients.find(client => client.online);
+                            if (onlineClient) {
+                                return '运行中';
+                            }
                         }
                     }
                 }
 
-                // 尝试检查进程状态
+                // 如果客户端检查失败，尝试检查进程状态
                 try {
-                    const processResponse = await fetch('/api/instances/processes', {
+                    const processResponse = await fetch('/api/inject/processes', {
                         method: 'GET',
                         headers: { 'Content-Type': 'application/json' }
                     });
@@ -151,7 +145,7 @@
                         }
                     }
                 } catch (e) {
-                    // 进程检查失败，继续使用实例检查结果
+                    // 进程检查失败，继续
                 }
 
                 return '未运行';

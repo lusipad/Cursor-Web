@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>发送按钮测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .result {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 5px;
+            background: #f8f9fa;
+            border-left: 4px solid #007bff;
+        }
+        .error {
+            border-left-color: #dc3545;
+            background: #f8d7da;
+        }
+        .success {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+        input[type="text"] {
+            width: 300px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🧪 发送按钮功能测试</h1>
+        
+        <div class="test-section">
+            <h3>1. 模块加载状态检查</h3>
+            <button onclick="checkModules()">检查模块状态</button>
+            <div id="module-result" class="result" style="display:none;"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>2. 注入状态检查</h3>
+            <button onclick="checkInjection()">检查注入状态</button>
+            <div id="injection-result" class="result" style="display:none;"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>3. 发送消息测试</h3>
+            <input type="text" id="test-message" placeholder="输入测试消息" value="这是一条测试消息">
+            <button onclick="testSendMessage()">发送测试消息</button>
+            <div id="send-result" class="result" style="display:none;"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>4. EventManager 测试</h3>
+            <button onclick="testEventManager()">测试 EventManager</button>
+            <div id="event-result" class="result" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- 加载必要的脚本 -->
+    <script src="js/modules/module-loader.js"></script>
+    
+    <script>
+        // 等待模块加载完成
+        setTimeout(() => {
+            console.log('开始测试页面初始化...');
+        }, 2000);
+        
+        function showResult(elementId, message, isError = false) {
+            const element = document.getElementById(elementId);
+            element.style.display = 'block';
+            element.className = `result ${isError ? 'error' : 'success'}`;
+            element.innerHTML = message;
+        }
+        
+        function checkModules() {
+            const modules = ['EventManager', 'SimpleWebClient', 'WebSocketManager'];
+            const results = [];
+            
+            modules.forEach(module => {
+                if (window[module]) {
+                    results.push(`✅ ${module}: 已加载`);
+                } else {
+                    results.push(`❌ ${module}: 未加载`);
+                }
+            });
+            
+            const allLoaded = modules.every(m => window[m]);
+            showResult('module-result', results.join('<br>'), !allLoaded);
+        }
+        
+        async function checkInjection() {
+            try {
+                if (!window.simpleClient) {
+                    showResult('injection-result', '❌ SimpleWebClient 未初始化', true);
+                    return;
+                }
+                
+                const status = await window.simpleClient._checkInjectStatus();
+                showResult('injection-result', `注入状态: ${status}`, status !== '已注入');
+            } catch (error) {
+                showResult('injection-result', `❌ 检查失败: ${error.message}`, true);
+            }
+        }
+        
+        async function testSendMessage() {
+            const message = document.getElementById('test-message').value;
+            if (!message.trim()) {
+                showResult('send-result', '❌ 请输入测试消息', true);
+                return;
+            }
+            
+            try {
+                if (!window.simpleClient) {
+                    showResult('send-result', '❌ SimpleWebClient 未初始化', true);
+                    return;
+                }
+                
+                showResult('send-result', '⏳ 正在发送消息...', false);
+                
+                const result = await window.simpleClient.sendAndPoll(message);
+                showResult('send-result', `✅ 消息发送成功: ${JSON.stringify(result)}`, false);
+            } catch (error) {
+                showResult('send-result', `❌ 发送失败: ${error.message}`, true);
+            }
+        }
+        
+        function testEventManager() {
+            try {
+                if (!window.EventManager) {
+                    showResult('event-result', '❌ EventManager 未加载', true);
+                    return;
+                }
+                
+                if (!window.eventManager) {
+                    showResult('event-result', '❌ EventManager 未初始化', true);
+                    return;
+                }
+                
+                const info = {
+                    '类型': typeof window.eventManager,
+                    '方法': Object.getOwnPropertyNames(Object.getPrototypeOf(window.eventManager)),
+                    '是否已绑定事件': window.eventManager.boundEvents ? Object.keys(window.eventManager.boundEvents).length : 0
+                };
+                
+                showResult('event-result', `✅ EventManager 状态:<br>${JSON.stringify(info, null, 2).replace(/\n/g, '<br>')}`, false);
+            } catch (error) {
+                showResult('event-result', `❌ 测试失败: ${error.message}`, true);
+            }
+        }
+    </script>
+</body>
+</html>

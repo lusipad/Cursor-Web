@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket 简单测试</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #1a1a1a; color: #fff; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .success { background: #2d5a2d; }
+        .error { background: #5a2d2d; }
+        .warning { background: #5a5a2d; }
+        .info { background: #2d2d5a; }
+        button { padding: 10px 20px; margin: 5px; background: #007acc; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #005a99; }
+        #log { background: #2a2a2a; padding: 10px; border-radius: 5px; height: 300px; overflow-y: auto; font-family: monospace; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 WebSocket 简单连接测试</h1>
+        
+        <div id="status" class="status info">准备测试...</div>
+        
+        <div>
+            <button onclick="testConnection()">测试连接</button>
+            <button onclick="sendTestMessage()">发送测试消息</button>
+            <button onclick="closeConnection()">关闭连接</button>
+            <button onclick="clearLog()">清空日志</button>
+        </div>
+        
+        <h3>连接日志:</h3>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let logElement = document.getElementById('log');
+        let statusElement = document.getElementById('status');
+        
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.textContent += `[${timestamp}] ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+            console.log(message);
+        }
+        
+        function updateStatus(message, type = 'info') {
+            statusElement.textContent = message;
+            statusElement.className = `status ${type}`;
+        }
+        
+        function testConnection() {
+            if (ws) {
+                log('关闭现有连接...');
+                ws.close();
+                ws = null;
+            }
+            
+            log('开始测试 WebSocket 连接...');
+            updateStatus('正在连接...', 'warning');
+            
+            try {
+                // 测试多个地址
+                const urls = [
+                    'ws://localhost:3000',
+                    'ws://127.0.0.1:3000',
+                    `ws://${window.location.hostname}:3000`
+                ];
+                
+                let currentIndex = 0;
+                
+                function tryConnect() {
+                    if (currentIndex >= urls.length) {
+                        log('❌ 所有连接地址都失败了');
+                        updateStatus('连接失败', 'error');
+                        return;
+                    }
+                    
+                    const url = urls[currentIndex];
+                    log(`🔗 尝试连接: ${url}`);
+                    
+                    ws = new WebSocket(url);
+                    
+                    const timeout = setTimeout(() => {
+                        if (ws.readyState === WebSocket.CONNECTING) {
+                            log(`⏰ 连接超时: ${url}`);
+                            ws.close();
+                            currentIndex++;
+                            setTimeout(tryConnect, 500);
+                        }
+                    }, 5000);
+                    
+                    ws.onopen = function() {
+                        clearTimeout(timeout);
+                        log(`✅ WebSocket 连接成功: ${url}`);
+                        updateStatus('连接成功', 'success');
+                        
+                        // 发送注册消息
+                        const registerMsg = {
+                            type: 'register',
+                            role: 'web',
+                            instanceId: 'websocket-test'
+                        };
+                        ws.send(JSON.stringify(registerMsg));
+                        log('📝 已发送注册消息');
+                    };
+                    
+                    ws.onmessage = function(event) {
+                        try {
+                            const data = JSON.parse(event.data);
+                            log(`📥 收到消息: ${data.type} - ${JSON.stringify(data)}`);
+                        } catch (e) {
+                            log(`📥 收到原始消息: ${event.data}`);
+                        }
+                    };
+                    
+                    ws.onclose = function(event) {
+                        clearTimeout(timeout);
+                        log(`❌ WebSocket 连接关闭: code=${event.code}, reason=${event.reason}`);
+                        if (event.code !== 1000 && currentIndex < urls.length - 1) {
+                            currentIndex++;
+                            setTimeout(tryConnect, 500);
+                        } else {
+                            updateStatus('连接已关闭', 'warning');
+                        }
+                    };
+                    
+                    ws.onerror = function(error) {
+                        clearTimeout(timeout);
+                        log(`⚠️ WebSocket 错误: ${error}`);
+                        log(`🔍 错误详情: readyState=${ws.readyState}, url=${url}`);
+                        if (currentIndex < urls.length - 1) {
+                            currentIndex++;
+                            setTimeout(tryConnect, 500);
+                        } else {
+                            updateStatus('连接错误', 'error');
+                        }
+                    };
+                }
+                
+                tryConnect();
+                
+            } catch (error) {
+                log(`❌ 创建 WebSocket 失败: ${error.message}`);
+                updateStatus('创建失败', 'error');
+            }
+        }
+        
+        function sendTestMessage() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('❌ WebSocket 未连接，无法发送消息');
+                updateStatus('未连接', 'error');
+                return;
+            }
+            
+            const testMessage = {
+                type: 'user_message',
+                targetInstanceId: 'default',
+                msgId: 'test-' + Date.now(),
+                data: 'WebSocket 连接测试消息',
+                timestamp: Date.now()
+            };
+            
+            try {
+                ws.send(JSON.stringify(testMessage));
+                log(`📤 发送测试消息: ${JSON.stringify(testMessage)}`);
+                updateStatus('消息已发送', 'success');
+            } catch (error) {
+                log(`❌ 发送消息失败: ${error.message}`);
+                updateStatus('发送失败', 'error');
+            }
+        }
+        
+        function closeConnection() {
+            if (ws) {
+                ws.close();
+                ws = null;
+                log('🔌 手动关闭连接');
+                updateStatus('连接已关闭', 'warning');
+            } else {
+                log('❌ 没有活动的连接');
+            }
+        }
+        
+        function clearLog() {
+            logElement.textContent = '';
+            log('日志已清空');
+        }
+        
+        // 页面加载完成后自动测试
+        window.addEventListener('load', function() {
+            log('WebSocket 测试页面已加载');
+            updateStatus('准备就绪', 'info');
+        });
+    </script>
+</body>
+</html>

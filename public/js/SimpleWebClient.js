@@ -155,6 +155,53 @@ class SimpleWebClient {
         } catch { return String(Date.now()); }
     }
 
+    // 检查注入状态
+    async _checkInjectStatus() {
+        try {
+            const response = await fetch('/api/inject/clients', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data && data.success && Array.isArray(data.data)) {
+                    const clients = data.data;
+                    
+                    // 查找当前实例的客户端
+                    const currentInstanceClients = clients.filter(client => 
+                        client && client.instanceId === this.instanceId
+                    );
+                    
+                    if (currentInstanceClients.length > 0) {
+                        // 检查是否有已注入的客户端
+                        const injectedClient = currentInstanceClients.find(client => client.injected);
+                        if (injectedClient) {
+                            return '已注入';
+                        }
+                        
+                        // 检查是否有在线的客户端
+                        const onlineClient = currentInstanceClients.find(client => client.online);
+                        if (onlineClient) {
+                            return '运行中';
+                        }
+                        
+                        return '未运行';
+                    } else {
+                        return '未运行';
+                    }
+                } else {
+                    return '检查失败';
+                }
+            } else {
+                return '检查失败';
+            }
+        } catch (e) {
+            console.log('注入状态检查失败:', e);
+            return '检查失败';
+        }
+    }
+
   _embedIdIfString(text, msgId) {
     try {
       if (typeof text === 'string') {
@@ -296,6 +343,14 @@ class SimpleWebClient {
         try{ window.Audit && Audit.log('send', 'ws_not_connected'); }catch{}
         return false;
       }
+        }
+
+        // 检查注入状态
+        const injectStatus = await this._checkInjectStatus();
+        if (injectStatus !== '已注入') {
+            try { this.uiManager.showNotification(`无法发送消息：${injectStatus}。请确保 Cursor 已运行注入脚本。`, 'error'); } catch {}
+            try{ window.Audit && Audit.log('send', 'inject_not_ready', { injectStatus }); }catch{}
+            return false;
         }
 
     // 1) 立刻生成消息并渲染到时间线（不等待任何网络）

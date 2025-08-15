@@ -42,7 +42,7 @@
         </header>
 
         <!-- 消息过滤控制面板 - 固定在页眉下方 -->
-        <div class="filter-panel-container">
+        <div class="filter-panel-container" style="display: none;">
             <div class="filter-panel">
                 <div class="filter-header">
                     <span>🔍 消息过滤</span>
@@ -181,6 +181,39 @@
                 window.statusChecker.startAutoCheck();
             }
             
+            // 等待模块加载完成后初始化EventManager
+            const initEventManager = () => {
+                if (window.EventManager && window.simpleClient) {
+                    try {
+                        window.eventManager = new window.EventManager(window.simpleClient);
+                        window.eventManager.init();
+                        console.log('✅ EventManager 初始化成功');
+                        return true;
+                    } catch (e) {
+                        console.error('❌ EventManager 初始化失败:', e);
+                        return false;
+                    }
+                } else {
+                    console.log('⏳ 等待 EventManager 和 simpleClient 加载...');
+                    return false;
+                }
+            };
+            
+            // 立即尝试初始化，如果失败则定时重试
+            if (!initEventManager()) {
+                let retryCount = 0;
+                const maxRetries = 20; // 最多重试20次（4秒）
+                const retryInterval = setInterval(() => {
+                    retryCount++;
+                    if (initEventManager() || retryCount >= maxRetries) {
+                        clearInterval(retryInterval);
+                        if (retryCount >= maxRetries) {
+                            console.error('❌ EventManager 初始化超时失败');
+                        }
+                    }
+                }, 200);
+            }
+            
             // 初始化过滤控制面板
             initializeFilterPanel();
         });
@@ -199,13 +232,29 @@
         
         // 过滤控制面板相关函数
         function toggleFilterPanel() {
+            const container = document.querySelector('.filter-panel-container');
             const content = document.getElementById('filterContent');
-            if (content.style.display === 'none') {
-                content.style.display = 'block';
-            } else {
-                content.style.display = 'none';
+            
+            if (container && container.style.display === 'none') {
+                // 显示整个过滤面板
+                container.style.display = 'block';
+                if (content) content.style.display = 'block';
+                showNotification('过滤面板已显示', 'info');
+            } else if (container) {
+                // 隐藏整个过滤面板
+                container.style.display = 'none';
+                if (content) content.style.display = 'none';
+                showNotification('过滤面板已隐藏', 'info');
             }
         }
+        
+        // 添加快捷键支持 (Ctrl+F 显示/隐藏过滤面板)
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'f') {
+                e.preventDefault();
+                toggleFilterPanel();
+            }
+        });
         
         function initializeFilterPanel() {
             // 从localStorage恢复过滤设置
@@ -298,25 +347,23 @@
             }
         }
         
-        // 页面加载完成后立即显示过滤面板（用于调试）
+        // 页面加载完成后初始化过滤面板
         window.addEventListener('DOMContentLoaded', function() {
-            console.log('页面加载完成，检查过滤控制面板...');
+            console.log('页面加载完成，初始化过滤控制面板...');
             
-            // 延迟一点时间确保所有元素都加载完成
-            setTimeout(() => {
-                const filterPanel = document.querySelector('.filter-panel');
-                if (filterPanel) {
-                    console.log('✅ 过滤控制面板已找到');
-                    // 强制显示过滤面板用于调试
-                    const filterContent = document.getElementById('filterContent');
-                    if (filterContent) {
-                        filterContent.style.display = 'block';
-                        console.log('过滤面板已强制显示用于调试');
-                    }
-                } else {
-                    console.log('❌ 过滤控制面板未找到');
-                }
-            }, 1000);
+            // 确保过滤面板默认隐藏
+            const filterPanelContainer = document.querySelector('.filter-panel-container');
+            const filterContent = document.getElementById('filterContent');
+            
+            if (filterPanelContainer) {
+                filterPanelContainer.style.display = 'none';
+                console.log('✅ 过滤面板容器已隐藏');
+            }
+            
+            if (filterContent) {
+                filterContent.style.display = 'none';
+                console.log('✅ 过滤面板内容已隐藏');
+            }
         });
     </script>
 </body>

@@ -227,7 +227,7 @@ class WebSocketManager {
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                 this.ws.send(JSON.stringify({ type: 'ping' }));
             }
-        }, 30000);
+        }, 25000); // 25秒心跳，避免与服务器30秒检测冲突
     }
 
     stopHeartbeat() {
