@@ -14,6 +14,7 @@ const GitRoutes = require('./routes/gitRoutes');
 const HistoryRoutes = require('./routes/historyRoutes');
 const InstancesRoutes = require('./routes/instancesRoutes');
 const InjectRoutes = require('./routes/injectRoutes');
+const DocsRoutes = require('./routes/docsRoutes');
 const AppMiddleware = require('./middleware/appMiddleware');
 const { setupProcessHandlers, printServerInfo } = require('./utils/serverUtils');
 const config = require('./config/serverConfig');
@@ -55,6 +56,7 @@ const gitRoutes = new GitRoutes();
 const historyRoutes = new HistoryRoutes(cursorHistoryManager);
 const instancesRoutes = new InstancesRoutes();
 const injectRoutes = new InjectRoutes(websocketManager);
+const docsRoutes = new DocsRoutes();
 
 // 注册 API 路由
 app.use('/api', contentRoutes.getRouter());
@@ -62,6 +64,7 @@ app.use('/api', gitRoutes.getRouter());
 app.use('/api', historyRoutes.getRouter());
 app.use('/api', injectRoutes.getRouter());
 app.use('/api', instancesRoutes.getRouter());
+app.use('/docs', docsRoutes.getRouter());
 
 // 设置进程信号处理
 setupProcessHandlers(server, websocketManager);

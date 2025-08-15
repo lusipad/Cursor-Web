@@ -1,69 +1,63 @@
-// 服务器配置
 const path = require('path');
+const os = require('os');
 
-const config = {
-    // 服务器配置
+module.exports = {
     server: {
         port: process.env.PORT || 3000,
-        host: process.env.HOST || '0.0.0.0', // 允许所有IP访问，支持局域网连接
-        publicPath: process.pkg ? path.join(path.dirname(process.execPath), 'public') : path.join(__dirname, '..', '..', 'public')
+        host: process.env.HOST || '0.0.0.0',
+        publicPath: process.pkg 
+            ? path.join(path.dirname(process.execPath), 'public')
+            : path.join(__dirname, '..', '..', 'public')
     },
-
-    // 中间件配置
+    
+    websocket: {
+        port: process.env.WS_PORT || 3000,
+        pingInterval: 30000,
+        pongTimeout: 5000
+    },
+    
     middleware: {
         jsonLimit: '50mb',
         cors: {
             origin: '*',
             methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-            headers: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization']
+            headers: ['Content-Type', 'Authorization', 'X-Requested-With']
         }
     },
-
-    // WebSocket 配置
-    websocket: {
-        heartbeatInterval: 30000, // 30秒心跳检测
-        clientTimeout: 1000, // 客户端关闭超时
-        // 实时回显功能已移除，保持关闭
-        broadcastHtmlEnabled: false
-    },
-
-    // Git 配置
+    
     git: {
-        fetchOptions: ['--all', '--prune'],
-        defaultFiles: '.'
+        maxCommits: 100,
+        defaultBranch: 'main'
     },
-
-    // 日志配置
+    
+    instances: {
+        configFile: process.pkg 
+            ? path.join(path.dirname(process.execPath), 'instances.json')
+            : path.join(__dirname, '..', '..', 'instances.json'),
+        defaultTimeout: 30000
+    },
+    
+    paths: {
+        public: process.pkg 
+            ? path.join(path.dirname(process.execPath), 'public')
+            : path.join(__dirname, '..', '..', 'public'),
+        docs: process.pkg 
+            ? path.join(path.dirname(process.execPath), 'docs')
+            : path.join(__dirname, '..', '..', 'docs'),
+        logs: process.pkg 
+            ? path.join(path.dirname(process.execPath), 'logs')
+            : path.join(__dirname, '..', '..', 'logs'),
+        cursorStorage: process.platform === 'win32' 
+            ? path.join(os.homedir(), 'AppData/Roaming/Cursor')
+            : path.join(os.homedir(), '.cursor')
+    },
+    
     logging: {
-        enabled: true,
-        level: process.env.LOG_LEVEL || 'info'
+        level: process.env.LOG_LEVEL || 'info',
+        file: process.env.LOG_FILE || null
     },
-
-  // 启动行为
-  startup: {
-    // 启动时自动拉起默认实例（openPath=程序目录）
-    autoLaunchDefaultInstance: true,
-    // 启动后自动进行注入（launch 时已自带注入；如仅 scan 模式可用此开关）
-    autoInjectOnBoot: true,
-    // 默认注入的实例 ID（为空则使用 'default'）
-    autoInjectInstanceId: 'default',
-    // 延迟毫秒数，等待服务就绪
-    delayMs: 1200
-  },
-
-    // 调试配置
-    debug: {
-        // 若置为 true，且 testCursorPath 存在，则优先使用该路径作为 Cursor 根目录
-        useTestCursorPath: true,
-        // 建议用于本机调试的用户目录（例如 D:\\test）
-        testCursorPath: process.platform === 'win32' ? 'D:\\test' : null
-    },
-
-    // Cursor 历史数据库根目录（可由环境变量覆盖）
-    cursor: {
-        // 优先级：环境变量 CURSOR_STORAGE_PATH > DEBUG_CURSOR_PATH > (debug.useTestCursorPath ? debug.testCursorPath : null)
-        storagePath: process.env.CURSOR_STORAGE_PATH || process.env.DEBUG_CURSOR_PATH || null
+    
+    startup: {
+        autoLaunchDefaultInstance: false
     }
 };
-
-module.exports = config;

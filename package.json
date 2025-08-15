@@ -16,7 +16,8 @@
     "test:ws": "node tests/ws-routing-test.js",
     "lint": "echo \"No linter yet\" && exit 0",
     "build": "echo \"No build step yet\" && exit 0",
-    "package": "pkg . --targets node18-win-x64 --output cursor-web.exe"
+    "package": "pkg . --targets node18-win-x64 --output cursor-web.exe",
+    "package-full": "node scripts/package-with-docs.js"
   },
   "keywords": [
     "cursor",
@@ -46,7 +47,12 @@
   },
   "pkg": {
     "assets": [
-      "public/**/*"
+      "public/**/*",
+      "docs/**/*",
+      "src/config/**/*",
+      "instances.json",
+      "README.md",
+      "LICENSE"
     ],
     "targets": [
       "node18-win-x64"
