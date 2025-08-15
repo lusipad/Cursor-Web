@@ -6,7 +6,7 @@ const config = {
     server: {
         port: process.env.PORT || 3000,
         host: process.env.HOST || '0.0.0.0', // 允许所有IP访问，支持局域网连接
-        publicPath: path.join(__dirname, '..', 'public')
+        publicPath: process.pkg ? path.join(path.dirname(process.execPath), 'public') : path.join(__dirname, '..', '..', 'public')
     },
 
     // 中间件配置
