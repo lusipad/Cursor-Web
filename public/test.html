@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cursor 多实例测试</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .panel { padding: 16px; background:#111; border:1px solid #333; border-radius:8px; margin:12px 0; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .col { display:flex; flex-direction:column; gap:6px; }
+    input, select { background:#181a1b; color:#fff; border:1px solid #333; border-radius:6px; padding:8px; }
+    button { padding:8px 12px; border:none; border-radius:6px; background:#4f8cff; color:#fff; cursor:pointer; }
+    button.secondary { background:#444c56; }
+    pre { white-space:pre-wrap; background:#0d0d0d; color:#bbb; padding:10px; border-radius:6px; border:1px solid #333; max-height:280px; overflow:auto; }
+  </style>
+</head>
+<body>
+  <div class="container" style="padding:16px;">
+    <!-- 页眉 -->
+    <div style="background:#2d2d2d;border-bottom:1px solid #404040;padding:16px 20px;margin:-16px -16px 20px -16px;display:flex;justify-content:space-between;align-items:center;">
+      <h1 style="margin:0;font-size:20px;color:#ffffff;">Cursor 多实例测试</h1>
+      <a href="/" style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#404040;color:#ffffff;text-decoration:none;border-radius:6px;font-size:14px;transition:all 0.2s ease;">
+        <span>←</span>
+        返回主页
+      </a>
+    </div>
+
+    <div class="panel">
+      <div class="col">
+        <div class="row">
+          <label style="min-width:120px;">实例 ID</label>
+          <input id="instanceId" placeholder="cursor-1" value="cursor-1" />
+          <label style="min-width:120px;">Cursor 路径</label>
+          <input id="cursorPath" style="min-width:280px;" placeholder="留空=自动查找（推荐）" />
+          <label style="min-width:120px;">用户数据目录</label>
+          <input id="userDataDir" style="min-width:280px;" placeholder="可选，隔离配置 Profile" />
+        </div>
+        <div class="row">
+          <label style="min-width:120px;">从配置选择</label>
+          <select id="configInstanceSelect" style="min-width:480px;">
+            <option value="">选择实例...</option>
+          </select>
+          <span style="color:#888;font-size:12px;">选择后将自动填充上方表单</span>
+        </div>
+        <div class="row">
+          <label style="min-width:120px;">打开目录</label>
+          <input id="openPath" style="min-width:380px;" placeholder="启动后打开的项目/工作区目录，可含空格" />
+          <label style="min-width:120px;">其他启动参数</label>
+          <input id="extraArgs" style="min-width:320px;" placeholder='JSON数组或带引号字符串，如 ["--disable-gpu"]' />
+          <label style="min-width:120px;">注入轮询时长(ms)</label>
+          <input id="pollMs" style="width:140px;" placeholder="默认 30000" />
+          <button id="launchBtn">启动并注入</button>
+          <button id="listBtn" class="secondary">查看已启动</button>
+          <button id="scanInjectBtn" class="secondary">仅注入现有端口(扫)</button>
+          <button id="restartBtn" class="secondary">强制重启并注入</button>
+          <button id="killAllBtn" class="secondary">关闭所有 Cursor</button>
+          <button id="instancesBtn" class="secondary">列出配置实例</button>
+          <button id="launchAllBtn" class="secondary">启动所有 autoStart 实例</button>
+        </div>
+        <div class="row">
+          <label style="min-width:120px;">历史根目录</label>
+          <input id="historyRoot" style="min-width:380px;" placeholder="系统默认(只读)" disabled />
+          <button id="getRootBtn" class="secondary">读取历史根</button>
+          <button id="clearCacheBtn" class="secondary">清缓存</button>
+          <button id="chatsBtn" class="secondary">获取会话</button>
+        </div>
+        <div class="row">
+          <label style="min-width:120px;">扫描范围</label>
+          <input id="startPort" style="width:100px;" placeholder="9222" />
+          <input id="endPort" style="width:100px;" placeholder="9250" />
+          <label style="min-width:120px;">注入端口</label>
+          <input id="injectPort" style="width:120px;" placeholder="9222" />
+          <button id="injectPortBtn" class="secondary">仅注入指定端口</button>
+        </div>
+        <div class="row">
+          <label style="min-width:120px;">批量启动</label>
+          <input id="count" style="width:80px;" placeholder="数量" />
+          <input id="basePort" style="width:120px;" placeholder="起始端口(可选)" />
+          <input id="userDataDirTemplate" style="min-width:320px;" placeholder="用户目录模板，如 D:\\Profiles\\p-{i}" />
+          <button id="launchManyBtn" class="secondary">批量启动并注入</button>
+        </div>
+        <div class="row">
+          <label style="min-width:120px;">停止进程 PID</label>
+          <input id="stopPid" style="width:160px;" placeholder="PID" />
+          <button id="stopPidBtn" class="secondary">停止指定 PID</button>
+          <button id="serverStatusBtn" class="secondary">服务器状态</button>
+          <button id="healthBtn" class="secondary">健康检查</button>
+          <button id="historyDebugBtn" class="secondary">调试历史</button>
+          <button id="projectsBtn" class="secondary">项目列表</button>
+          <button id="getContentBtn" class="secondary">获取当前内容</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="row"><strong>发送对话</strong></div>
+      <div class="row">
+        <input id="message" style="flex:1" placeholder="输入要发送给 Cursor 的消息" />
+        <button id="sendBtn">发送</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;">
+        <strong>最新历史（助手回复）</strong>
+        <button id="pullReplyBtn" class="secondary">拉取最新回复</button>
+      </div>
+      <pre id="log"></pre>
+    </div>
+
+      <div class="panel">
+        <div class="row" style="justify-content:space-between;">
+          <strong>客户端连接列表</strong>
+          <button id="refreshClientsBtn" class="secondary">刷新连接列表</button>
+        </div>
+        <pre id="clients"></pre>
+      </div>
+  </div>
+
+  <script src="/js/instance-utils.js"></script>
+  <script src="/js/instance-banner.js"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const log = (msg) => { const el = $('log'); el.textContent = [msg, '', el.textContent].join('\n').trim(); };
+    // 从 /api/instances 加载配置并填充下拉与默认值
+    async function loadInstancesAndBindDefaults(){
+      try{
+        const r = await api('/api/instances');
+        const list = Array.isArray(r?.data) ? r.data : [];
+        const sel = $('configInstanceSelect');
+        if (sel){
+          sel.innerHTML = '<option value="">选择实例...</option>';
+          list.forEach(it => {
+            const opt = document.createElement('option');
+            opt.value = it.id || '';
+            const name = it.id || '(unnamed)';
+            const openPath = it.openPath || it.open_path || '';
+            opt.textContent = openPath ? `${name} — ${openPath}` : name;
+            opt.dataset.cursorPath = it.cursorPath || '';
+            opt.dataset.userDataDir = it.userDataDir || '';
+            opt.dataset.openPath = openPath;
+            opt.dataset.args = it.args || '';
+            opt.dataset.pollMs = String(it.pollMs || '');
+            sel.appendChild(opt);
+          });
+          sel.addEventListener('change', ()=>{
+            const v = sel.value;
+            const opt = v ? sel.querySelector(`option[value="${CSS.escape(v)}"]`) : null;
+            if (!opt) return;
+            // 将选中实例的配置回填到上方表单
+            $('instanceId').value = v;
+            $('cursorPath').value = opt.dataset.cursorPath || '';
+            $('userDataDir').value = opt.dataset.userDataDir || '';
+            $('openPath').value = opt.dataset.openPath || '';
+            if ($('extraArgs')) $('extraArgs').value = opt.dataset.args || '';
+            if ($('pollMs')) $('pollMs').value = opt.dataset.pollMs || '';
+            log('已从配置填充：' + JSON.stringify({ id:v, cursorPath: opt.dataset.cursorPath, userDataDir: opt.dataset.userDataDir, openPath: opt.dataset.openPath }));
+          });
+        }
+      }catch(e){ log('加载实例配置失败：' + (e?.message||e)); }
+    }
+
+    // 页面加载后先拉取一次配置，并用默认实例填充值
+    loadInstancesAndBindDefaults();
+    try{
+      const id = InstanceUtils.get();
+      if (id) $('instanceId').value = id;
+    }catch{}
+
+
+    async function api(path, method='GET', body=null){
+      const res = await fetch(path, { method, headers: body?{ 'Content-Type':'application/json' }:undefined, body: body?JSON.stringify(body):undefined });
+      const txt = await res.text();
+      try{ return JSON.parse(txt) }catch{ return txt }
+    }
+
+    // 简易 WebSocket 客户端（用于直接发送）
+    let ws = null;
+    function wsUrl(){
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = location.hostname + (location.port ? ':'+location.port : '');
+      return protocol + '//' + host;
+    }
+    function connectWs(instanceId){
+      return new Promise((resolve,reject)=>{
+        try{
+          if (ws && ws.readyState === WebSocket.OPEN){ resolve(ws); return; }
+          ws = new WebSocket(wsUrl());
+          ws.onopen = () => {
+            try{ ws.send(JSON.stringify({ type:'register', role:'web', instanceId })); }catch{}
+            resolve(ws);
+          };
+          ws.onerror = (e) => { reject(new Error('WS错误')); };
+          ws.onclose = () => {};
+          ws.onmessage = (ev) => { try { const m = JSON.parse(ev.data); if(m.type==='register_ack'){ log('已注册：'+JSON.stringify(m)); } } catch{} };
+        }catch(e){ reject(e); }
+      });
+    }
+
+    $('launchBtn').onclick = async () => {
+      const instanceId = $('instanceId').value.trim();
+      const cursorPath = $('cursorPath').value.trim();
+      const userDataDir = $('userDataDir').value.trim();
+      const openPath = $('openPath').value.trim();
+      // 通过接口启动并注入（后台）
+      const body = { detach: true, exitAfterReady: false };
+      if (instanceId) body.instanceId = instanceId;
+      if (cursorPath) body.cursorPath = cursorPath; // 留空=服务器自动查找
+      if (userDataDir) body.userDataDir = userDataDir;
+      if (openPath) body.openPath = openPath;
+      const r = await api('/api/inject/launch', 'POST', body);
+      log('启动注入：' + JSON.stringify(r));
+      // 打开绑定实例的页面窗口（新标签页）
+      if (instanceId) window.open('/?instance=' + encodeURIComponent(instanceId), '_blank');
+    };
+
+    $('listBtn').onclick = async () => {
+      const r = await api('/api/inject/processes');
+      log('已启动进程：' + JSON.stringify(r));
+    };
+
+    $('instancesBtn').onclick = async () => {
+      const r = await api('/api/instances');
+      log('配置实例：' + JSON.stringify(r));
+    };
+
+    $('launchAllBtn').onclick = async () => {
+      const r = await api('/api/instances/launch-all', 'POST', {});
+      log('批量启动 autoStart：' + JSON.stringify(r));
+    };
+
+    $('scanInjectBtn').onclick = async () => {
+      const instanceId = $('instanceId').value.trim();
+      const body = { startPort: 9222, endPort: 9250 };
+      if (instanceId) body.instanceId = instanceId;
+      const r = await api('/api/inject/scan-inject', 'POST', body);
+      log('扫描并注入：' + JSON.stringify(r));
+    };
+
+    $('killAllBtn').onclick = async () => {
+      const r = await api('/api/inject/kill-all', 'POST', {});
+      log('关闭结果：' + JSON.stringify(r));
+    };
+
+    $('restartBtn').onclick = async () => {
+      const instanceId = $('instanceId').value.trim();
+      const cursorPath = $('cursorPath').value.trim();
+      const userDataDir = $('userDataDir').value.trim();
+      const openPath = $('openPath').value.trim();
+      const body = {};
+      if (instanceId) body.instanceId = instanceId;
+      if (cursorPath) body.cursorPath = cursorPath;
+      if (userDataDir) body.userDataDir = userDataDir;
+      if (openPath) body.openPath = openPath;
+      const r = await api('/api/inject/restart', 'POST', body);
+      log('重启并注入：' + JSON.stringify(r));
+      if (r && r.success && instanceId) {
+        window.open('/?instance=' + encodeURIComponent(instanceId), '_blank');
+      }
+    };
+
+    $('getRootBtn').onclick = async () => {
+      const r = await api('/api/history/cursor-path');
+      log('读取历史根：' + JSON.stringify(r));
+      try{
+        const p = (r && r.data && r.data.cursorPath) ? r.data.cursorPath : '';
+        if (p) $('historyRoot').value = p;
+      }catch{}
+    };
+
+    $('clearCacheBtn').onclick = async () => {
+      const r = await api('/api/history/cache/clear');
+      log('清缓存：' + JSON.stringify(r));
+    };
+
+    $('chatsBtn').onclick = async () => {
+      const inst = $('instanceId').value.trim();
+      const r = await api(`/api/chats${inst?`?instance=${encodeURIComponent(inst)}`:''}`);
+      log('会话：' + JSON.stringify(r).slice(0, 800));
+    };
+
+    $('sendBtn').onclick = async () => {
+      const msg = $('message').value.trim();
+      if(!msg) return;
+      const instanceId = $('instanceId').value.trim();
+      try{
+        await connectWs(instanceId);
+        const payload = { type:'user_message', data: msg };
+        if (instanceId) payload.targetInstanceId = instanceId;
+        ws.send(JSON.stringify(payload));
+        log('已发送'+(instanceId?`到实例 ${instanceId}`:'(广播)')+'：'+msg);
+      }catch(e){
+        log('发送失败：'+e.message);
+      }
+    };
+
+    $('pullReplyBtn').onclick = async () => {
+      // 先清一次后端缓存，避免默认30秒缓存导致的延迟
+      try { await api('/api/history/cache/clear'); } catch {}
+
+      const okRoles = new Set(['assistant','assistant_bot']);
+      const pickAssistant = (arr) => {
+        if (!Array.isArray(arr)) return { sid:'', assi:null };
+        let assi=null, sid='';
+        for (const s of arr){
+          const msgs = Array.isArray(s.messages) ? s.messages : [];
+          for(let i=msgs.length-1;i>=0;i--){
+            const m = msgs[i];
+            if (m && okRoles.has(String(m.role))) { assi=m; sid=s.sessionId||s.session_id||''; break; }
+          }
+          if (assi) break;
+        }
+        return { sid, assi };
+      };
+
+      // 先尝试 cursor-view 等价模式（更贴近实际界面）
+      const inst = $('instanceId').value.trim();
+      let r = await api(`/api/chats?includeUnmapped=true&mode=cv${inst?`&instance=${encodeURIComponent(inst)}`:''}`);
+      let chats = Array.isArray(r) ? r : (r.data || r.value || []);
+      let { sid, assi } = pickAssistant(chats);
+
+      // 兜底再用默认模式
+      if (!assi) {
+        r = await api(`/api/chats?includeUnmapped=true${inst?`&instance=${encodeURIComponent(inst)}`:''}`);
+        chats = Array.isArray(r) ? r : (r.data || r.value || []);
+        ({ sid, assi } = pickAssistant(chats));
+      }
+
+      // 最终输出
+      log('最新助手：session=' + (sid||'') + '\n' + JSON.stringify(assi||{}));
+    };
+
+    $('refreshClientsBtn').onclick = async () => {
+      const r = await api('/api/inject/clients');
+      const data = r && r.data ? r.data : [];
+      const lines = [
+        '总数: ' + data.length,
+        ...data.map((c,i)=>{
+          const online = c.online ? '在线' : '离线';
+          const inj = c.injected ? '已注入' : '未注入';
+          const role = c.role || 'unknown';
+          const inst = c.instanceId || '-';
+          const state = c.readyState;
+          return `${i+1}. [${online}/${inj}] role=${role} inst=${inst} state=${state} ip=${c.ip||''} url=${c.url||''}`;
+        })
+      ];
+      document.getElementById('clients').textContent = lines.join('\n');
+    };
+
+    $('injectPortBtn').onclick = async () => {
+      const instanceId = $('instanceId').value.trim() || 'cursor-1';
+      const port = Number(($('injectPort').value || '').trim());
+      const pollMs = Number(($('pollMs').value || '').trim() || 8000);
+      if(!port){ log('请输入端口'); return; }
+      const r = await api('/api/inject/inject-port', 'POST', { port, pollMs, instanceId });
+      log('仅注入指定端口：' + JSON.stringify(r));
+    };
+
+    $('launchManyBtn').onclick = async () => {
+      const instanceId = $('instanceId').value.trim() || 'cursor-1';
+      const count = Number(($('count').value || '').trim() || 1);
+      const basePort = Number(($('basePort').value || '').trim() || 0) || undefined;
+      const userDataDirTemplate = ($('userDataDirTemplate').value || '').trim();
+      const extraArgs = ($('extraArgs').value || '').trim();
+      const pollMs = Number(($('pollMs').value || '').trim() || 30000);
+      const body = { count, instanceId, pollMs };
+      if (basePort) body.basePort = basePort;
+      if (userDataDirTemplate) body.userDataDirTemplate = userDataDirTemplate;
+      if (extraArgs) body.args = extraArgs;
+      const r = await api('/api/inject/launch-many', 'POST', body);
+      log('批量启动：' + JSON.stringify(r));
+    };
+
+    $('stopPidBtn').onclick = async () => {
+      const pid = Number(($('stopPid').value || '').trim());
+      if(!pid){ log('请输入 PID'); return; }
+      const r = await api('/api/inject/stop', 'POST', { pid });
+      log('停止进程：' + JSON.stringify(r));
+    };
+
+    $('serverStatusBtn').onclick = async () => {
+      const r = await api('/api/status');
+      log('服务器状态：' + JSON.stringify(r));
+    };
+
+    $('healthBtn').onclick = async () => {
+      const r = await api('/api/health');
+      log('健康检查：' + JSON.stringify(r));
+    };
+
+    $('historyDebugBtn').onclick = async () => {
+      const r = await api('/api/history/debug');
+      log('历史调试：' + JSON.stringify(r));
+    };
+
+    $('projectsBtn').onclick = async () => {
+      const inst = $('instanceId').value.trim();
+      const r = await api(`/api/history/projects${inst?`?instance=${encodeURIComponent(inst)}`:''}`);
+      log('项目列表：' + JSON.stringify(r));
+    };
+
+    $('getContentBtn').onclick = async () => {
+      const r = await api('/api/content');
+      log('当前内容：' + JSON.stringify(r));
+    };
+  </script>
+</body>
+</html>
+
+

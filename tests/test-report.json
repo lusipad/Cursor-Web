@@ -1,0 +1,125 @@
+{
+  "timestamp": "2025-08-15T10:10:27.709Z",
+  "summary": {
+    "totalTests": 19,
+    "passedTests": 17,
+    "failedTests": 2,
+    "successRate": "89.5"
+  },
+  "results": [
+    {
+      "test": "服务器连接",
+      "passed": true,
+      "message": "状态码: 200",
+      "timestamp": "2025-08-15T10:10:21.055Z"
+    },
+    {
+      "test": "API测试接口",
+      "passed": true,
+      "message": "状态码: 200",
+      "timestamp": "2025-08-15T10:10:21.575Z"
+    },
+    {
+      "test": "API状态接口",
+      "passed": true,
+      "message": "状态码: 200",
+      "timestamp": "2025-08-15T10:10:21.577Z"
+    },
+    {
+      "test": "注入进程接口",
+      "passed": true,
+      "message": "状态码: 200",
+      "timestamp": "2025-08-15T10:10:21.579Z"
+    },
+    {
+      "test": "聊天历史接口",
+      "passed": true,
+      "message": "状态码: 200",
+      "timestamp": "2025-08-15T10:10:21.582Z"
+    },
+    {
+      "test": "WebSocket连接",
+      "passed": true,
+      "message": "连接成功",
+      "timestamp": "2025-08-15T10:10:22.098Z"
+    },
+    {
+      "test": "WebSocket注册",
+      "passed": true,
+      "message": "注册成功: web",
+      "timestamp": "2025-08-15T10:10:23.116Z"
+    },
+    {
+      "test": "消息发送",
+      "passed": true,
+      "message": "消息已发送",
+      "timestamp": "2025-08-15T10:10:24.130Z"
+    },
+    {
+      "test": "主注入脚本",
+      "passed": true,
+      "message": "文件存在，包含WebSocket: true, 包含注册: true",
+      "timestamp": "2025-08-15T10:10:26.135Z"
+    },
+    {
+      "test": "轻量注入脚本",
+      "passed": true,
+      "message": "文件存在，包含WebSocket: true, 包含注册: true",
+      "timestamp": "2025-08-15T10:10:26.136Z"
+    },
+    {
+      "test": "自动注入脚本",
+      "passed": false,
+      "message": "文件存在，包含WebSocket: false, 包含注册: false",
+      "timestamp": "2025-08-15T10:10:26.137Z"
+    },
+    {
+      "test": "静态文件/index.html",
+      "passed": true,
+      "message": "状态码: 200",
+      "timestamp": "2025-08-15T10:10:26.652Z"
+    },
+    {
+      "test": "静态文件/chat.html",
+      "passed": true,
+      "message": "状态码: 200",
+      "timestamp": "2025-08-15T10:10:26.654Z"
+    },
+    {
+      "test": "静态文件/script.html",
+      "passed": true,
+      "message": "状态码: 200",
+      "timestamp": "2025-08-15T10:10:26.658Z"
+    },
+    {
+      "test": "静态文件/style.css",
+      "passed": true,
+      "message": "状态码: 200",
+      "timestamp": "2025-08-15T10:10:26.663Z"
+    },
+    {
+      "test": "静态文件/js/SimpleWebClient.js",
+      "passed": true,
+      "message": "状态码: 200",
+      "timestamp": "2025-08-15T10:10:26.669Z"
+    },
+    {
+      "test": "静态文件/cursor-browser.js",
+      "passed": true,
+      "message": "状态码: 200",
+      "timestamp": "2025-08-15T10:10:26.671Z"
+    },
+    {
+      "test": "静态文件/inject-lite.js",
+      "passed": true,
+      "message": "状态码: 200",
+      "timestamp": "2025-08-15T10:10:26.673Z"
+    },
+    {
+      "test": "POST API",
+      "passed": false,
+      "message": "状态码: 400",
+      "timestamp": "2025-08-15T10:10:27.190Z"
+    }
+  ]
+}

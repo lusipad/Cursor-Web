@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cursor Web - Cursor 聊天同步</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>Cursor Web</h1>
+            <div style="display:flex;align-items:center;gap:12px;">
+                <a href="/test.html" class="btn btn-secondary" target="_blank" title="配置与注入测试">⚙ 设置</a>
+                <div id="status" class="status disconnected">等待连接...</div>
+            </div>
+        </header>
+
+        <!-- Tab 导航 -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="chat-tab">聊天</button>
+            <button class="tab-btn" data-tab="history-tab">历史记录</button>
+            <button class="tab-btn" data-tab="git-tab">Git 管理</button>
+            <button class="tab-btn" data-tab="diagnostic-tab">系统诊断</button>
+        </nav>
+
+        <main class="main">
+            <!-- 聊天 Tab 内容 -->
+            <section id="chat-tab" class="tab-content active">
+                <div id="messages-container" class="messages-container">
+                    <div class="welcome-message">
+                        <h2>欢迎使用 Cursor Web</h2>
+                        <p>状态说明：</p>
+                        <p>🟡 <strong>已连接 - 等待 Cursor 内容</strong>：需要在 Cursor 中运行注入脚本</p>
+                        <p>🟢 <strong>已连接 - 同步正常</strong>：内容同步工作正常</p>
+                        <br>
+                        <p class="instruction">使用方法：在 Cursor 开发者工具中运行同步脚本</p>
+                        <a href="/script.html" class="btn btn-primary" style="display:inline-block;margin:10px 0;">前往一键复制同步脚本 &gt;&gt;</a>
+                        <p class="instruction">脚本会同步整个 Cursor 页面内容到此页面</p>
+                    </div>
+                </div>
+                <footer class="footer">
+                    <form id="send-form" autocomplete="off">
+                        <input id="send-input" type="text" placeholder="输入消息..." autocomplete="off" />
+                        <button id="send-btn" type="submit">发送</button>
+                        <button id="clear-btn" type="button">清除</button>
+                    </form>
+                </footer>
+            </section>
+
+            <!-- 历史记录 Tab 内容 -->
+            <section id="history-tab" class="tab-content">
+                <div class="history-panel" style="padding:0;">
+                    <iframe id="historyFrame" src="/history-new.html" style="width:100%;height:100vh;border:0;border-radius:8px;background:#111;"></iframe>
+                </div>
+            </section>
+
+            <!-- Git 管理 Tab 内容 -->
+            <section id="git-tab" class="tab-content">
+                <div class="git-panel">
+                    <h2>Git 分支管理</h2>
+                    <div class="git-controls">
+                        <div class="status-row">
+                            <span>实例：</span>
+                            <select id="git-instance-select" class="branch-select">
+                                <option value="">默认 (当前目录)</option>
+                            </select>
+                        </div>
+                        <div class="git-status">
+                            <div class="status-row">
+                                <span>当前分支：</span>
+                                <span id="current-branch" class="current-branch">加载中...</span>
+                            </div>
+                            <div class="status-row">
+                                <span>Git 路径：</span>
+                                <span id="git-path" class="git-path" title="">加载中...</span>
+                            </div>
+                        </div>
+                        <div class="git-actions">
+                            <button id="refresh-branches" class="btn btn-secondary">刷新远程分支</button>
+                            <button id="pull-code" class="btn btn-primary">更新代码</button>
+                            <button id="git-status" class="btn btn-info">查看状态</button>
+                        </div>
+                    </div>
+                    <div class="branch-section">
+                        <h3>分支切换</h3>
+                        <div class="branch-selector">
+                            <select id="branch-select" class="branch-select">
+                                <option value="">选择分支...</option>
+                            </select>
+                            <button id="checkout-branch" class="btn btn-success">切换分支</button>
+                        </div>
+                    </div>
+                    <div class="commit-section">
+                        <h3>代码提交</h3>
+                        <div class="commit-controls">
+                            <div class="commit-input">
+                                <input type="text" id="commit-message" placeholder="输入提交信息..." class="commit-input-field">
+                                <button id="add-files" class="btn btn-secondary">添加文件</button>
+                                <button id="commit-code" class="btn btn-primary">提交代码</button>
+                                <button id="push-code" class="btn btn-success">推送代码</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="git-output" class="git-output">
+                        <div class="output-header">
+                            <span>Git 操作输出</span>
+                            <button id="clear-output" class="btn btn-small">清除</button>
+                        </div>
+                        <div id="git-log" class="git-log"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 系统诊断 Tab 内容 -->
+            <section id="diagnostic-tab" class="tab-content">
+                <div class="diagnostic-panel">
+                    <h2>系统诊断</h2>
+                    <p>检查系统各个功能模块的状态和连接情况</p>
+                    <div class="diagnostic-actions">
+                        <a href="/diagnostic.html" class="btn btn-primary" target="_blank">
+                            🔍 打开完整诊断页面
+                        </a>
+                        <p class="instruction">在新标签页中打开完整的系统诊断界面，包含所有测试功能</p>
+                    </div>
+                    <div class="quick-status">
+                        <h3>快速状态检查</h3>
+                        <div id="quick-status-grid" class="quick-status-grid">
+                            <div class="status-item">
+                                <span class="status-label">WebSocket 连接</span>
+                                <span id="ws-status" class="status-value">检查中...</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status-label">Cursor 状态</span>
+                                <span id="cursor-status" class="status-value">检查中...</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status-label">模块加载</span>
+                                <span id="module-status" class="status-value">检查中...</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status-label">客户端状态</span>
+                                <span id="client-status" class="status-value">检查中...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="js/modules/module-loader.js"></script>
+    <script src="git-manager.js"></script>
+    <script>
+    // Tab 切换逻辑
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            this.classList.add('active');
+            document.getElementById(this.dataset.tab).classList.add('active');
+
+            // 如果切换到诊断 tab，更新快速状态
+            if (this.dataset.tab === 'diagnostic-tab') {
+                updateQuickStatus();
+            }
+            
+            // 历史记录 tab 直接内嵌，无需额外加载
+        });
+    });
+
+        // 更新快速状态检查
+    function updateQuickStatus() {
+        // WebSocket 状态 - 使用更准确的检测方法
+        const wsStatus = document.getElementById('ws-status');
+        let wsConnected = false;
+
+        // 方法 1: 检查 simpleClient 的 WebSocket 状态（与诊断页面保持一致）
+        if (window.simpleClient && typeof window.simpleClient.isConnected === 'function') {
+            wsConnected = window.simpleClient.isConnected();
+        }
+        // 方法 2: 检查 simpleClient 的 wsManager 状态
+        else if (window.simpleClient && window.simpleClient.wsManager && typeof window.simpleClient.wsManager.isConnected === 'function') {
+            wsConnected = window.simpleClient.wsManager.isConnected();
+        }
+        // 方法 3: 检查页面状态元素
+        else if (document.querySelector('.status.connected')) {
+            wsConnected = true;
+        }
+        // 方法 4: 检查 WebSocketManager 模块
+        else if (window.WebSocketManager && typeof window.WebSocketManager.isConnected === 'function') {
+            wsConnected = window.WebSocketManager.isConnected();
+        }
+
+        if (wsConnected) {
+            wsStatus.textContent = '已连接';
+            wsStatus.className = 'status-value connected';
+        } else {
+            wsStatus.textContent = '未连接';
+            wsStatus.className = 'status-value disconnected';
+        }
+
+        // 调试信息（可选）
+        if (window.simpleClient) {
+            console.log('首页 WebSocket 状态检测：', {
+                simpleClientExists: !!window.simpleClient,
+                isConnectedMethod: typeof window.simpleClient.isConnected,
+                wsManagerExists: !!window.simpleClient.wsManager,
+                wsManagerIsConnectedMethod: window.simpleClient.wsManager ? typeof window.simpleClient.wsManager.isConnected : 'N/A',
+                finalResult: wsConnected
+            });
+        }
+
+        // 模块加载状态
+        const moduleStatus = document.getElementById('module-status');
+        if (window.ModuleLoader) {
+            moduleStatus.textContent = '已加载';
+            moduleStatus.className = 'status-value success';
+        } else {
+            moduleStatus.textContent = '未加载';
+            moduleStatus.className = 'status-value error';
+        }
+
+        // Cursor 状态
+        const cursorStatus = document.getElementById('cursor-status');
+        if (window.simpleClient && window.simpleClient.cursorStatusManager) {
+            try {
+                const status = window.simpleClient.cursorStatusManager.getCursorStatus();
+                switch (status.status) {
+                    case 'active':
+                        cursorStatus.textContent = '活跃';
+                        cursorStatus.className = 'status-value success';
+                        break;
+                    case 'waiting':
+                        cursorStatus.textContent = '等待';
+                        cursorStatus.className = 'status-value warning';
+                        break;
+                    case 'inactive':
+                        cursorStatus.textContent = '不活跃';
+                        cursorStatus.className = 'status-value warning';
+                        break;
+                    case 'closed':
+                        cursorStatus.textContent = '已关闭';
+                        cursorStatus.className = 'status-value error';
+                        break;
+                    default:
+                        cursorStatus.textContent = '未知';
+                        cursorStatus.className = 'status-value error';
+                }
+            } catch (error) {
+                cursorStatus.textContent = '检查失败';
+                cursorStatus.className = 'status-value error';
+            }
+        } else {
+            cursorStatus.textContent = '未初始化';
+            cursorStatus.className = 'status-value error';
+        }
+
+        // 客户端状态
+        const clientStatus = document.getElementById('client-status');
+        if (window.simpleClient) {
+            clientStatus.textContent = '已初始化';
+            clientStatus.className = 'status-value success';
+        } else {
+            clientStatus.textContent = '未初始化';
+            clientStatus.className = 'status-value error';
+        }
+    }
+
+    // 页面加载完成后初始化
+    window.addEventListener('load', function() {
+        // 如果当前在诊断 tab，更新状态
+        if (document.querySelector('.tab-btn[data-tab="diagnostic-tab"]').classList.contains('active')) {
+            updateQuickStatus();
+        }
+        
+        // 历史记录 tab 直接内嵌，无需预加载
+
+        // 定期更新状态（每 5 秒）
+        setInterval(function() {
+            if (document.querySelector('.tab-btn[data-tab="diagnostic-tab"]').classList.contains('active')) {
+                updateQuickStatus();
+            }
+        }, 5000);
+    });
+    
+    // 移除快速历史相关逻辑（改为内嵌 history-new）
+    
+    // 格式化时间戳
+    function formatTimestamp(timestamp) {
+        return new Date(timestamp).toLocaleString();
+    }
+    
+    // 获取类型标签
+    function getTypeLabel(type) {
+        const labels = {
+            'chat': '聊天',
+            'system': '系统',
+            'error': '错误',
+            'git': 'Git'
+        };
+        return labels[type] || type;
+    }
+
+    // 让历史记录 iframe 自适应内容高度，保证页面可持续向下滚动
+    (function setupHistoryIframeAutoHeight(){
+        const iframe = document.getElementById('historyFrame');
+        if (!iframe) return;
+        const resize = () => {
+            try {
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+                if (!doc) return;
+                const h = Math.max(
+                    doc.body.scrollHeight,
+                    doc.documentElement.scrollHeight,
+                    doc.body.offsetHeight,
+                    doc.documentElement.offsetHeight
+                );
+                if (h && Math.abs(iframe.clientHeight - h) > 8) {
+                    iframe.style.height = h + 'px';
+                }
+            } catch {}
+        };
+        iframe.addEventListener('load', () => {
+            resize();
+            try {
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+                if (!doc) return;
+                const mo = new MutationObserver(() => resize());
+                mo.observe(doc.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
+                iframe.contentWindow.addEventListener('resize', resize);
+                // 兜底定时器，处理异步渲染
+                setInterval(resize, 800);
+            } catch {}
+        });
+        window.addEventListener('resize', resize);
+    })();
+    </script>
+</body>
+</html>
+      const r = await api('/api/inject/inject-port', 'POST', { port, pollMs, instanceId });
+      log('仅注入指定端口：' + JSON.stringify(r));
+    };
+
+    $('launchManyBtn').onclick = async () => {
+      const instanceId = $('instanceId').value.trim() || 'cursor-1';
+      const count = Number(($('count').value || '').trim() || 1);
+      const basePort = Number(($('basePort').value || '').trim() || 0) || undefined;
+      const userDataDirTemplate = ($('userDataDirTemplate').value || '').trim();
+      const extraArgs = ($('extraArgs').value || '').trim();
+      const pollMs = Number(($('pollMs').value || '').trim() || 30000);
+      const body = { count, instanceId, pollMs };
+      if (basePort) body.basePort = basePort;
+      if (userDataDirTemplate) body.userDataDirTemplate = userDataDirTemplate;
+      if (extraArgs) body.args = extraArgs;
+      const r = await api('/api/inject/launch-many', 'POST', body);
+      log('批量启动：' + JSON.stringify(r));
+    };
+
+    $('stopPidBtn').onclick = async () => {
+      const pid = Number(($('stopPid').value || '').trim());
+      if(!pid){ log('请输入 PID'); return; }
+      const r = await api('/api/inject/stop', 'POST', { pid });
+      log('停止进程：' + JSON.stringify(r));
+    };
+
+    $('serverStatusBtn').onclick = async () => {
+      const r = await api('/api/status');
+      log('服务器状态：' + JSON.stringify(r));
+    };
+
+    $('healthBtn').onclick = async () => {
+      const r = await api('/api/health');
+      log('健康检查：' + JSON.stringify(r));
+    };
+
+    $('historyDebugBtn').onclick = async () => {
+      const r = await api('/api/history/debug');
+      log('历史调试：' + JSON.stringify(r));
+    };
+
+    $('projectsBtn').onclick = async () => {
+      const r = await api('/api/history/projects');
+      log('项目列表：' + JSON.stringify(r));
+    };
+
+    $('getContentBtn').onclick = async () => {
+      const r = await api('/api/content');
+      log('当前内容：' + JSON.stringify(r));
+    };
+  </script>
+</body>
+</html>
+
+

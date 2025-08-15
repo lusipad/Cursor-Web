@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cursor Web - 导航首页</title>
+    <title>实例管理 - Cursor Web</title>
     <link rel="stylesheet" href="style.css">
     <script src="js/instance-utils.js"></script>
     <script>
-      try{ InstanceUtils && InstanceUtils.ensureOrRedirect('/instances.html?first=1&return=/'); }catch{}
+      try{ InstanceUtils && InstanceUtils.ensureOrRedirect('/instances.html?first=1&return=/instances-standalone.html'); }catch{}
     </script>
 </head>
 <body>
@@ -15,12 +15,13 @@
         <!-- 统一页眉 -->
         <header class="page-header">
             <div class="header-left">
-                <div class="logo">
-                    <h1>Cursor Web</h1>
-                </div>
+                <a href="/" class="btn btn-back">
+                    <span class="back-icon">←</span>
+                    返回主页
+                </a>
             </div>
             <div class="header-center">
-                <!-- 欢迎文字移到页面正中间 -->
+                <h1>实例管理</h1>
             </div>
             <div class="header-right">
                 <div class="instance-status">
@@ -41,58 +42,34 @@
         </header>
 
         <main class="main">
-            <div class="navigation-panel">
-                <div class="welcome-section">
-                    <h2>欢迎使用 Cursor Web</h2>
-                    <p>这是一个功能模块化的 Cursor 聊天同步工具，每个功能都在独立的页面中运行，确保系统的稳定性。</p>
+            <div class="history-panel" style="padding:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+                  <div id="instancesCurrentLabel" style="font-size:12px;color:#aaa;"></div>
+                  <div style="display:flex;gap:8px;">
+                    <button id="instances-refresh" class="btn btn-secondary">刷新</button>
+                    <button id="instances-scan-inject" class="btn btn-info">扫描注入</button>
+                    <button id="instances-kill-all" class="btn btn-danger">杀死全部</button>
+                  </div>
                 </div>
-
-                <div class="feature-grid">
-                    <div class="feature-card">
-                        <h3>💬 聊天</h3>
-                        <p>与 Cursor 进行实时对话，支持 Markdown 和代码块</p>
-                        <a href="/chat.html" class="btn btn-primary">进入聊天</a>
-                    </div>
-
-                    <div class="feature-card">
-                        <h3>📚 历史记录</h3>
-                        <p>查看和管理聊天历史记录</p>
-                        <a href="/history-new.html" class="btn btn-info">查看历史</a>
-                    </div>
-
-                    <div class="feature-card">
-                        <h3>🔧 实例管理</h3>
-                        <p>管理 Cursor 实例和注入状态</p>
-                        <a href="/instances-standalone.html" class="btn btn-warning">管理实例</a>
-                    </div>
-
-                    <div class="feature-card">
-                        <h3>📝 Git 管理</h3>
-                        <p>管理 Git 分支和代码版本</p>
-                        <a href="/git.html" class="btn btn-success">Git 管理</a>
-                    </div>
-
-                    <div class="feature-card">
-                        <h3>🔍 系统诊断</h3>
-                        <p>检查系统状态和连接情况</p>
-                        <a href="/diagnostic-standalone.html" class="btn btn-secondary">系统诊断</a>
-                    </div>
-
-                    <div class="feature-card">
-                        <h3>📋 注入脚本</h3>
-                        <p>获取 Cursor 注入脚本</p>
-                        <a href="/script.html" class="btn btn-soft">获取脚本</a>
-                    </div>
+                <div id="instances-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px;margin-bottom:16px;"></div>
+                <div style="display:grid;grid-template-columns:1fr;gap:12px;">
+                  <div class="card">
+                    <h3 style="margin:0 0 8px 0;">进程列表</h3>
+                    <div id="instances-processes" class="meta">加载中...</div>
+                  </div>
+                  <div class="card">
+                    <h3 style="margin:0 0 8px 0;">已连接客户端</h3>
+                    <div id="instances-clients" class="meta">加载中...</div>
+                  </div>
                 </div>
-
-                <!-- 快速操作区域已移除，因为页眉已有统一的实例状态显示 -->
             </div>
         </main>
     </div>
 
+    <script src="js/instances-tab.js"></script>
     <script src="js/status-checker.js"></script>
     <script>
-        // 导航页面逻辑
+        // 实例管理页面专用逻辑
         window.addEventListener('load', function() {
             // 如果 URL 带有 ?instance=，同步给历史 iframe
             try{
@@ -124,8 +101,6 @@
                 console.log('更新实例状态失败:', e);
             }
         }
-
-        // 快速操作按钮已移除，相关事件处理器也不再需要
     </script>
 </body>
 </html>

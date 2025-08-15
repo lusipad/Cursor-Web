@@ -11,14 +11,25 @@ class UIManager {
      * 更新状态显示
      */
     updateStatus(message, type) {
-        const statusEl = document.getElementById('status');
-        if (statusEl) {
-            statusEl.textContent = message;
-            statusEl.className = `status ${type}`;
-        } else {
-            // 在诊断页面中，如果没有status元素，就输出到控制台
-            console.log(`📊 状态更新: ${message} (${type})`);
-        }
+        try{
+            const statusEl = document.getElementById('status');
+            if (statusEl) {
+                statusEl.textContent = message;
+                statusEl.className = `status ${type}`;
+                return;
+            }
+            // 没有 header 状态位时，尝试更新统一右上角状态条的 WS 文案
+            const wsText = document.getElementById('ib-ws-text');
+            const wsDot = document.getElementById('ib-ws-dot');
+            if (wsText && wsDot){
+                const isConnected = /连接|connected|success/.test(String(type||message));
+                wsText.textContent = isConnected ? '已连接' : '未连接';
+                wsDot.className = 'dot ' + (isConnected ? 'ok' : 'off');
+                return;
+            }
+        }catch{}
+        // 回退：仅输出日志
+        console.log(`📊 状态更新: ${message} (${type})`);
     }
 
     /**
@@ -49,7 +60,8 @@ class UIManager {
      * 显示聊天内容
      */
     displayContent(contentData) {
-        const container = document.getElementById('messages-container');
+        const targetId = window.__renderTargetId || 'messages-container';
+        const container = document.getElementById(targetId);
         if (!container) {
             // 在诊断页面中，如果没有messages-container，就输出到控制台
             console.log('📄 内容更新 (诊断模式):', contentData);
@@ -59,6 +71,8 @@ class UIManager {
         const { html, timestamp } = contentData;
 
         if (html) {
+            // 若当前不在“实时回显”模式，则仍更新但隐藏 DOM（以便切换时可秒显）
+            const realtimeOnly = (window.__enableRealtimeRender === true);
             // 清除欢迎消息
             const welcome = container.querySelector('.welcome-message');
             if (welcome) {
@@ -85,11 +99,26 @@ class UIManager {
             // 自动滚动到底部
             this.scrollToBottom(container);
 
-            console.log('✅ 内容已更新，长度:', html.length);
-            console.log('📊 内容预览:', html.substring(0, 200) + '...');
-            console.log('📏 容器高度:', container.scrollHeight, 'px');
-            console.log('📏 视口高度:', container.clientHeight, 'px');
-            console.log('📏 滚动位置:', container.scrollTop, 'px');
+            if (window.__cwDebugLogs) {
+                console.log('✅ 内容已更新，长度:', html.length);
+                console.log('📊 内容预览:', html.substring(0, 200) + '...');
+                console.log('📏 容器高度:', container.scrollHeight, 'px');
+                console.log('📏 视口高度:', container.clientHeight, 'px');
+                console.log('📏 滚动位置:', container.scrollTop, 'px');
+            }
+
+            // 根据子Tab显示模式切换可见性
+            try{
+              const timelineEl = (window.simpleClient && window.simpleClient.timeline && window.simpleClient.timeline.timeline) || null;
+              if (realtimeOnly){
+                if (timelineEl) timelineEl.style.display = 'none';
+                contentArea.style.display = '';
+              } else {
+                if (timelineEl) timelineEl.style.display = '';
+                // 默认回显区域隐藏（仍保留最新内容，切换到实时回显时立即可见）
+                contentArea.style.display = 'none';
+              }
+            }catch{}
         }
     }
 
@@ -330,30 +359,30 @@ class UIManager {
 
             // 移除 max-height 限制
             if (style.maxHeight && style.maxHeight !== 'none') {
-                console.log('🔓 移除 max-height 限制:', style.maxHeight, '-> none');
+                if (window.__cwDebugLogs) console.log('🔓 移除 max-height 限制:', style.maxHeight, '-> none');
                 style.maxHeight = 'none';
             }
 
             // 移除 overflow: hidden 限制
             if (style.overflow === 'hidden') {
-                console.log('🔓 移除 overflow: hidden 限制');
+                if (window.__cwDebugLogs) console.log('🔓 移除 overflow: hidden 限制');
                 style.overflow = 'visible';
             }
 
             // 移除 overflow-y: hidden 限制
             if (style.overflowY === 'hidden') {
-                console.log('🔓 移除 overflow-y: hidden 限制');
+                if (window.__cwDebugLogs) console.log('🔓 移除 overflow-y: hidden 限制');
                 style.overflowY = 'visible';
             }
 
             // 移除 overflow-x: hidden 限制
             if (style.overflowX === 'hidden') {
-                console.log('🔓 移除 overflow-x: hidden 限制');
+                if (window.__cwDebugLogs) console.log('🔓 移除 overflow-x: hidden 限制');
                 style.overflowX = 'visible';
             }
         });
 
-        console.log('🎯 已移除所有高度限制样式，确保内容完整显示');
+        if (window.__cwDebugLogs) console.log('🎯 已移除所有高度限制样式，确保内容完整显示');
     }
 }
 

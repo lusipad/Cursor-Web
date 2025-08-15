@@ -1,0 +1,40 @@
+// 简单实例工具：统一获取/设置默认实例 ID（URL > localStorage > Cookie）
+(function(global){
+  function setCookie(name, value, days){ try{ const d=new Date(); d.setTime(d.getTime()+days*24*60*60*1000); document.cookie = `${name}=${encodeURIComponent(value)}; Max-Age=${days*24*60*60}; Path=/; SameSite=Lax`; }catch{} }
+  function getCookie(name){ try{ const kv = document.cookie.split('; ').map(x=>x.split('=')); const f = kv.find(([k])=>k===name); return f ? decodeURIComponent(f[1]||'') : ''; }catch{ return ''; } }
+
+  function get(){
+    try{
+      const u = new URL(window.location.href);
+      const q = u.searchParams.get('instance');
+      if (q){
+        try{ localStorage.setItem('cw.instanceId', q); setCookie('cw_instance_id', q, 180); }catch{}
+        return q;
+      }
+    }catch{}
+    try{ const v = localStorage.getItem('cw.instanceId'); if (v) return v; }catch{}
+    const ck = getCookie('cw_instance_id');
+    if (ck) return ck;
+    // 无任何记录时，回退到默认实例
+    try{ localStorage.setItem('cw.instanceId', 'default'); setCookie('cw_instance_id', 'default', 180); }catch{}
+    return 'default';
+  }
+
+  function set(id){
+    try{
+      const v = String(id||'');
+      localStorage.setItem('cw.instanceId', v);
+      setCookie('cw_instance_id', v, 180);
+      // 同步给已注入的页面（若有），以便其在下次心跳/重连时带上正确的 instanceId
+      try{ window.__cursorInstanceId = v; }catch{}
+    }catch{}
+  }
+  function clear(){ try{ localStorage.removeItem('cw.instanceId'); }catch{} setCookie('cw_instance_id','',-1); }
+  function ensureOrRedirect(redirect){ const id = get(); if (id) return id; window.location.href = redirect || '/instances.html'; return ''; }
+  async function getInstanceMeta(id){ try{ const r=await fetch(`/api/instances/${encodeURIComponent(id)}`); const j=await r.json(); return j&&j.success?j.data:null; }catch{ return null; } }
+  function renderBadge(el){ try{ const id = get(); if (!el) return; el.innerHTML = id ? `实例：<strong>${id}</strong> <a href="/instances.html" style="margin-left:8px;color:#0aa6ff;">切换</a>` : `实例：<em>未选择</em> <a href="/instances.html" style="margin-left:8px;color:#0aa6ff;">选择</a>`; }catch{} }
+
+  global.InstanceUtils = { get, set, clear, ensureOrRedirect, getInstanceMeta, renderBadge };
+})(window);
+
+

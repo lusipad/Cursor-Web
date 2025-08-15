@@ -8,8 +8,23 @@ class CursorHistoryManager {
         this.cursorStoragePath = this.getCursorStoragePath();
         this.cachedHistory = null;
         this.lastCacheTime = 0;
-        this.cacheTimeout = 30000; // 30秒缓存
+        this.cacheTimeout = 10000; // 默认 10 秒缓存，前端可通过 maxAgeMs 调整（发送后精确查询可绕过）
+        // 读取首选"共享只读快照"（后台定时复制），未命中再退化为"按请求只读副本"
+        this.useReadonlyCopy = true;
+        this.snapshots = {
+            enabled: true,
+            dir: path.join(os.tmpdir ? os.tmpdir() : (os.tmpDir?.()||'.'), 'cursor_web_snapshots'),
+            intervalMs: Number(process.env.CW_SNAPSHOT_INTERVAL_MS || 5000),
+            lastRefresh: 0,
+            map: new Map(),          // 原路径 -> 快照路径
+            signatures: new Map(),   // 原路径 -> `${size}:${mtimeMs}`
+            token: 'h'               // 供 ETag 生成
+        };
         this.sqliteEngine = null;
+        this._historyCache = new Map();
+        this._historyItemCache = new Map(); // sessionId -> { ts, item }
+        this._inflight = new Map();         // singleflight
+        this._sessionDbIndex = new Map();   // sessionId -> { dbPath, project, ts }
         // 对齐 cursor-view-main 的项目提取与分组表现：
         // - 不做 Git 根提升
         // - 不做容器目录细化
@@ -18,12 +33,98 @@ class CursorHistoryManager {
         
         console.log(`📁 Cursor数据路径: ${this.cursorStoragePath}`);
         this.initializeSQLiteEngine();
+        // 启动后延迟构建一次索引，并每 60s 增量刷新，降低首次详情耗时
+        try { this.scheduleSessionIndexRebuild(); } catch {}
+        try { this.scheduleSnapshotRefresh(); } catch {}
+    }
+
+    // ====== 只读副本支持 ======
+    makeReadonlyCopy(dbPath){
+        try{
+            const src = String(dbPath||''); if (!src) return null;
+            const tmpRoot = path.join(os.tmpdir ? os.tmpdir() : (os.tmpDir?.()||'.'), 'cursor_web_db_cache');
+            try{ if (!fs.existsSync(tmpRoot)) fs.mkdirSync(tmpRoot, { recursive: true }); }catch{}
+            const base = path.basename(src).replace(/[^A-Za-z0-9_.-]/g,'_');
+            const tmp = path.join(tmpRoot, `${base}.${process.pid}.${Date.now()}.sqlite`);
+            fs.copyFileSync(src, tmp);
+            return tmp;
+        }catch{ return null; }
+    }
+
+    openReadonlyDatabase(dbPath){
+        const Database = require('better-sqlite3');
+        // 优先使用共享快照
+        try{
+            if (this.snapshots?.enabled && this.snapshots.map.has(dbPath)){
+                const snap = this.snapshots.map.get(dbPath);
+                const db = new Database(snap, { readonly: true });
+                const cleanup = () => { try{ db.close(); }catch{} };
+                return { db, cleanup };
+            }
+        }catch{}
+        // 回退到"按请求只读副本"
+        let copied = null;
+        try{ if (this.useReadonlyCopy) copied = this.makeReadonlyCopy(dbPath); }catch{}
+        const openPath = copied || dbPath;
+        const db = new Database(openPath, { readonly: true });
+        const cleanup = () => { try{ db.close(); }catch{} try{ if (copied && fs.existsSync(copied)) fs.unlinkSync(copied); }catch{} };
+        return { db, cleanup };
+    }
+
+    // 共享快照定时刷新
+    scheduleSnapshotRefresh(){
+        if (!this.snapshots?.enabled) return;
+        try{ if (!fs.existsSync(this.snapshots.dir)) fs.mkdirSync(this.snapshots.dir, { recursive: true }); }catch{}
+        const buildList = () => {
+            const list = [];
+            try{
+                const globalDb = path.join(this.cursorStoragePath, 'User', 'globalStorage', 'state.vscdb');
+                if (fs.existsSync(globalDb)) list.push(globalDb);
+            }catch{}
+            try{
+                const workspaces = this.findWorkspaceDatabases();
+                for (const ws of workspaces){
+                    const p = ws.workspaceDb || ws.dbPath || ws; if (p && fs.existsSync(p)) list.push(p);
+                }
+            }catch{}
+            return Array.from(new Set(list));
+        };
+        const shortHash = (s)=>{ try{ let h=0; for(let i=0;i<s.length;i++){ h=((h<<5)-h)+s.charCodeAt(i); h|=0; } return Math.abs(h).toString(36);}catch{ return 'h'; } };
+        const refresh = () => {
+            const files = buildList();
+            const sigs = [];
+            for (const src of files){
+                try{
+                    const st = fs.statSync(src);
+                    const sig = `${st.size}:${st.mtimeMs}`;
+                    const prev = this.snapshots.signatures.get(src);
+                    if (prev !== sig){
+                        const base = path.basename(src).replace(/[^A-Za-z0-9_.-]/g,'_');
+                        const snap = path.join(this.snapshots.dir, `snap_${shortHash(src)}_${base}`);
+                        fs.copyFileSync(src, snap);
+                        this.snapshots.map.set(src, snap);
+                        this.snapshots.signatures.set(src, sig);
+                    }
+                    sigs.push(sig);
+                }catch{}
+            }
+            // 组合签名 token
+            try{ this.snapshots.token = shortHash(sigs.join('|')||'h'); }catch{ this.snapshots.token = 'h'; }
+            this.snapshots.lastRefresh = Date.now();
+        };
+        // 立即与定时
+        setTimeout(()=>{ try{ refresh(); }catch{} }, 800);
+        setInterval(()=>{ try{ refresh(); }catch{} }, this.snapshots.intervalMs || 5000);
+    }
+
+    getSignatureToken(){
+        try{ return this.snapshots?.token || 'h'; }catch{ return 'h'; }
     }
 
     // ====== cursor-view 等价实现（提取口径完全对齐） ======
-    getChatsCursorView() {
+    getChatsCursorView(summary = false) {
         try {
-            const out = this.cvExtractChats();
+            const out = this.cvExtractChats(summary);
             // 格式化为前端易用结构（与 cursor-view 的 format_chat_for_frontend 对齐）
             return out.map(c => this.cvFormatChat(c));
         } catch (e) {
@@ -32,7 +133,7 @@ class CursorHistoryManager {
         }
     }
 
-    cvExtractChats() {
+    cvExtractChats(summary = false) {
         const pathLib = require('path');
         const fsLib = require('fs');
         const out = [];
@@ -41,11 +142,11 @@ class CursorHistoryManager {
         const comp2ws = new Map();          // composerId -> wsId
         const sessions = new Map();         // composerId -> {messages:[], db_path}
 
-        const pushMsg = (cid, role, text, dbPath) => {
+        const pushMsg = (cid, role, text, dbPath, ts) => {
             if (!cid || !text) return;
             if (!sessions.has(cid)) sessions.set(cid, { messages: [], db_path: dbPath || undefined });
             const s = sessions.get(cid);
-            s.messages.push({ role, content: String(text) });
+            s.messages.push({ role, content: String(text), timestamp: ts || null });
             if (!s.db_path && dbPath) s.db_path = dbPath;
         };
 
@@ -58,10 +159,10 @@ class CursorHistoryManager {
                 const dbPath = (ws && (ws.workspaceDb || ws.dbPath)) || (typeof ws === 'string' ? ws : (ws && (ws.workspaceDb || ws.db)));
                 if (!dbPath || !fsLib.existsSync(dbPath)) continue;
 
-                const Database = require('better-sqlite3');
-                const db = new Database(dbPath, { readonly: true });
+                const { db, cleanup } = this.openReadonlyDatabase(dbPath);
                 try {
-                    // 1) 项目根：ItemTable['history.entries'] 的 editor.resource file:/// 路径求公共前缀（失败则用 debug.selectedroot 兜底）
+                    // 1) 项目根：ItemTable['history.entries'] 的 editor.resource file:/// 路径求公共前缀
+                    //    失败则用 debug.selectedroot 兜底；若仍然过浅/未知，再用"众数根"作为最后兜底
                     let project = { name: '(unknown)', rootPath: '(unknown)' };
                     try {
                         const row = db.prepare("SELECT value FROM ItemTable WHERE key='history.entries'").get();
@@ -91,6 +192,16 @@ class CursorHistoryManager {
                             }
                         }
                     } catch {}
+                    // 进一步兜底：若根仍无效或仅有盘符（如 /d%3A），尝试根据文件样本计算"众数根"
+                    try {
+                        const shallow = /^\/[A-Za-z]%3A\/?$/.test(project?.rootPath||'') || project?.rootPath === '/' || !project?.rootPath;
+                        if (shallow) {
+                            const major = this.computeWorkspaceMajorRoot(dbPath);
+                            if (major && major.rootPath && !/^\/[A-Za-z]%3A\/?$/.test(major.rootPath) && major.rootPath !== '/') {
+                                project = { name: major.name || this.extractProjectNameFromPath(major.rootPath), rootPath: major.rootPath };
+                            }
+                        }
+                    } catch {}
                     wsProj.set(wsId, project);
 
                     // 2) comp_meta：ItemTable['composer.composerData'] 与 chatdata.tabs 的 tabId
@@ -114,6 +225,7 @@ class CursorHistoryManager {
                     } catch {}
 
                     // 3) 累积消息：chatdata.tabs[].bubbles[] 与 composer.composerData.conversation/messages
+                    if (!summary) {
                     try {
                         const r = db.prepare("SELECT value FROM ItemTable WHERE key='workbench.panel.aichat.view.aichat.chatdata'").get();
                         const pane = r && r.value ? JSON.parse(r.value) : {};
@@ -123,10 +235,13 @@ class CursorHistoryManager {
                                 const t = typeof b.text === 'string' ? b.text : (typeof b.content === 'string' ? b.content : '');
                                 if (!t) continue;
                                 const role = (b.type === 'user' || b.type === 1) ? 'user' : 'assistant';
-                                pushMsg(tid, role, t, dbPath);
+                                const ts = b?.cTime || b?.timestamp || b?.time || b?.createdAt || b?.lastUpdatedAt || tab?.lastUpdatedAt || tab?.createdAt || null;
+                                pushMsg(tid, role, t, dbPath, ts);
                             }
                         }
                     } catch {}
+                    }
+                    if (!summary) {
                     try {
                         const r = db.prepare("SELECT value FROM ItemTable WHERE key='composer.composerData'").get();
                         const cd = r && r.value ? JSON.parse(r.value) : {};
@@ -135,14 +250,17 @@ class CursorHistoryManager {
                             for (const m of c.messages || []) {
                                 const role = m.role || 'assistant';
                                 const t = m.content || m.text || '';
-                                if (t) pushMsg(cid, role, t, dbPath);
+                                const ts = m?.timestamp || m?.time || m?.createdAt || m?.lastUpdatedAt || c?.lastUpdatedAt || c?.createdAt || null;
+                                if (t) pushMsg(cid, role, t, dbPath, ts);
                             }
                         }
                     } catch {}
+                    }
                 } finally { try { db.close(); } catch {} }
             }
         } catch {}
 
+        if (!summary) {
         // 读取全局 globalStorage：cursorDiskKV['bubbleId:%'] / 'composerData:%' 与 ItemTable chatdata
         try {
             const pathLib = require('path');
@@ -161,7 +279,8 @@ class CursorHistoryManager {
                             const cid = parts.length >= 3 ? parts[1] : null; if (!cid) continue;
                             const role = (v.type === 1 || v.type === 'user') ? 'user' : 'assistant';
                             const t = v.text || v.richText || v.content || '';
-                            if (t) pushMsg(cid, role, t, globalDb);
+                            const ts = v?.cTime || v?.timestamp || v?.time || v?.createdAt || v?.lastUpdatedAt || null;
+                            if (t) pushMsg(cid, role, t, globalDb, ts);
                             if (!compMeta.has(cid)) compMeta.set(cid, { title: `Chat ${String(cid).slice(0,8)}`, createdAt: v.createdAt || null, lastUpdatedAt: v.lastUpdatedAt || v.createdAt || null });
                             if (!comp2ws.has(cid)) comp2ws.set(cid, '(global)');
                         }
@@ -179,7 +298,8 @@ class CursorHistoryManager {
                             for (const m of v.conversation || []) {
                                 const role = (m.type === 1) ? 'user' : 'assistant';
                                 const t = m.text || '';
-                                if (t) pushMsg(cid, role, t, globalDb);
+                                const ts = m?.timestamp || m?.time || m?.createdAt || m?.lastUpdatedAt || created || null;
+                                if (t) pushMsg(cid, role, t, globalDb, ts);
                             }
                         }
                     } catch {}
@@ -195,13 +315,22 @@ class CursorHistoryManager {
                                 const t = typeof b.text === 'string' ? b.text : (typeof b.content === 'string' ? b.content : '');
                                 if (!t) continue;
                                 const role = (b.type === 'user' || b.type === 1) ? 'user' : 'assistant';
-                                pushMsg(tid, role, t, globalDb);
+                                const ts = b?.cTime || b?.timestamp || b?.time || b?.createdAt || b?.lastUpdatedAt || tab?.lastUpdatedAt || tab?.createdAt || null;
+                                pushMsg(tid, role, t, globalDb, ts);
                             }
                         }
                     } catch {}
                 } finally { try { db.close(); } catch {} }
             }
         } catch {}
+        }
+
+        // 在 summary 模式下，确保每个 comp 都有一个会话占位（避免遗漏无消息但有元信息的会话）
+        if (summary) {
+            for (const cid of compMeta.keys()) {
+                if (!sessions.has(cid)) sessions.set(cid, { messages: [], db_path: '' });
+            }
+        }
 
         // 组装输出
         for (const [cid, data] of sessions.entries()) {
@@ -224,15 +353,27 @@ class CursorHistoryManager {
     }
 
     cvFormatChat(chat) {
-        // 与 cursor-view 的 format_chat_for_frontend 对齐的最小集合
+        // 与 cursor-view 的 format_chat_for_frontend 对齐：优先使用 lastUpdatedAt，其次 createdAt，最后当前时间
         const sessionId = chat?.session?.composerId || require('crypto').randomUUID();
-        let date = Math.floor(Date.now() / 1000);
-        if (chat?.session?.createdAt) date = Math.floor((chat.session.createdAt) / 1000);
-        const project = chat.project || { name: 'Unknown Project', rootPath: '/' };
+        let dateSec = Math.floor(Date.now() / 1000);
+        if (chat?.session?.lastUpdatedAt) {
+            dateSec = Math.floor((chat.session.lastUpdatedAt) / 1000);
+        } else if (chat?.session?.createdAt) {
+            dateSec = Math.floor((chat.session.createdAt) / 1000);
+        }
+        let project = chat.project || { name: 'Unknown Project', rootPath: '/' };
+        // 若根仍然过浅或未知，尝试从 lastComposerProjectIndex 全局候选兜底一次
+        try{
+            const shallow = /^\/[A-Za-z]%3A\/?$/.test(project?.rootPath||'') || project?.rootPath === '/' || !project?.rootPath || project?.name === '(unknown)';
+            if (shallow && this.lastComposerProjectIndex && Array.isArray(this.lastComposerProjectIndex.globalCandidates) && this.lastComposerProjectIndex.globalCandidates.length > 0){
+                const top = this.lastComposerProjectIndex.globalCandidates[0];
+                if (top && top.rootPath){ project = { name: this.extractProjectNameFromPath(top.rootPath), rootPath: top.rootPath }; }
+            }
+        }catch{}
         return {
             project,
             messages: Array.isArray(chat.messages) ? chat.messages : [],
-            date,
+            date: dateSec,
             session_id: sessionId,
             workspace_id: chat.workspace_id || 'unknown',
             db_path: chat.db_path || 'Unknown database path'
@@ -492,6 +633,89 @@ class CursorHistoryManager {
         this.sqliteEngine = { type: 'fallback' };
     }
 
+    // ========== 轻量会话索引（分钟级刷新） ==========
+    scheduleSessionIndexRebuild(){
+        this._indexEnabled = String(process.env.CW_ENABLE_SESSION_INDEX || '').toLowerCase() === '1';
+        this._indexIntervalMs = 60 * 1000;
+        this._indexBuilding = false;
+        this._lastIndexBuild = 0;
+        setTimeout(()=>{ try{ this.rebuildSessionIndex(); }catch{} }, 2500);
+        setInterval(()=>{
+            try{
+                if (!this._indexEnabled) return;
+                if (this._indexBuilding) return;
+                if (Date.now() - (this._lastIndexBuild||0) < this._indexIntervalMs) return;
+                this.rebuildSessionIndex();
+            }catch{}
+        }, this._indexIntervalMs);
+    }
+
+    rebuildSessionIndex(){
+        if (!this._indexEnabled) return;
+        if (this._indexBuilding) return;
+        if (this.sqliteEngine?.type !== 'better-sqlite3') return;
+        this._indexBuilding = true;
+        const Database = require('better-sqlite3');
+        const path = require('path');
+        const fs = require('fs');
+        const put = (sid, dbPath, project)=>{
+            try{
+                const k = String(sid);
+                const prev = this._sessionDbIndex.get(k);
+                if (!prev || prev.dbPath !== dbPath) this._sessionDbIndex.set(k, { dbPath, project: project||null, ts: Date.now() });
+            }catch{}
+        };
+        const CHUNK = 1000;
+        const MAX_TOTAL = 50000;
+        const tasks = [];
+        const globalDb = path.join(this.cursorStoragePath, 'User', 'globalStorage', 'state.vscdb');
+        if (fs.existsSync(globalDb)) tasks.push({ dbPath: globalDb, project: null });
+        const workspaces = this.findWorkspaceDatabases();
+        for (const ws of workspaces){
+            const dbPath = ws.workspaceDb || ws.dbPath || ws; if (!dbPath || !fs.existsSync(dbPath)) continue; tasks.push({ dbPath, project: null });
+        }
+        let totalKeys = 0;
+        const started = Date.now();
+        const runTask = (idx)=>{
+            if (idx >= tasks.length || totalKeys >= MAX_TOTAL){ finish(); return; }
+            const { dbPath, project } = tasks[idx];
+            const db = new Database(dbPath, { readonly: true });
+            let offset = 0; let stopped = false;
+            const step = ()=>{
+                if (stopped || totalKeys >= MAX_TOTAL){ try{ db.close(); }catch{}; runTask(idx+1); return; }
+                try{
+                    const rows1 = db.prepare("SELECT key FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' LIMIT ? OFFSET ?").all(CHUNK, offset);
+                    offset += rows1.length;
+                    for (const r of rows1){ const k=String(r.key||''); const p=k.split(':'); if (p.length>=3 && p[0]==='bubbleId'){ put(p[1], dbPath, project); totalKeys++; } }
+                    if (rows1.length < CHUNK){
+                        // 再扫 composerData，同样分批
+                        let off2 = 0;
+                        const step2 = ()=>{
+                            if (stopped || totalKeys >= MAX_TOTAL){ try{ db.close(); }catch{}; runTask(idx+1); return; }
+                            try{
+                                const rows2 = db.prepare("SELECT key FROM cursorDiskKV WHERE key LIKE 'composerData:%' LIMIT ? OFFSET ?").all(CHUNK, off2);
+                                off2 += rows2.length;
+                                for (const r of rows2){ const k=String(r.key||''); if (k.startsWith('composerData:')){ put(k.slice('composerData:'.length), dbPath, project); totalKeys++; } }
+                                if (rows2.length < CHUNK){ try{ db.close(); }catch{}; runTask(idx+1); return; }
+                                setTimeout(step2, 0);
+                            }catch{ try{ db.close(); }catch{}; runTask(idx+1); }
+                        };
+                        setTimeout(step2, 0);
+                        return;
+                    }
+                    setTimeout(step, 0);
+                }catch{ try{ db.close(); }catch{}; runTask(idx+1); }
+            };
+            setTimeout(step, 0);
+        };
+        const finish = ()=>{
+            this._lastIndexBuild = Date.now();
+            console.log(`🔎 会话索引刷新：${totalKeys} keys, ${(Date.now()-started)}ms, indexSize=${this._sessionDbIndex.size}`);
+            this._indexBuilding = false;
+        };
+        runTask(0);
+    }
+
     // 获取Cursor存储路径（支持 ENV 覆盖 + Windows 下自动在 Roaming/Local 之间择优）
     getCursorStoragePath() {
         const platform = os.platform();
@@ -515,7 +739,7 @@ class CursorHistoryManager {
             const roaming = path.join(home, 'AppData', 'Roaming', 'Cursor');
             const local = path.join(home, 'AppData', 'Local', 'Cursor');
 
-            // 候选根：优先存在且数据更“丰富”的一个
+            // 候选根：优先存在且数据更"丰富"的一个
             const candidates = [roaming, local].filter(p => fs.existsSync(p));
             if (candidates.length === 0) return roaming; // 回退
 
@@ -527,8 +751,7 @@ class CursorHistoryManager {
                     // 尝试用 better-sqlite3 统计 bubbleId 数量
                     let bubbles = -1;
                     try {
-                        const Database = require('better-sqlite3');
-                        const db = new Database(dbPath, { readonly: true });
+                const { db, cleanup } = this.openReadonlyDatabase(dbPath);
                         try {
                             const row = db.prepare("SELECT COUNT(*) AS c FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'").get();
                             bubbles = (row && row.c) || 0;
@@ -1300,7 +1523,7 @@ class CursorHistoryManager {
 
             if (filePaths.length === 0) return { name: 'Unknown Project', rootPath: '/', fileCount: 0 };
 
-            // 3) 求公共前缀（cursor-view-main 方式）或使用“合理化”方式
+            // 3) 求公共前缀（cursor-view-main 方式）或使用"合理化"方式
             let root;
             if (this.alignCursorViewMain) {
                 // 直接字符级公共前缀并回退一段
@@ -1553,12 +1776,14 @@ class CursorHistoryManager {
     }
 
     extractProjectNameFromPath(projectPath) {
-        if (!projectPath || projectPath === '/') return 'Unknown Project';
-        const parts = projectPath.replace(/\\/g, '/').split('/').filter(Boolean);
+        if (!projectPath) return 'Unknown Project';
+        const norm = String(projectPath).replace(/\\/g,'/');
+        if (norm === '/' || /^\/[A-Za-z]%3A\/?$/.test(norm)) return 'Unknown Project';
+        const parts = norm.split('/').filter(Boolean);
         return parts.length ? parts[parts.length - 1] : 'Unknown Project';
     }
 
-    // 计算某个 workspace 的“众数项目根”：从多个键收集文件样本 → 折叠为仓库根 → 频次投票
+    // 计算某个 workspace 的"众数项目根"：从多个键收集文件样本 → 折叠为仓库根 → 频次投票
     computeWorkspaceMajorRoot(workspaceDbPath) {
         try {
             const Database = require('better-sqlite3');
@@ -2033,20 +2258,70 @@ class CursorHistoryManager {
         const segmentMinutes = Number(options?.segmentMinutes || 0); // 默认不分段；>0 时按分钟切分
         console.log(`📚 获取聊天会话...`);
 
+        // 轻量缓存：按 (mode, segmentMinutes, includeUnmapped) 维度缓存"未按 openPath 过滤"的全集
+        const now = Date.now();
+        if (!this._historyCache) this._historyCache = new Map();
+        const cacheKey = JSON.stringify({
+            mode: options && options.mode ? String(options.mode) : 'default',
+            segment: segmentMinutes || 0,
+            includeUnmapped: includeUnmapped ? 1 : 0,
+            summary: (options && (options.summary === true || options.summary === 'true' || options.summary === 1 || options.summary === '1')) ? 1 : 0
+        });
+        const cached = this._historyCache.get(cacheKey);
+        if (cached && (now - cached.ts) < this.cacheTimeout) {
+            let base = cached.items;
+            // 如传入 openPath，则在缓存基础上做过滤
+            if (options && options.filterOpenPath) {
+                const basePath = this.normalizePath(options.filterOpenPath).toLowerCase();
+                const baseCv = this.encodeCursorViewPath(options.filterOpenPath).toLowerCase();
+                const ensureSlash = (s) => (s.endsWith('/') ? s : s + '/');
+                const isPrefix = (root) => {
+                    if (!root) return false;
+                    const r1 = this.normalizePath(root).toLowerCase();
+                    const r2 = this.encodeCursorViewPath(root).toLowerCase();
+                    const ok1 = r1 === basePath || r1.startsWith(ensureSlash(basePath)) || basePath.startsWith(ensureSlash(r1));
+                    const ok2 = r2 === baseCv || r2.startsWith(ensureSlash(baseCv)) || baseCv.startsWith(ensureSlash(r2));
+                    return ok1 || ok2;
+                };
+                base = base.filter(c => isPrefix(c?.project?.rootPath || ''));
+            }
+            console.log(`📚 使用缓存的历史记录: ${base.length} 个会话`);
+            return base;
+        }
+
         // 优先：cursor-view 等价实现（显式启用）
         if (options && options.mode === 'cv') {
             try {
-                const cvChats = this.getChatsCursorView();
-                const normalized = cvChats.map(c => ({
+                const isSummary = !!(options && (options.summary === true || options.summary === 'true' || options.summary === 1 || options.summary === '1'));
+                const cvChats = this.getChatsCursorView(isSummary);
+                const normalizedAll = cvChats.map(c => ({
                     sessionId: c.session_id,
                     project: c.project,
-                    messages: Array.isArray(c.messages) ? c.messages : [],
+                    messages: isSummary ? [] : (Array.isArray(c.messages) ? c.messages : []),
                     date: typeof c.date === 'number' ? new Date(c.date * 1000).toISOString() : (c.date || new Date().toISOString()),
                     workspaceId: c.workspace_id || 'unknown',
                     dbPath: c.db_path || '',
                     isRealData: true,
                     dataSource: 'cursor-view'
                 }));
+                // 写入缓存（未按 openPath 过滤的全集）
+                this._historyCache.set(cacheKey, { ts: now, items: normalizedAll });
+                let normalized = normalizedAll;
+                // 若指定 openPath 过滤，在 CV 模式同样生效
+                if (options && options.filterOpenPath) {
+                    const base = this.normalizePath(options.filterOpenPath).toLowerCase();
+                    const baseCv = this.encodeCursorViewPath(options.filterOpenPath).toLowerCase();
+                    const ensureSlash = (s) => (s.endsWith('/') ? s : s + '/');
+                    const isPrefix = (root) => {
+                        if (!root) return false;
+                        const r1 = this.normalizePath(root).toLowerCase();
+                        const r2 = this.encodeCursorViewPath(root).toLowerCase();
+                        const ok1 = r1 === base || r1.startsWith(ensureSlash(base)) || base.startsWith(ensureSlash(r1));
+                        const ok2 = r2 === baseCv || r2.startsWith(ensureSlash(baseCv)) || baseCv.startsWith(ensureSlash(r2));
+                        return ok1 || ok2;
+                    };
+                    normalized = normalized.filter(c => isPrefix(c?.project?.rootPath || ''));
+                }
                 console.log(`📊 返回 ${normalized.length} 个聊天会话`);
                 return normalized;
             } catch (e) {
@@ -2056,7 +2331,7 @@ class CursorHistoryManager {
         }
         
         try {
-            // 1) 采用“composerId 优先”的会话聚合（对齐 Cursor-view）：
+            // 1) 采用"composerId 优先"的会话聚合（对齐 Cursor-view）：
             const sessions = await this.extractSessionsComposerFirst();
             // 同步补充：面板/工作区/全局的 chatdata 与 composerData（尽量增强消息完整性）
             try { const globalPaneSessions = this.extractChatSessionsFromGlobalPane(); for (const s of globalPaneSessions) sessions.push(s); } catch {}
@@ -2167,27 +2442,11 @@ class CursorHistoryManager {
                             projectInfo = { ...projectInfo, rootPath: wsProjForUnknown.rootPath, name: projectInfo.name || wsProjForUnknown.name };
                         }
                     }
-                    // 强约束：若根为盘符/根或容器（Repos），用 workspace 项目根替换
+                    // KISS：若根为盘符/根或容器（Repos/Code/Projects/workspace/src），视为未知，不再做任何推断
                     const normRoot = this.normalizePath(projectInfo.rootPath);
-                    const isShallow = /^(?:[A-Za-z]:)?\/?$/.test(normRoot) || /\/repos\/?$/i.test(normRoot);
-                    if (isShallow) {
-                        // 优先使用会话所属 workspace 的项目根
-                        const wsId = composerToWorkspace.get(session.sessionId) || (session.composerId && composerToWorkspace.get(session.composerId));
-                        const wsProj = wsId && workspaceToProject.get(wsId);
-                        if (wsProj) {
-                            projectInfo = { ...projectInfo, rootPath: wsProj.rootPath, name: wsProj.name };
-                        } else {
-                            // 退化为名称匹配或末段名称
-                            const byName = projectsArray.find(p => (p.name||'').toLowerCase() === (projectInfo.name||'').toLowerCase());
-                            if (byName) {
-                                projectInfo = { ...projectInfo, rootPath: byName.rootPath, name: byName.name };
-                            } else if (projectsArray.length > 0) {
-                                const picked = projectsArray[0];
-                                projectInfo = { ...projectInfo, rootPath: picked.rootPath, name: picked.name };
-                            } else {
-                                projectInfo = { ...projectInfo, name: this.extractProjectNameFromPath(projectInfo.rootPath) };
-                            }
-                        }
+                    const invalidRoot = !normRoot || /^(?:[A-Za-z]:)?\/?$/.test(normRoot) || /\/(repos|code|projects|workspace|src)\/?$/i.test(normRoot);
+                    if (invalidRoot) {
+                        projectInfo = { ...projectInfo, rootPath: '(unknown)', name: projectInfo.name || '(unknown)' };
                     }
                     if (!this.alignCursorViewMain) {
                         // 仅在不对齐 cursor-view-main 时做归一
@@ -2201,7 +2460,7 @@ class CursorHistoryManager {
                         }
                     }
                 }
-                // 与 cursor-view-main 一致：默认无映射的会话不计入列表；如显式要求则保留为“未映射”
+                // 与 cursor-view-main 一致：默认无映射的会话不计入列表；如显式要求则保留为"未映射"
                 if (!projectInfo) {
                     if (!includeUnmapped) return null;
                     // 对齐 cursor-view：未映射统一归入 "(unknown)"
@@ -2241,8 +2500,33 @@ class CursorHistoryManager {
             // 按日期排序
             deduped.sort((a, b) => new Date(b.date) - new Date(a.date));
             
-            console.log(`📊 返回 ${deduped.length} 个聊天会话`);
-            return deduped;
+            // 先写入缓存（未按 openPath 过滤的全集）
+            this._historyCache.set(cacheKey, { ts: now, items: deduped });
+            
+            // 若指定了 openPath 过滤（不改变账号根，仅过滤结果集）
+            let filtered = deduped;
+            if (options && options.filterOpenPath) {
+                const base = this.normalizePath(options.filterOpenPath).toLowerCase();
+                const baseCv = this.encodeCursorViewPath(options.filterOpenPath).toLowerCase();
+                const ensureSlash = (s) => (s.endsWith('/') ? s : s + '/');
+                const isPrefix = (root) => {
+                    if (!root) return false;
+                    const r1 = this.normalizePath(root).toLowerCase();
+                    const r2 = this.encodeCursorViewPath(root).toLowerCase();
+                    const b1 = base; const b2 = baseCv;
+                    // 前缀或相等（双向，防止 openPath 更深或更浅时误判）
+                    const ok1 = r1 === b1 || r1.startsWith(ensureSlash(b1)) || b1.startsWith(ensureSlash(r1));
+                    const ok2 = r2 === b2 || r2.startsWith(ensureSlash(b2)) || b2.startsWith(ensureSlash(r2));
+                    return ok1 || ok2;
+                };
+                filtered = deduped.filter(c => {
+                    const pr = c?.project?.rootPath || '';
+                    return isPrefix(pr);
+                });
+            }
+
+            console.log(`📊 返回 ${filtered.length} 个聊天会话`);
+            return filtered;
             
         } catch (error) {
             console.error('❌ 获取聊天失败:', error.message);
@@ -2258,27 +2542,370 @@ class CursorHistoryManager {
         }
     }
 
-    // 获取聊天记录列表（兼容原有API）
+    // 获取聊天记录列表（支持 summary 精简）
     async getHistory(options = {}) {
-        const { limit = 50, offset = 0 } = options;
-        
-        const chats = await this.getChats(options);
-        const paginatedChats = chats.slice(offset, offset + limit);
-        
-        return {
-            items: paginatedChats,
-            total: chats.length,
-            offset: offset,
-            limit: limit,
-            hasMore: offset + limit < chats.length
-        };
+        const { limit = 50, offset = 0, summary = false } = options;
+        // singleflight + cache 失效基于签名 token
+        const token = this.getSignatureToken?.() || 'h';
+        const sfKey = `list|${token}|${limit}|${offset}|${summary?'1':'0'}|${options.mode||''}|${options.filterOpenPath||''}|${options.searchQuery||''}`;
+        if (this._inflight.has(sfKey)) return this._inflight.get(sfKey);
+        const p = (async()=>{
+            const chats = await this.getChats(options);
+            let paginatedChats = chats.slice(offset, offset + limit);
+
+            if (summary) {
+                paginatedChats = paginatedChats.map(chat => {
+                    const idA = chat.sessionId || chat.session_id || null;
+                    const idB = chat.session_id || chat.sessionId || null;
+                    const msgs = Array.isArray(chat.messages) ? chat.messages.slice(-3) : [];
+                    return {
+                        sessionId: idA,
+                        session_id: idB,
+                        project: chat.project || null,
+                        date: chat.date || null,
+                        timestamp: chat.timestamp || chat.date || null,
+                        messages: msgs
+                    };
+                });
+            }
+            return {
+                items: paginatedChats,
+                total: chats.length,
+                offset: offset,
+                limit: limit,
+                hasMore: offset + limit < chats.length
+            };
+        })();
+        this._inflight.set(sfKey, p); p.finally(()=>{ try{ this._inflight.delete(sfKey);}catch{} });
+        return p;
     }
 
-    // 获取单个聊天记录（支持透传 options，例如 mode=cv）
+    // 获取单个聊天记录（支持透传 options，例如 mode=cv, summary=仅元数据不返回全部消息）
     async getHistoryItem(sessionId, options = {}) {
-        const chats = await this.getChats(options);
-        const chat = chats.find(chat => (chat.sessionId === sessionId || chat.session_id === sessionId));
-        return chat;
+        try{
+            const wantSummary = !!(options && (options.summary === true || String(options.summary||'')==='1'));
+            const maxAge = Math.max(0, Math.min(Number(options.maxAgeMs||0) || 0, 10000));
+            const now = Date.now();
+            const key = String(sessionId) + (wantSummary? '|meta' : '');
+            const cached = this._historyItemCache.get(key);
+            if (cached && (!maxAge || (now - cached.ts) <= maxAge)) return cached.item;
+
+            // singleflight
+            const token = this.getSignatureToken?.() || 'h';
+            const sfKey = `detail|${token}|${sessionId}|${wantSummary?'meta':'full'}`;
+            if (this._inflight.has(sfKey)) return this._inflight.get(sfKey);
+
+            const p = (async()=>{
+                if (wantSummary){
+                    const meta = await this.getHistoryItemMeta(sessionId);
+                    if (meta) { this._historyItemCache.set(key, { ts: now, item: meta }); return meta; }
+                    return null;
+                }
+
+            // 仅走精准提取，避免全库扫描导致阻塞；未命中直接返回 null
+            const fast = await this.getHistoryItemFast(sessionId, options);
+            if (fast) {
+                this._historyItemCache.set(key, { ts: now, item: fast });
+                return fast;
+            }
+            return null;
+            })();
+            this._inflight.set(sfKey, p); p.finally(()=>{ try{ this._inflight.delete(sfKey);}catch{} });
+            return p;
+        }catch(e){ return null; }
+    }
+
+    /**
+     * 仅元数据：不返回完整 messages，降低详情首屏开销
+     */
+    async getHistoryItemMeta(sessionId){
+        try{
+            const id = String(sessionId||'').trim();
+            if (!id) return null;
+            if (this.sqliteEngine?.type !== 'better-sqlite3') return { sessionId: id, project: null, date: Date.now(), workspaceId: 'meta', dbPath: null, isRealData: true, dataSource: 'better-sqlite3', messageCount: null, messages: [] };
+            const idx = this._sessionDbIndex?.get(id) || null;
+            const dbPath = idx?.dbPath || null;
+            const project = idx?.project || null;
+            if (!dbPath){
+                return { sessionId: id, project, date: Date.now(), workspaceId: 'meta', dbPath: null, isRealData: true, dataSource: 'better-sqlite3', messageCount: null, messages: [] };
+            }
+            const Database = require('better-sqlite3');
+            const { db, cleanup } = this.openReadonlyDatabase(dbPath);
+            try{
+                const lower = `bubbleId:${id}:`;
+                const upper = lower + String.fromCharCode(0xffff);
+                const cRow = db.prepare("SELECT COUNT(*) as c FROM cursorDiskKV WHERE key >= ? AND key < ?").get(lower, upper) || { c: 0 };
+                let lastTs = null;
+                try{
+                    const r = db.prepare("SELECT value FROM cursorDiskKV WHERE key >= ? AND key < ? ORDER BY key DESC LIMIT 1").get(lower, upper);
+                    if (r && r.value){
+                        try{ const v = JSON.parse(r.value); lastTs = v?.cTime || v?.timestamp || v?.time || v?.createdAt || v?.lastUpdatedAt || null; }catch{}
+                    }
+                }catch{}
+                return {
+                    sessionId: id,
+                    project,
+                    date: lastTs || Date.now(),
+                    workspaceId: 'meta',
+                    dbPath,
+                    isRealData: true,
+                    dataSource: 'better-sqlite3',
+                    messageCount: Number(cRow.c||0),
+                    messages: []
+                };
+            } finally { try{ cleanup && cleanup(); }catch{} }
+        }catch{ return null; }
+    }
+
+    /**
+     * 精准提取单会话（仅访问包含该会话ID的相关键）
+     * 仅实现 better-sqlite3 路径，其它引擎回退全量
+     */
+    async getHistoryItemFast(sessionId, options = {}){
+        try{
+            if (!sessionId) return null;
+            if (this.sqliteEngine?.type !== 'better-sqlite3') return null;
+            const Database = require('better-sqlite3');
+            const messages = [];
+            let project = null;
+            let lastTs = null;
+            let sourceDbPath = null;
+            const MAX_MSGS = 2000; // 防止极端超长会话阻塞解析
+
+            const push = (role, content, ts) => {
+                const text = (content||'').toString(); if (!text.trim()) return;
+                if (messages.length >= MAX_MSGS) return;
+                messages.push({ role, content: text, timestamp: ts || null });
+                if (ts) lastTs = lastTs ? Math.max(lastTs, new Date(ts).getTime()) : new Date(ts).getTime();
+            };
+
+            // 工具：从 DB 快速收集此 session 的消息
+            const collectFromDb = (dbPath) => {
+                const db = new Database(dbPath, { readonly: true });
+                try {
+                    const t0 = Date.now(); let readRows = 0;
+                    const before = messages.length;
+                    // bubbleId:sessionId:* 优先，用区间查询便于命中索引
+                    let hadBubble = false;
+                    try{
+                        const lower = `bubbleId:${sessionId}:`;
+                        const upper = lower + String.fromCharCode(0xffff);
+                        const stmt = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key >= ? AND key < ?");
+                        const rows = stmt.all(lower, upper);
+                        readRows += rows.length;
+                        for (const row of rows){
+                            try{
+                                const v = row.value ? JSON.parse(row.value) : null; if (!v) continue;
+                                const { text, role } = this.extractBubbleTextAndRole(v);
+                                const ts = v?.cTime || v?.timestamp || v?.time || v?.createdAt || v?.lastUpdatedAt || null;
+                                if (text) push(role||'assistant', text, ts);
+                            }catch{}
+                        }
+                        hadBubble = rows.length > 0;
+                    }catch{}
+                    // composerData:sessionId
+                    try{
+                        const r = db.prepare("SELECT value FROM cursorDiskKV WHERE key=?").get(`composerData:${sessionId}`);
+                        if (!hadBubble && r && r.value){
+                            try{
+                                const data = JSON.parse(r.value);
+                                const arrs = [data?.conversation, data?.messages, data?.history, data?.logs, data?.generations];
+                                const toTs = (o)=> o?.timestamp || o?.time || o?.createdAt || o?.lastUpdatedAt || null;
+                                for (const arr of arrs){
+                                    if (!Array.isArray(arr)) continue;
+                                    for (const m of arr){
+                                        const role = (m?.role==='user'||m?.type===1) ? 'user' : 'assistant';
+                                        const t = m?.content || m?.text || m?.output || '';
+                                        if (t) push(role, t, toTs(m));
+                                    }
+                                }
+                                if (typeof data?.prompt === 'string') push('user', data.prompt, data?.createdAt);
+                                if (typeof data?.response === 'string') push('assistant', data.response, data?.lastUpdatedAt||data?.createdAt);
+                            }catch{}
+                        }
+                    }catch{}
+                    // 面板 chatdata.tabs 里查找该 tabId
+                    try{
+                        const r = db.prepare("SELECT value FROM ItemTable WHERE key='workbench.panel.aichat.view.aichat.chatdata'").get();
+                        const pane = r && r.value ? JSON.parse(r.value) : null;
+                        const tabs = Array.isArray(pane?.tabs) ? pane.tabs : [];
+                        for (const tab of tabs){
+                            if (String(tab?.tabId) !== String(sessionId)) continue;
+                            for (const b of (tab?.bubbles||[])){
+                                const { text, role } = this.extractBubbleTextAndRole(b);
+                                const ts = b?.cTime || b?.timestamp || b?.time || b?.createdAt || b?.lastUpdatedAt || tab?.lastUpdatedAt || tab?.createdAt || null;
+                                if (text) push(role||'assistant', text, ts);
+                            }
+                        }
+                    }catch{}
+                    if (options.debug){
+                        const ms = Date.now()-t0;
+                        console.log(`⏱️  getHistoryItemFast scan ${dbPath} rows≈${readRows} in ${ms}ms`);
+                    }
+                    return messages.length - before;
+                } finally { try{ cleanup(); }catch{} }
+            };
+
+            // 若有历史索引，先尝试命中的 DB，命中则直接返回
+            try{
+                const hit = this._sessionDbIndex.get(String(sessionId));
+                if (hit && require('fs').existsSync(hit.dbPath)){
+                    const addedHit = collectFromDb(hit.dbPath);
+                    if (addedHit > 0){
+                        sourceDbPath = hit.dbPath;
+                        if (!project && hit.project) project = hit.project;
+                    }
+                }
+            }catch{}
+
+            // 查询全局 DB
+            const path = require('path');
+            const fs = require('fs');
+            const globalDb = path.join(this.cursorStoragePath, 'User', 'globalStorage', 'state.vscdb');
+            if (!messages.length && fs.existsSync(globalDb)){
+                const added = collectFromDb(globalDb);
+                if (added > 0){ sourceDbPath = globalDb; /* project 可能仍为空，后续在 workspace 命中时补 */ }
+            }
+
+            // 查询各 workspace DB，顺便确定 project 根
+            const workspaces = this.findWorkspaceDatabases();
+            for (const ws of workspaces){
+                try{
+                    const dbPath = ws.workspaceDb || ws.dbPath || ws;
+                    if (!dbPath || !fs.existsSync(dbPath)) continue;
+                    if (messages.length && project){ break; }
+                    const added = collectFromDb(dbPath);
+                    if (added > 0 && !project){
+                        // 仅当此 workspace 命中该会话时，读取一次项目根（单条 ItemTable）
+                        const Database2 = new Database(dbPath, { readonly: true });
+                        try{
+                            let proj = { name: '(unknown)', rootPath: '(unknown)' };
+                            try{
+                                const row = Database2.prepare("SELECT value FROM ItemTable WHERE key='history.entries'").get();
+                                const entries = row && row.value ? JSON.parse(row.value) : [];
+                                const paths = [];
+                                for (const e of entries){ const r = e?.editor?.resource || ''; if (typeof r==='string' && r.startsWith('file:///')) paths.push(r.slice('file:///'.length)); }
+                                if (paths.length>0){
+                                    const pref = this.cvLongestCommonPrefix(paths);
+                                    const last = pref.lastIndexOf('/');
+                                    const root = last>0 ? pref.slice(0,last) : pref;
+                                    const name = this.cvExtractProjectNameFromPath(root);
+                                    proj = { name: name || '(unknown)', rootPath: '/' + String(root).replace(/^\/+/,'') };
+                                }
+                            }catch{}
+                            // 兜底 debug.selectedroot
+                            if (!proj || !proj.rootPath || proj.rootPath==='(unknown)' || proj.rootPath==='/'){
+                                try{
+                                    const r2 = Database2.prepare("SELECT value FROM ItemTable WHERE key='debug.selectedroot'").get();
+                                    const sel = r2 && r2.value ? JSON.parse(r2.value) : null;
+                                    if (typeof sel==='string' && sel.startsWith('file:///')){
+                                        const root = sel.slice('file:///'.length);
+                                        const name = this.cvExtractProjectNameFromPath(root);
+                                        proj = { name: name || '(unknown)', rootPath: '/' + String(root).replace(/^\/+/,'') };
+                                    }
+                                }catch{}
+                            }
+                            project = proj;
+                } finally { try{ Database2.close(); }catch{} }
+                        sourceDbPath = dbPath;
+                        // 已找到消息且拿到项目后，提前结束扫描（避免遍历所有 workspace）
+                        break;
+                    }
+                }catch{}
+            }
+
+            if (messages.length === 0) return null;
+            const date = lastTs ? new Date(lastTs).toISOString() : (messages[0]?.timestamp || new Date().toISOString());
+            if (!project) project = { name: 'Unknown Project', rootPath: '/' };
+            const item = {
+                sessionId: String(sessionId),
+                project,
+                messages,
+                date,
+                workspaceId: 'fast',
+                dbPath: 'fast',
+                isRealData: true,
+                dataSource: 'better-sqlite3'
+            };
+            // 写入 session -> dbPath 索引，便于后续快速命中
+            try{ if (sourceDbPath) this._sessionDbIndex.set(String(sessionId), { dbPath: sourceDbPath, project, ts: Date.now() }); }catch{}
+            return item;
+        }catch(e){ return null; }
+    }
+
+    /**
+     * 分页读取单会话消息（支持 offset 或 cursorKey）
+     */
+    async getHistoryMessagesPaged(sessionId, options = {}){
+        try{
+            const offset = Math.max(0, parseInt(options.offset || 0));
+            const limit = Math.max(1, Math.min(parseInt(options.limit || 200), 500));
+            const cursorKey = typeof options.cursorKey === 'string' ? options.cursorKey : null;
+            const id = String(sessionId||'').trim();
+            if (!id) return { messages: [], hasMore: false, nextCursorKey: null };
+            if (this.sqliteEngine?.type !== 'better-sqlite3'){
+                const full = await this.getHistoryItemFast(id, {});
+                const msgs = Array.isArray(full?.messages) ? full.messages.slice(offset, offset + limit) : [];
+                return { messages: msgs, hasMore: !!(full?.messages && full.messages.length > offset + msgs.length), nextCursorKey: null };
+            }
+            const idx = this._sessionDbIndex?.get(id) || null;
+            const dbPath = idx?.dbPath || null;
+            if (!dbPath){
+                const full = await this.getHistoryItemFast(id, {});
+                const msgs = Array.isArray(full?.messages) ? full.messages.slice(offset, offset + limit) : [];
+                return { messages: msgs, hasMore: !!(full?.messages && full.messages.length > offset + msgs.length), nextCursorKey: null };
+            }
+            const Database = require('better-sqlite3');
+            const { db, cleanup } = this.openReadonlyDatabase(dbPath);
+            try{
+                const lower = `bubbleId:${id}:`;
+                const upper = lower + String.fromCharCode(0xffff);
+                let rows;
+                if (cursorKey && cursorKey >= lower && cursorKey < upper){
+                    const stmt = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key > ? AND key < ? ORDER BY key LIMIT ?");
+                    rows = stmt.all(cursorKey, upper, limit + 1);
+                } else {
+                    const stmt = db.prepare("SELECT key, value FROM cursorDiskKV WHERE key >= ? AND key < ? ORDER BY key LIMIT ? OFFSET ?");
+                    rows = stmt.all(lower, upper, limit + 1, offset);
+                }
+                const out = [];
+                let lastKey = null;
+                for (const r of rows.slice(0, limit)){
+                    try{
+                        lastKey = String(r?.key||lastKey||'');
+                        const v = r?.value ? JSON.parse(r.value) : null; if (!v) continue;
+                        const { text, role } = this.extractBubbleTextAndRole(v);
+                        const ts = v?.cTime || v?.timestamp || v?.time || v?.createdAt || v?.lastUpdatedAt || null;
+                        if (text) out.push({ role: role||'assistant', content: String(text), timestamp: ts||null });
+                    }catch{}
+                }
+                const hasMore = rows.length > limit;
+                if (out.length > 0) return { messages: out, hasMore, nextCursorKey: lastKey };
+
+                try{
+                    const r = db.prepare("SELECT value FROM cursorDiskKV WHERE key=?").get(`composerData:${id}`);
+                    if (r && r.value){
+                        try{
+                            const data = JSON.parse(r.value);
+                            const collect = [];
+                            const arrs = [data?.conversation, data?.messages, data?.history, data?.logs, data?.generations];
+                            const toTs = (o)=> o?.timestamp || o?.time || o?.createdAt || o?.lastUpdatedAt || null;
+                            for (const arr of arrs){
+                                if (!Array.isArray(arr)) continue;
+                                for (const m of arr){
+                                    const role = (m?.role==='user'||m?.type===1) ? 'user' : 'assistant';
+                                    const t = m?.content || m?.text || m?.output || '';
+                                    if (t) collect.push({ role, content: String(t), timestamp: toTs(m) });
+                                }
+                            }
+                            const sliced = collect.slice(offset, offset + limit);
+                            return { messages: sliced, hasMore: collect.length > offset + sliced.length, nextCursorKey: null };
+                        }catch{}
+                    }
+                }catch{}
+                return { messages: [], hasMore: false, nextCursorKey: null };
+            } finally { try{ cleanup && cleanup(); }catch{} }
+        }catch(e){ return { messages: [], hasMore: false, nextCursorKey: null }; }
     }
 
     // 获取统计信息
@@ -2319,6 +2946,7 @@ class CursorHistoryManager {
     clearCache() {
         this.cachedHistory = null;
         this.lastCacheTime = 0;
+        this._historyCache = new Map();
         console.log('🗑️ 历史记录缓存已清除');
     }
 
@@ -2375,7 +3003,7 @@ class CursorHistoryManager {
     }
 
     // 汇总唯一项目列表，便于与 cursor-view-main 对比
-    async getProjectsSummary() {
+    async getProjectsSummary(options = {}) {
         // 与 cursor-view-main 一致：直接依据 workspace 派生的项目根列表
         const projectsArray = await this.extractWorkspaceProjects();
         // 去重保持稳定顺序
@@ -2386,6 +3014,21 @@ class CursorHistoryManager {
             if (seen.has(key)) continue;
             seen.add(key);
             unique.push({ name: p.name, rootPath: p.rootPath, chatCount: 0 });
+        }
+        // 若指定 openPath 过滤，保留命中的项目根
+        if (options && options.filterOpenPath) {
+            const base = this.normalizePath(options.filterOpenPath).toLowerCase();
+            const baseCv = this.encodeCursorViewPath(options.filterOpenPath).toLowerCase();
+            const ensureSlash = (s) => (s.endsWith('/') ? s : s + '/');
+            const isPrefix = (root) => {
+                if (!root) return false;
+                const r1 = this.normalizePath(root).toLowerCase();
+                const r2 = this.encodeCursorViewPath(root).toLowerCase();
+                const ok1 = r1 === base || r1.startsWith(ensureSlash(base)) || base.startsWith(ensureSlash(r1));
+                const ok2 = r2 === baseCv || r2.startsWith(ensureSlash(baseCv)) || baseCv.startsWith(ensureSlash(r2));
+                return ok1 || ok2;
+            };
+            return unique.filter(p => isPrefix(p.rootPath));
         }
         return unique;
     }

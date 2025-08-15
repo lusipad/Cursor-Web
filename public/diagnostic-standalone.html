@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统诊断 - Cursor Web</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="js/instance-utils.js"></script>
+    <script>
+      try{ InstanceUtils && InstanceUtils.ensureOrRedirect('/instances.html?first=1&return=/diagnostic-standalone.html'); }catch{}
+    </script>
+</head>
+<body>
+    <div class="container">
+        <!-- 统一页眉 -->
+        <header class="page-header">
+            <div class="header-left">
+                <a href="/" class="btn btn-back">
+                    <span class="back-icon">←</span>
+                    返回主页
+                </a>
+            </div>
+            <div class="header-center">
+                <h1>系统诊断</h1>
+            </div>
+            <div class="header-right">
+                <div class="instance-status">
+                    <span class="instance-label">实例：</span>
+                    <span class="instance-name" id="currentInstanceName">default</span>
+                </div>
+                <div class="status-indicators">
+                    <div class="status-item">
+                        <span class="status-dot" id="connectionStatusDot"></span>
+                        <span class="status-text" id="connectionStatus">检查中...</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-dot" id="injectStatusDot"></span>
+                        <span class="status-text" id="injectStatus">检查中...</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main class="main">
+            <div class="diagnostic-panel">
+                <div class="diagnostic-actions">
+                    <h2>系统状态检查</h2>
+                    <p>点击下方按钮检查各个组件的运行状态</p>
+                    <div class="action-buttons">
+                        <button id="check-websocket" class="btn btn-primary">检查 WebSocket 连接</button>
+                        <button id="check-api" class="btn btn-info">检查 API 接口</button>
+                        <button id="check-database" class="btn btn-success">检查数据库连接</button>
+                        <button id="check-instances" class="btn btn-warning">检查实例状态</button>
+                    </div>
+                </div>
+
+                <div class="quick-status">
+                    <h3>快速状态概览</h3>
+                    <div id="quick-status-content" class="quick-status-grid">
+                        <div class="status-item">
+                            <span>WebSocket</span>
+                            <span class="status-badge" id="ws-status">检查中...</span>
+                        </div>
+                        <div class="status-item">
+                            <span>API 服务</span>
+                            <span class="status-badge" id="api-status">检查中...</span>
+                        </div>
+                        <div class="status-item">
+                            <span>数据库</span>
+                            <span class="status-badge" id="db-status">检查中...</span>
+                        </div>
+                        <div class="status-item">
+                            <span>实例管理</span>
+                            <span class="status-badge" id="instance-status">检查中...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="diagnostic-logs">
+                    <h3>诊断日志</h3>
+                    <div id="diagnostic-logs-content" class="logs-content">
+                        <p>点击上方按钮开始诊断...</p>
+                    </div>
+                </div>
+
+                <div class="websocket-controls">
+                    <h3>WebSocket 控制</h3>
+                    <div class="ws-controls">
+                        <button id="ws-connect" class="btn btn-success">连接</button>
+                        <button id="ws-disconnect" class="btn btn-danger">断开</button>
+                        <button id="ws-test" class="btn btn-info">测试消息</button>
+                    </div>
+                    <div id="ws-status-display" class="ws-status">
+                        <p>WebSocket 状态：未连接</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/modules/DiagnosticQuickStatus.js"></script>
+    <script src="js/status-checker.js"></script>
+    <script>
+        // 诊断页面专用逻辑
+        window.addEventListener('load', function() {
+            // 如果 URL 带有 ?instance=，同步给历史 iframe
+            try{
+                const u = new URL(window.location.href);
+                const inst = u.searchParams.get('instance');
+                if (inst) {
+                    // 存储实例并刷新顶部标识
+                    try{ InstanceUtils && InstanceUtils.set(inst); }catch{}
+                }
+            }catch{}
+            
+            // 更新实例状态
+            updateInstanceStatus();
+            
+            // 启动状态检查
+            if (window.statusChecker) {
+                window.statusChecker.startAutoCheck();
+            }
+            
+            // 启动自动状态更新
+            try{ window.DiagnosticQuickStatus && window.DiagnosticQuickStatus.startAuto && window.DiagnosticQuickStatus.startAuto(); }catch{}
+        });
+
+        // 更新实例状态
+        function updateInstanceStatus() {
+            try {
+                if (window.InstanceUtils) {
+                    const instanceName = InstanceUtils.get() || 'default';
+                    document.getElementById('currentInstanceName').textContent = instanceName;
+                }
+            } catch (e) {
+                console.log('更新实例状态失败:', e);
+            }
+        }
+    </script>
+</body>
+</html>

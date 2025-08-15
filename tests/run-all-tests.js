@@ -20,6 +20,7 @@ const { spawn } = require('child_process');
 const CDP = require('chrome-remote-interface');
 
 const DEBUG_PORT = Number(process.env.CDP_PORT || 9222);
+const EXIT_AFTER_READY = String(process.env.EXIT_AFTER_READY || '').trim() === '1';
 
 function fileExists(p) {
   try { return !!(p && fs.existsSync(p)); } catch { return false; }
@@ -42,7 +43,7 @@ function resolveCursorPath() {
   return null;
 }
 
-function waitForCDP(port, timeoutMs = 20000) {
+function waitForCDP(port, timeoutMs = 60000) {
   const start = Date.now();
   return new Promise((resolve, reject) => {
     (function tryOnce() {
@@ -122,11 +123,21 @@ async function main() {
     process.exit(2);
   }
 
-  console.log('✅ 将启动 Cursor 并开启远程调试端口:', DEBUG_PORT);
-  console.log('🟡 Cursor 路径:', cursorExe);
+  console.log('✅ 将启动 Cursor 并开启远程调试端口：', DEBUG_PORT);
+  console.log('🟡 Cursor 路径：', cursorExe);
 
   // 启动 Cursor
-  const child = spawn(cursorExe, [`--remote-debugging-port=${DEBUG_PORT}`], {
+  // 附加参数：为 VSCode/Cursor 单实例模型准备独立 profile，避免参数被转发丢失
+  const tmpProfile = path.join(os.tmpdir(), `cursor-inject-profile-${Date.now()}`);
+  const extraArgsEnv = process.env.CURSOR_ARGS ? String(process.env.CURSOR_ARGS).split(' ') : [];
+  const launchArgs = [
+    `--remote-debugging-port=${DEBUG_PORT}`,
+    '--new-window',
+    `--user-data-dir=${tmpProfile}`,
+    ...extraArgsEnv
+  ];
+
+  const child = spawn(cursorExe, launchArgs, {
     detached: true,
     stdio: 'ignore',
   });
@@ -139,19 +150,50 @@ async function main() {
   // 读取注入脚本
   const source = buildInjectionSource();
 
-  // 列出所有目标并注入
-  const targets = await CDP.List({ host: '127.0.0.1', port: DEBUG_PORT });
-  const filtered = targets.filter(targetLooksRelevant);
-  if (filtered.length === 0) {
-    console.warn('⚠️ 未发现可注入的页面目标。稍后你在 Cursor 打开页面时会再尝试。');
+  // 列出所有目标并注入（立即）
+  const injected = new Set();
+  async function listAndInjectOnce() {
+    try {
+      const targetsNow = await CDP.List({ host: '127.0.0.1', port: DEBUG_PORT });
+      const rel = targetsNow.filter(targetLooksRelevant);
+      if (rel.length === 0) {
+        console.warn('⚠️ 暂无可注入目标（等待页面加载中）');
+      }
+      for (const t of rel) {
+        const key = t.id || t.targetId || t.webSocketDebuggerUrl || t.url;
+        if (key && injected.has(key)) continue;
+        console.log('🚀 注入目标：', `${t.type} ${t.title || ''}`.trim(), '\n   URL:', t.url);
+        await injectIntoTarget(t, source, DEBUG_PORT);
+        if (key) injected.add(key);
+      }
+      return rel.length;
+    } catch (e) {
+      console.warn('列表/注入失败：', e.message);
+      return 0;
+    }
   }
 
-  for (const t of filtered) {
-    console.log('🚀 注入目标:', `${t.type} ${t.title || ''}`.trim(), '\n   URL:', t.url);
-    await injectIntoTarget(t, source, DEBUG_PORT);
+  await listAndInjectOnce();
+
+  // 在有限时间内轮询新目标，以适配某些环境禁用 Target 监听的情况
+  const pollMs = Number(process.env.CDP_POLL_MS || 30000);
+  const pollInterval = 1000;
+  const start = Date.now();
+  while (Date.now() - start < pollMs) {
+    const count = await listAndInjectOnce();
+    if (count > 0 && EXIT_AFTER_READY) {
+      console.log('✅ 注入完成（测试模式提前退出）');
+      return;
+    }
+    await new Promise(r => setTimeout(r, pollInterval));
   }
 
-  // 监听新目标并尝试注入（后台驻留）
+  if (EXIT_AFTER_READY) {
+    console.log('✅ 注入流程已完成（按测试模式提前退出）。');
+    return; // 测试模式：不常驻监听
+  }
+
+  // 监听新目标并尝试注入（后台驻留）— 某些环境会失败，失败则仅靠轮询
   try {
     const client = await CDP({ host: '127.0.0.1', port: DEBUG_PORT });
     const { Target } = client;
@@ -159,11 +201,11 @@ async function main() {
     Target.targetCreated(async ({ targetInfo }) => {
       try {
         if (targetLooksRelevant(targetInfo)) {
-          console.log('🆕 发现新页面，尝试注入:', targetInfo.url);
+          console.log('🆕 发现新页面，尝试注入：', targetInfo.url);
           await injectIntoTarget(targetInfo, source, DEBUG_PORT);
         }
       } catch (e) {
-        console.warn('新目标注入失败:', e.message);
+        console.warn('新目标注入失败：', e.message);
       }
     });
 
@@ -177,6 +219,4 @@ main().catch((err) => {
   console.error('运行失败：', err);
   process.exit(1);
 });
-
-
 

@@ -262,9 +262,11 @@
 
         .message-content pre {
             background-color: rgba(0, 0, 0, 0.3);
-            padding: 4px 6px;
+            padding: 6px 8px;
             border-radius: 6px;
-            overflow-x: auto;
+            overflow: auto;
+            white-space: pre;
+            max-height: 60vh;
             margin: 1px 0;
             font-family: 'Fira Code', 'Monaco', 'Courier New', monospace;
             font-size: 0.83em;
@@ -384,9 +386,10 @@
         }
     </style>
     <!-- Markdown 与代码高亮样式/脚本 -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
+    <!-- 仅保留 marked，用于 Markdown 渲染 -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
+    <script src="/js/modules/MarkdownRenderer.js"></script>
+    <script src="/js/modules/ChatTimeline.js"></script>
 </head>
 <body>
     <div class="container">
@@ -469,17 +472,47 @@
         </div>
     </div>
 
+    <script src="/js/instance-utils.js"></script>
+    <script src="/js/instance-banner.js"></script>
     <script>
+        // 防重复初始化（避免某些外部脚本或错误恢复机制导致多次执行）
+        if (window.__CHAT_DETAIL_INIT_DONE) {
+            console.debug('[chat-detail] init skipped (already done)');
+        } else {
+            window.__CHAT_DETAIL_INIT_DONE = true;
+        }
         let currentChat = null;
         // 与 cursor-view 保持一致：默认不过度合并
         let mergeSameRole = false;
         let preserveLineBreaks = false; // 控制是否将单换行渲染为 <br>
+        // 详情页分页加载（seek 优先）
+        let timeline = null;
+        let msgNextOffset = 0;
+        let msgNextCursorKey = null;
+        let msgHasMore = true;
+        let msgLoading = false;
+        let msgPageSize = 80;
+        let msgRenderedCount = 0;
 
         // 页面加载时初始化
         document.addEventListener('DOMContentLoaded', function() {
             const urlParams = new URLSearchParams(window.location.search);
             const sessionId = urlParams.get('sessionId');
             const mode = urlParams.get('mode') || 'cv';
+            // 若 URL 未带 instance，尝试从本地读取；仅在本会话内执行一次，避免反复写URL引起刷新的观感
+            if (!urlParams.get('instance')){
+                try{
+                    if (!sessionStorage.getItem('cd.instPatched')){
+                        const inst = (window.InstanceUtils && InstanceUtils.get()) || '';
+                        if (inst){
+                            const u=new URL(window.location.href);
+                            u.searchParams.set('instance', inst);
+                            history.replaceState(null,'',u.toString());
+                            sessionStorage.setItem('cd.instPatched','1');
+                        }
+                    }
+                }catch{}
+            }
             
             if (sessionId) {
                 loadChatDetail(sessionId, mode);
@@ -510,10 +543,46 @@
         });
 
         // 加载聊天详情
+        // API 基址：支持通过 ?api= 覆盖；默认同源
+        function baseApi(){
+            try{ const u = new URL(window.location.href); const api = u.searchParams.get('api'); if (api) return String(api).replace(/\/$/,''); }catch{}
+            return window.location.origin;
+        }
+
+        // 带超时与重试的请求
+        async function fetchWithRetry(url, opts={}){
+            const retries = Number(opts.retries ?? 1);
+            const backoff = Array.isArray(opts.backoff) ? opts.backoff : [600, 1000];
+            const timeoutMs = Number(opts.timeoutMs ?? 20000);
+            for (let i=0;i<=retries;i++){
+                try{
+                    const ctl = new AbortController();
+                    const id = setTimeout(()=>ctl.abort(), timeoutMs);
+                    const res = await fetch(url, { signal: ctl.signal, cache:'no-store', mode:'cors', credentials:'same-origin', keepalive:true });
+                    clearTimeout(id);
+                    if (!res.ok) throw new Error('HTTP '+res.status);
+                    return await res.json();
+                }catch(e){
+                    // 终次或主动中止直接抛出
+                    if (i===retries || (e && e.name==='AbortError')) throw e;
+                    const wait = backoff[Math.min(i, backoff.length-1)] || 400;
+                    await new Promise(r=>setTimeout(r, wait));
+                }
+            }
+        }
+
         async function loadChatDetail(sessionId, mode) {
             try {
-                const response = await fetch(`/api/history/${encodeURIComponent(sessionId)}${mode ? `?mode=${encodeURIComponent(mode)}` : ''}`);
-                const result = await response.json();
+                const url = new URL(window.location.href);
+                const inst = url.searchParams.get('instance') || '';
+                const query = new URLSearchParams();
+                if (mode) query.set('mode', mode);
+                if (inst) query.set('instance', inst);
+                // 放宽缓存窗口，减少重复全量提取
+                query.set('maxAgeMs', '9000');
+                const qs = query.toString();
+                const url0 = `${baseApi()}/api/history/${encodeURIComponent(sessionId)}${qs ? `?${qs}` : ''}`;
+                const result = await fetchWithRetry(url0, { retries: 1, backoff: [600, 1000], timeoutMs: 20000 });
 
                 if (result.success && result.data) {
                     currentChat = result.data;
@@ -522,7 +591,8 @@
                     showError('未找到指定的聊天记录: ' + (result.error || '未知错误'));
                 }
             } catch (error) {
-                showError('加载聊天详情失败: ' + error.message);
+                const hint = '（请确认端口一致，例如页面与 API 都在同一端口；或稍后重试）';
+                showError('加载聊天详情失败: ' + (error?.message||error) + ' ' + hint);
             }
         }
 
@@ -530,7 +600,8 @@
         function renderChatDetail(chat) {
             // 更新标题和副标题
             const projectName = chat.project?.name || 'Unknown Project';
-            const messageCount = countMessagesWithPolicy(chat.messages || []);
+            const metaCount = Number(chat.messageCount || 0);
+            const messageCount = metaCount || countMessagesWithPolicy(chat.messages || []);
             
             document.getElementById('chatTitle').textContent = `💬 ${projectName} - 聊天详情`;
             document.getElementById('chatSubtitle').textContent = `${messageCount} 条消息 • ${formatTimestamp(chat.timestamp || chat.date)}`;
@@ -546,14 +617,16 @@
             // 显示聊天信息
             document.getElementById('chatInfo').style.display = 'block';
 
-            // 渲染消息
-            renderMessages(chat.messages || []);
+            // 渲染消息：采用分页渐进加载
+            prepareTimeline();
+            setupAutoLoad();
+            loadMoreMessages();
 
             // 显示导出操作
             document.getElementById('exportActions').style.display = 'flex';
         }
 
-        // 渲染消息列表
+        // 渲染消息列表（保留旧的一次性渲染逻辑用于小数据集；默认不再使用）
         function renderMessages(messages) {
             const container = document.getElementById('messagesContainer');
             
@@ -575,49 +648,162 @@
             })).filter(m => String(m.content || '').trim());
             const merged = mergeSameRole ? mergeConsecutiveByRole(preprocessed) : preprocessed;
 
-            // 配置 marked 渲染与代码高亮
-            if (window.marked) {
-                marked.setOptions({
-                    gfm: true,
-                    // 可选：保留单换行（<br>）
-                    breaks: !!preserveLineBreaks,
-                    mangle: false,
-                    headerIds: false,
-                    highlight: function(code, lang) {
-                        try {
-                            if (lang && window.hljs && hljs.getLanguage(lang)) {
-                                return hljs.highlight(code, { language: lang }).value;
-                            }
-                        } catch (e) {}
-                        if (window.hljs) {
-                            return hljs.highlightAuto(code).value;
-                        }
-                        return code;
-                    }
-                });
-            }
-
-            const messagesHtml = `
+            // 头部
+            container.innerHTML = `
                 <div class="messages-header">
                     <div class="messages-title">💬 对话消息</div>
                     <div class="messages-count">${merged.length} 条消息</div>
-                </div>
-                ${merged.map((message, index) => `
+                </div>`;
+
+            // 小数据量直接一次性渲染
+            if (merged.length <= 120){
+                const html = merged.map((message, index) => `
                     <div class="message ${message.role}">
                         <div class="message-header">
-                            <div class="message-icon">
-                                ${message.role === 'user' ? '👤' : '🤖'}
-                            </div>
+                            <div class="message-icon">${message.role === 'user' ? '👤' : '🤖'}</div>
                             <span>${message.role === 'user' ? '用户' : 'AI 助手'}</span>
                             <span class="message-number">#${index + 1}</span>
                         </div>
                         <div class="message-content">${formatMessageContent(message.content)}</div>
-                    </div>
-                `).join('')}
-            `;
+                    </div>`).join('');
+                const div = document.createElement('div');
+                div.innerHTML = html;
+                container.appendChild(div);
+                try { window.MarkdownRenderer && window.MarkdownRenderer.highlight(container); } catch {}
+                return;
+            }
 
-            container.innerHTML = messagesHtml;
-            if (window.hljs) { hljs.highlightAll(); }
+            // 大数据量分批渲染，避免主线程长时间阻塞
+            const chunkSize = 60;
+            let index = 0;
+            const renderChunk = () => {
+                const frag = document.createDocumentFragment();
+                for (let i=0;i<chunkSize && index<merged.length;i++, index++){
+                    const message = merged[index];
+                    const wrap = document.createElement('div');
+                    wrap.className = `message ${message.role}`;
+                    wrap.innerHTML = `
+                        <div class="message-header">
+                            <div class="message-icon">${message.role === 'user' ? '👤' : '🤖'}</div>
+                            <span>${message.role === 'user' ? '用户' : 'AI 助手'}</span>
+                            <span class="message-number">#${index + 1}</span>
+                        </div>
+                        <div class="message-content">${formatMessageContent(message.content)}</div>`;
+                    frag.appendChild(wrap);
+                }
+                container.appendChild(frag);
+                try { window.MarkdownRenderer && window.MarkdownRenderer.highlight(container); } catch {}
+                if (index < merged.length) { requestAnimationFrame(renderChunk); }
+            };
+            requestAnimationFrame(renderChunk);
+        }
+
+        // ========= 渐进式加载（分页 + ChatTimeline） =========
+        function detectInstanceId(){ try{ const u=new URL(window.location.href); return u.searchParams.get('instance')|| (window.InstanceUtils&&InstanceUtils.get&&InstanceUtils.get()) || ''; }catch{ return ''; } }
+        function msgCacheKey(){ try{ const inst=detectInstanceId()||'default'; const sid=String(currentChat?.sessionId||''); return `cd_msg_cache_v1_${inst}_${sid}`; }catch{ return 'cd_msg_cache_v1_default'; } }
+        function msgLoadCache(){ try{ const raw=localStorage.getItem(msgCacheKey()); return raw?JSON.parse(raw):null; }catch{ return null; } }
+        function msgSaveCache(payload, etag){ try{ const data={ ts:Date.now(), etag:etag||'', payload }; localStorage.setItem(msgCacheKey(), JSON.stringify(data)); }catch{} }
+
+        function updateMessagesHeaderCount(){
+            try{
+                const cnt = document.getElementById('messagesCount');
+                if (cnt) cnt.textContent = `${msgRenderedCount} 条消息`;
+            }catch{}
+        }
+
+        function prepareTimeline(){
+            const container = document.getElementById('messagesContainer');
+            if (!container) return;
+            msgNextOffset = 0; msgNextCursorKey = null; msgHasMore = true; msgLoading = false; msgRenderedCount = 0;
+            container.innerHTML = `
+                <div class="messages-header">
+                    <div class="messages-title">💬 对话消息</div>
+                    <div class="messages-count" id="messagesCount">0 条消息</div>
+                </div>
+                <div id="messages-container"></div>
+                <div id="msgLoadMoreArea" style="padding:10px;text-align:center;color:var(--text-secondary)">向下滚动加载更多...</div>
+            `;
+            try { timeline = new window.ChatTimeline(); } catch { timeline = null; }
+            updateMessagesHeaderCount();
+        }
+
+        function setupAutoLoad(){
+            try{
+                const sentinel = document.getElementById('msgLoadMoreArea');
+                if (!sentinel) return;
+                const io = new IntersectionObserver((entries)=>{
+                    entries.forEach(e=>{ if (e.isIntersecting) loadMoreMessages(); });
+                }, { root: null, threshold: 0.15 });
+                io.observe(sentinel);
+            }catch{}
+        }
+
+        async function loadMoreMessages(){
+            if (msgLoading || !msgHasMore) return;
+            msgLoading = true;
+            const sid = String(currentChat?.sessionId||'').trim();
+            if (!sid){ msgLoading=false; return; }
+            try{
+                // 首屏尝试使用本地缓存
+                if (msgNextOffset===0 && !msgNextCursorKey){
+                    const cached = msgLoadCache();
+                    const ok = cached && (Date.now()-Number(cached.ts||0) < 60000) && cached.payload && Array.isArray(cached.payload.messages);
+                    if (ok){
+                        const first = cached.payload.messages;
+                        appendBatch(first);
+                        msgRenderedCount += first.length;
+                        msgNextOffset += first.length;
+                        msgHasMore = !!cached.payload.hasMore || first.length>=msgPageSize;
+                        updateMessagesHeaderCount();
+                    }
+                }
+                const params = new URLSearchParams({ limit: String(msgPageSize) });
+                const inst = detectInstanceId(); if (inst) params.set('instance', inst);
+                if (msgNextCursorKey) params.set('cursorKey', msgNextCursorKey);
+                else params.set('offset', String(msgNextOffset));
+                let headers = {};
+                if (msgNextOffset===0 && !msgNextCursorKey){ try{ const et = (msgLoadCache() && msgLoadCache().etag) || ''; if (et) headers['If-None-Match'] = et; }catch{} }
+                const res = await fetch(`${baseApi()}/api/history/${encodeURIComponent(sid)}/messages?${params}`, { headers, cache:'no-store', mode:'cors', credentials:'same-origin', keepalive:true });
+                if (res.status === 304){ msgLoading=false; return; }
+                if (!res.ok){ const txt = await res.text().catch(()=> ''); throw new Error(`HTTP ${res.status}: ${txt.slice(0,120)}`); }
+                const ctype = String(res.headers.get('Content-Type') || res.headers.get('content-type') || '');
+                if (!/application\/(json|ld\+json)/i.test(ctype)){
+                    const txt = await res.text().catch(()=> '');
+                    throw new Error(`非 JSON 响应(${res.status})：${txt.slice(0,120)}`);
+                }
+                const json = await res.json();
+                if (!json || !json.success){ msgLoading=false; return; }
+                const data = json.data || {};
+                const list = Array.isArray(data.messages) ? data.messages : [];
+                if (msgNextOffset===0 && !msgNextCursorKey){
+                    try{ msgSaveCache(data, res.headers.get('ETag')||''); }catch{}
+                }
+                if (list.length>0){
+                    appendBatch(list);
+                    msgRenderedCount += list.length;
+                    updateMessagesHeaderCount();
+                }
+                msgHasMore = !!data.hasMore;
+                msgNextCursorKey = data.nextCursorKey || msgNextCursorKey;
+                if (!msgNextCursorKey) msgNextOffset += list.length;
+                const sentinel = document.getElementById('msgLoadMoreArea');
+                if (sentinel) sentinel.textContent = msgHasMore ? '向下滚动加载更多...' : '已全部加载';
+            }catch(e){
+                const sentinel = document.getElementById('msgLoadMoreArea');
+                if (sentinel) sentinel.textContent = '加载失败：' + (e?.message||e);
+            }finally{ msgLoading=false; }
+        }
+
+        function appendBatch(arr){
+            if (!Array.isArray(arr) || !arr.length) return;
+            for (const m of arr){
+                const role = String(m?.role||'assistant');
+                const text = String(m?.content||'');
+                const ts = Number(m?.timestamp||Date.now());
+                if (!text) continue;
+                if (role === 'user') { try{ timeline && timeline.appendUserMessage(text, null, ts); }catch{} }
+                else { try{ timeline && timeline.appendAssistantMessage(text, ts); }catch{} }
+            }
         }
 
         // 格式化消息内容
@@ -627,9 +813,7 @@
                 // 允许一个“空白行”：3 个及以上换行折叠为两个换行
                 .replace(/\n{3,}/g, '\n\n')
                 .trim();
-            if (window.marked) {
-                return marked.parse(src);
-            }
+            if (window.MarkdownRenderer) { return window.MarkdownRenderer.renderMarkdown(src, { breaks: !!preserveLineBreaks }); }
             // 回退：最简渲染
             const div = document.createElement('div');
             div.textContent = src;
@@ -662,14 +846,17 @@
 
         // 显示错误
         function showError(message) {
-            document.getElementById('messagesContainer').innerHTML = `
+            const el = document.getElementById('messagesContainer');
+            if (!el) return;
+            el.innerHTML = `
                 <div class="error">
                     <div class="error-icon">⚠️</div>
                     <h3>加载失败</h3>
                     <p>${message}</p>
-                    <a href="/history-new.html" class="btn btn-primary" style="margin-top: 20px;">
-                        返回列表
-                    </a>
+                    <div style="margin-top:12px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+                        <button class="btn btn-primary" onclick="location.reload()">重试</button>
+                        <a href="/history-new.html" class="btn btn-secondary">返回列表</a>
+                    </div>
                 </div>
             `;
         }

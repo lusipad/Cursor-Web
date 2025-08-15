@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>聊天 - Cursor Web</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="js/instance-utils.js"></script>
+    <script>
+      try{ InstanceUtils && InstanceUtils.ensureOrRedirect('/instances.html?first=1&return=/chat.html'); }catch{}
+    </script>
+</head>
+<body>
+    <div class="container">
+        <!-- 统一页眉 -->
+        <header class="page-header">
+            <div class="header-left">
+                <a href="/" class="btn btn-back">
+                    <span class="back-icon">←</span>
+                    返回主页
+                </a>
+            </div>
+            <div class="header-center">
+                <h1>聊天</h1>
+            </div>
+            <div class="header-right">
+                <div class="instance-status">
+                    <span class="instance-label">实例：</span>
+                    <span class="instance-name" id="currentInstanceName">default</span>
+                </div>
+                <div class="status-indicators">
+                    <div class="status-item" title="WebSocket连接状态">
+                        <span class="status-dot" id="connectionStatusDot"></span>
+                        <span class="status-text" id="connectionStatus">检查中...</span>
+                    </div>
+                    <div class="status-item" title="Cursor实例状态：已注入=可聊天，运行中=需注入，未运行=未启动">
+                        <span class="status-dot" id="injectStatusDot"></span>
+                        <span class="status-text" id="injectStatus">检查中...</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- 消息过滤控制面板 - 固定在页眉下方 -->
+        <div class="filter-panel-container" style="display: none;">
+            <div class="filter-panel">
+                <div class="filter-header">
+                    <span>🔍 消息过滤</span>
+                    <button class="btn-toggle-filters" onclick="toggleFilterPanel()">显示/隐藏</button>
+                </div>
+                <div class="filter-content" id="filterContent" style="display: none;">
+                    <div class="filter-options">
+                        <label class="filter-option">
+                            <input type="checkbox" id="showUserMessages" checked onchange="updateFilters()">
+                            <span>👤 用户消息</span>
+                        </label>
+                        <label class="filter-option">
+                            <input type="checkbox" id="showAssistantMessages" checked onchange="updateFilters()">
+                            <span>🤖 助手回复</span>
+                        </label>
+                    </div>
+                    <div class="filter-settings">
+                        <label class="filter-setting">
+                            <span>最大显示消息数：</span>
+                            <input type="number" id="maxMessages" value="100" min="10" max="500" onchange="updateFilters()">
+                        </label>
+                        <label class="filter-setting">
+                            <span>最小消息长度：</span>
+                            <input type="number" id="minMessageLength" value="1" min="1" max="20" onchange="updateFilters()">
+                        </label>
+                        <label class="filter-setting">
+                            <span>显示更多消息：</span>
+                            <button class="btn btn-info" onclick="loadMoreMessages()" style="padding: 4px 8px; font-size: 12px;">加载更多</button>
+                        </label>
+                    </div>
+                    <!-- 移除操作按钮，过滤设置改变后自动生效 -->
+                </div>
+            </div>
+        </div>
+
+        <main class="main">
+            <div id="messages-container" class="messages-container">
+                <div class="welcome-message">
+                    <h2>欢迎使用 Cursor Web 聊天</h2>
+                    <p>展示机制：</p>
+                    <p>🔁 <strong>基于历史拉取显示</strong>：发送消息后，客户端会短期快速轮询，并在后台以固定频率拉取 <code>/api/chats</code>/<code>/api/chats/latest</code> 显示最新回复。</p>
+                    <p>⚙️ 可选：如需实时 HTML 回显，可在诊断页临时开启 WebSocket <code>html_content</code> 广播（默认关闭，仅调试使用）。</p>
+                    <br>
+                    <p class="instruction">使用方法：在 Cursor 运行注入脚本（用于消息发送与控制），界面显示由历史拉取完成。</p>
+                    <a href="/script.html" class="btn btn-primary" style="display:inline-block;margin:10px 0;">前往一键复制注入脚本 &gt;&gt;</a>
+                    <p class="instruction">注入脚本负责投递消息与辅助控制；不再强制依赖 HTML 回显。</p>
+                </div>
+            </div>
+            <footer class="footer">
+                <form id="send-form" autocomplete="off" onsubmit="return false">
+                    <textarea id="send-input" placeholder="输入消息... (支持 Markdown 及代码块)" rows="1" autocomplete="off" style="resize:vertical"></textarea>
+                    <button id="send-btn" type="button">发送</button>
+                    <button id="clear-btn" type="button">清除</button>
+                </form>
+            </footer>
+        </main>
+    </div>
+
+    <!-- 聊天页面专用脚本 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="js/modules/module-loader.js"></script>
+    <script>
+        // 阻止自动加载 InjectBar 模块，避免创建悬浮窗
+        if (window.ModuleLoader) {
+            // 从依赖中移除 InjectBar
+            if (window.ModuleLoader.moduleDependencies) {
+                delete window.ModuleLoader.moduleDependencies['InjectBar'];
+            }
+            // 从必要模块检查中移除 InjectBar
+            if (window.ModuleLoader.checkModulesAvailability) {
+                const originalCheck = window.ModuleLoader.checkModulesAvailability;
+                window.ModuleLoader.checkModulesAvailability = function() {
+                    const need=['WebSocketManager','ChatTimeline','ContentManager','StatusManager','CursorStatusManager','UIManager','EventManager','HomePageStatusManager','DebugManager','SimpleWebClient'];
+                    const miss=need.filter(n=>!window[n]);
+                    if(miss.length){ console.error('❌ 缺少必要模块:', miss); return false; }
+                    return true;
+                };
+            }
+        }
+        
+        // 初始化 SimpleWebClient：稳妥轮询方式，最多重试 ~4s
+        (function(){
+          let tries = 0; const max = 20;
+          function boot(){
+            try{
+              if (window.simpleClient) return true;
+              if (window.SimpleWebClient){
+                try{ window.Audit && Audit.log('boot','instantiate_simple_client'); }catch{}
+                window.simpleClient = new window.SimpleWebClient();
+                return true;
+              }
+            }catch{}
+            return false;
+          }
+          if (!boot()){
+            const t = setInterval(()=>{ tries++; if (boot() || tries>=max) clearInterval(t); }, 200);
+          }
+        })();
+    </script>
+    <script src="js/modules/AuditLogger.js"></script>
+    <script src="js/status-checker.js"></script>
+    <script>
+        // 确保公共渲染工具加载
+        if (window.ModuleLoader){
+          // MarkdownRenderer 只有 ErrorHandler 依赖，若未自动加载则手动加载一次
+          if (!window.MarkdownRenderer){
+            const s = document.createElement('script');
+            s.src = 'js/modules/MarkdownRenderer.js';
+            document.head.appendChild(s);
+          }
+        }
+    </script>
+
+    <script>
+        // 聊天页面专用逻辑
+        window.__renderTargetId = 'messages-container';
+        window.__enableRealtimeRender = false;
+        
+        // 页面加载完成后初始化
+        window.addEventListener('load', function() {
+            // 如果 URL 带有 ?instance=，同步给历史 iframe
+            try{
+                const u = new URL(window.location.href);
+                const inst = u.searchParams.get('instance');
+                if (inst) {
+                    // 存储实例并刷新顶部标识
+                    try{ InstanceUtils && InstanceUtils.set(inst); }catch{}
+                }
+            }catch{}
+            
+            // 更新实例状态
+            updateInstanceStatus();
+            
+            // 启动状态检查
+            if (window.statusChecker) {
+                window.statusChecker.startAutoCheck();
+            }
+            
+            // 等待模块加载完成后初始化EventManager
+            const initEventManager = () => {
+                if (window.EventManager && window.simpleClient) {
+                    try {
+                        window.eventManager = new window.EventManager(window.simpleClient);
+                        window.eventManager.init();
+                        console.log('✅ EventManager 初始化成功');
+                        return true;
+                    } catch (e) {
+                        console.error('❌ EventManager 初始化失败:', e);
+                        return false;
+                    }
+                } else {
+                    console.log('⏳ 等待 EventManager 和 simpleClient 加载...');
+                    return false;
+                }
+            };
+            
+            // 立即尝试初始化，如果失败则定时重试
+            if (!initEventManager()) {
+                let retryCount = 0;
+                const maxRetries = 20; // 最多重试20次（4秒）
+                const retryInterval = setInterval(() => {
+                    retryCount++;
+                    if (initEventManager() || retryCount >= maxRetries) {
+                        clearInterval(retryInterval);
+                        if (retryCount >= maxRetries) {
+                            console.error('❌ EventManager 初始化超时失败');
+                        }
+                    }
+                }, 200);
+            }
+            
+            // 初始化过滤控制面板
+            initializeFilterPanel();
+        });
+
+        // 更新实例状态
+        function updateInstanceStatus() {
+            try {
+                if (window.InstanceUtils) {
+                    const instanceName = InstanceUtils.get() || 'default';
+                    document.getElementById('currentInstanceName').textContent = instanceName;
+                }
+            } catch (e) {
+                console.log('更新实例状态失败:', e);
+            }
+        }
+        
+        // 过滤控制面板相关函数
+        function toggleFilterPanel() {
+            const container = document.querySelector('.filter-panel-container');
+            const content = document.getElementById('filterContent');
+            
+            if (container && container.style.display === 'none') {
+                // 显示整个过滤面板
+                container.style.display = 'block';
+                if (content) content.style.display = 'block';
+                showNotification('过滤面板已显示', 'info');
+            } else if (container) {
+                // 隐藏整个过滤面板
+                container.style.display = 'none';
+                if (content) content.style.display = 'none';
+                showNotification('过滤面板已隐藏', 'info');
+            }
+        }
+        
+        // 添加快捷键支持 (Ctrl+F 显示/隐藏过滤面板)
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'f') {
+                e.preventDefault();
+                toggleFilterPanel();
+            }
+        });
+        
+        function initializeFilterPanel() {
+            // 从localStorage恢复过滤设置
+            try {
+                const savedFilters = localStorage.getItem('cw_chat_filters');
+                if (savedFilters) {
+                    const filters = JSON.parse(savedFilters);
+                    document.getElementById('showUserMessages').checked = filters.showUserMessages !== false;
+                    document.getElementById('showAssistantMessages').checked = filters.showAssistantMessages !== false;
+                    document.getElementById('maxMessages').value = filters.maxMessages || 100;
+                    document.getElementById('minMessageLength').value = filters.minMessageLength || 1;
+                }
+            } catch (e) {
+                console.log('恢复过滤设置失败:', e);
+            }
+        }
+        
+        function updateFilters() {
+            try {
+                const filters = {
+                    showUserMessages: document.getElementById('showUserMessages').checked,
+                    showAssistantMessages: document.getElementById('showAssistantMessages').checked,
+                    maxMessages: parseInt(document.getElementById('maxMessages').value) || 100,
+                    minMessageLength: parseInt(document.getElementById('minMessageLength').value) || 1
+                };
+                
+                // 保存到localStorage
+                localStorage.setItem('cw_chat_filters', JSON.stringify(filters));
+                
+                // 更新ChatTimeline的过滤设置
+                if (window.timeline && window.timeline.setMessageFilters) {
+                    window.timeline.setMessageFilters(filters);
+                }
+            } catch (e) {
+                console.error('更新过滤设置失败:', e);
+            }
+        }
+        
+        // 加载更多消息
+        function loadMoreMessages() {
+            try {
+                if (window.timeline && window.timeline.loadMoreMessages) {
+                    window.timeline.loadMoreMessages();
+                } else {
+                    // 如果没有loadMoreMessages方法，就增加maxMessages的值
+                    const maxMessagesInput = document.getElementById('maxMessages');
+                    const currentValue = parseInt(maxMessagesInput.value) || 100;
+                    maxMessagesInput.value = Math.min(currentValue + 50, 500);
+                    updateFilters();
+                }
+            } catch (e) {
+                console.error('加载更多消息失败:', e);
+            }
+        }
+        
+        // 测试过滤功能
+        function testFilter() {
+            try {
+                showNotification('正在测试过滤功能...', 'info');
+                
+                // 测试过滤控制面板是否可见
+                const filterPanel = document.querySelector('.filter-panel');
+                if (filterPanel) {
+                    showNotification('✅ 过滤控制面板已找到', 'info');
+                } else {
+                    showNotification('❌ 过滤控制面板未找到', 'error');
+                }
+                
+                // 测试ChatTimeline是否可用
+                if (window.timeline) {
+                    showNotification('✅ ChatTimeline 已加载', 'info');
+                    
+                    // 测试过滤设置
+                    const filters = window.timeline.getMessageFilters();
+                    showNotification(`当前过滤设置: 用户=${filters.showUserMessages}, 助手=${filters.showAssistantMessages}`, 'info');
+                } else {
+                    showNotification('❌ ChatTimeline 未加载', 'error');
+                }
+                
+                // 强制显示过滤面板
+                const filterContent = document.getElementById('filterContent');
+                if (filterContent) {
+                    filterContent.style.display = 'block';
+                    showNotification('过滤面板已强制显示', 'info');
+                }
+                
+            } catch (e) {
+                console.error('测试过滤功能失败:', e);
+                showNotification('测试失败: ' + e.message, 'error');
+            }
+        }
+        
+        // 页面加载完成后初始化过滤面板
+        window.addEventListener('DOMContentLoaded', function() {
+            console.log('页面加载完成，初始化过滤控制面板...');
+            
+            // 确保过滤面板默认隐藏
+            const filterPanelContainer = document.querySelector('.filter-panel-container');
+            const filterContent = document.getElementById('filterContent');
+            
+            if (filterPanelContainer) {
+                filterPanelContainer.style.display = 'none';
+                console.log('✅ 过滤面板容器已隐藏');
+            }
+            
+            if (filterContent) {
+                filterContent.style.display = 'none';
+                console.log('✅ 过滤面板内容已隐藏');
+            }
+        });
+    </script>
+</body>
+</html>

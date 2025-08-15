@@ -1,13 +1,12 @@
 /*
- * cursor-browser.js — Cursor 注入脚本
- * 功能：
+ * inject-lite.js — 极简 Cursor 注入脚本（KISS）
+ * 仅负责三件事：
  * 1) 连接 WebSocket 并发送 register(role:'cursor', injected:true)
  * 2) 接收 user_message → 注入到 Cursor 输入框并触发发送
  * 3) 按结果回传 delivery_ack / delivery_error，并提示 assistant_hint
- * 4) 支持内容同步到服务器
  */
 (() => {
-  const log = (...args) => { try { console.log('[cursor-browser]', ...args); } catch {} };
+  const log = (...args) => { try { console.log('[inject-lite]', ...args); } catch {} };
 
   // 由后端在注入时写入（见 injectRoutes）：
   // - window.__cursorWS  优先作为候选地址（通常是 ws://localhost:3000）
@@ -21,10 +20,6 @@
   let ws;
   let wsIndex = 0;
   let opened = false;
-  let syncInterval = null;
-  let lastContent = '';
-  let retryCount = 0;
-  const maxRetries = 3;
 
   function safeSend(obj){
     try {
@@ -46,49 +41,6 @@
       if (el && el.offsetParent !== null) return el;
     } catch {}
     return null;
-  }
-
-  function findChatContainer(){
-    const selectorCandidates = [
-      '[aria-label*="Chat" i] .interactive-session .monaco-list-rows',
-      '[aria-label*="Chat" i] .monaco-list-rows',
-      '.part.sidebar.right .interactive-session .monaco-list-rows',
-      '.interactive-session .monaco-list-rows',
-      '.chat-view .monaco-list-rows',
-      '[data-testid="chat-container"]',
-      '.chat-view',
-      '.conversations'
-    ];
-
-    const nodes = [];
-    for (const sel of selectorCandidates) {
-      try { nodes.push(...document.querySelectorAll(sel)); } catch {}
-    }
-
-    if (nodes.length === 0) return null;
-
-    // 评分函数：优先选择内容多、可见的容器
-    const scoreOf = (el) => {
-      try {
-        const rect = el.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) return -1;
-        const textLen = (el.textContent || '').length;
-        const childCount = el.children.length;
-        return textLen + childCount * 10;
-      } catch {
-        return -1;
-      }
-    };
-
-    let best = null;
-    for (const el of nodes) {
-      const score = scoreOf(el);
-      if (score > 0 && (!best || score > best.score)) {
-        best = { el, score };
-      }
-    }
-
-    return best ? best.el : null;
   }
 
   function clickSendButton(){
@@ -143,68 +95,6 @@
     }
   }
 
-  function collectChatContent(){
-    try {
-      const chatContainer = findChatContainer();
-      if (!chatContainer) return null;
-
-      const text = (chatContainer.textContent || '').trim();
-      if (!text || text === lastContent) return null;
-
-      lastContent = text;
-      return {
-        html: chatContainer.innerHTML,
-        text: text,
-        contentLength: text.length,
-        url: window.location.href,
-        timestamp: Date.now()
-      };
-    } catch (error) {
-      log('collect content failed:', error);
-      return null;
-    }
-  }
-
-  function syncContent(){
-    try {
-      const content = collectChatContent();
-      if (!content) return;
-
-      // 发送内容到服务器
-      fetch('/api/content/html', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          instanceId: instanceId,
-          ...content
-        })
-      }).catch(err => {
-        log('sync content failed:', err);
-        retryCount++;
-        if (retryCount >= maxRetries) {
-          log('max retries reached, stopping sync');
-          stopSync();
-        }
-      });
-    } catch (error) {
-      log('sync error:', error);
-    }
-  }
-
-  function startSync(){
-    if (syncInterval) return;
-    log('starting content sync');
-    syncInterval = setInterval(syncContent, 5000); // 每5秒同步一次
-  }
-
-  function stopSync(){
-    if (syncInterval) {
-      clearInterval(syncInterval);
-      syncInterval = null;
-      log('content sync stopped');
-    }
-  }
-
   function tryNext(){
     if (wsIndex >= candidates.length){ log('no more ws candidates'); return; }
     const url = candidates[wsIndex++];
@@ -215,10 +105,8 @@
     ws.onopen = () => {
       clearTimeout(timeout);
       opened = true;
-      retryCount = 0;
       log('ws open → register cursor');
       safeSend({ type:'register', role:'cursor', injected:true, instanceId, url: String(location.href||'') });
-      startSync(); // 开始内容同步
     };
     ws.onmessage = (ev) => {
       let data; try { data = JSON.parse(String(ev.data||'')); } catch { return; }
@@ -229,59 +117,13 @@
     ws.onerror = () => { log('ws error'); };
     ws.onclose = () => {
       clearTimeout(timeout);
-      stopSync(); // 停止内容同步
       if (opened){ log('ws close'); return; }
       // 未成功打开时，尝试下一个候选
       tryNext();
     };
   }
 
-  // 全局控制函数
-  window.stopCursorSync = () => {
-    stopSync();
-    try { ws && ws.close(); } catch {}
-    log('cursor sync stopped');
-  };
-
-  window.restartCursorSync = () => {
-    window.stopCursorSync();
-    setTimeout(() => {
-      wsIndex = 0;
-      opened = false;
-      retryCount = 0;
-      tryNext();
-    }, 1000);
-  };
-
-  window.debugCursorSync = () => {
-    log('=== Cursor Sync Debug Info ===');
-    log('Instance ID:', instanceId);
-    log('WebSocket State:', ws ? ws.readyState : 'null');
-    log('Opened:', opened);
-    log('Sync Interval:', syncInterval ? 'running' : 'stopped');
-    log('Chat Container:', findChatContainer());
-    log('Input Element:', findCursorInput());
-    log('Last Content Length:', lastContent.length);
-    log('Retry Count:', retryCount);
-  };
-
-  // 页面卸载时清理
-  window.addEventListener('beforeunload', () => {
-    window.stopCursorSync();
-  });
-
-  // 启动
-  try { 
-    log('cursor-browser.js loaded, starting...');
-    tryNext(); 
-  } catch (e) { 
-    log('startup failed', e?.message||e); 
-  }
-
-  log('✅ Cursor 注入脚本已加载');
-  log('💡 调试命令：');
-  log('  - stopCursorSync() - 停止同步');
-  log('  - restartCursorSync() - 重启同步');
-  log('  - debugCursorSync() - 查看调试信息');
+  try { tryNext(); } catch (e) { log('wire failed', e?.message||e); }
 })();
+
 

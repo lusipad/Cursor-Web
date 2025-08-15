@@ -39,7 +39,7 @@ class GitRoutes {
             const testGit = simpleGit(gitPath);
             return testGit;
         } catch (error) {
-            console.log('❌ 无效的Git路径:', gitPath);
+            console.log('❌ 无效的 Git 路径：', gitPath);
             return null;
         }
     }
@@ -54,12 +54,39 @@ class GitRoutes {
     }
 
     // 检查并更新 Git 路径
-    checkAndUpdateGitPath() {
-        const currentPath = process.cwd();
-        if (currentPath !== this.currentGitPath) {
-            console.log(`🔄 Git路径变更: ${this.currentGitPath} -> ${currentPath}`);
-            this.git = this.initGit(currentPath);
-            this.currentGitPath = currentPath;
+    // 根据 instanceId（可选）解析工作区根目录。当前先用进程工作目录，后续可与实例配置绑定工作区。
+    resolveGitRoot(instanceId){
+        try{
+            const fs = require('fs');
+            const path = require('path');
+            const cfg = require('../config');
+            const primary = path.isAbsolute(cfg.instances?.file || '')
+              ? cfg.instances.file
+              : path.join(process.cwd(), cfg.instances?.file || 'instances.json');
+            let file = primary;
+            if (!fs.existsSync(file)) {
+              const fallback = path.join(process.cwd(), 'config', 'instances.json');
+              if (fs.existsSync(fallback)) file = fallback; else return process.cwd();
+            }
+            if (!instanceId) return process.cwd();
+            const items = JSON.parse(fs.readFileSync(file,'utf8'));
+            const arr = Array.isArray(items) ? items : [];
+            const found = arr.find(x => String(x.id||'') === String(instanceId));
+            if (found && typeof found.openPath === 'string' && found.openPath.trim()) {
+                return found.openPath.trim();
+            }
+            return process.cwd();
+        }catch{
+            return process.cwd();
+        }
+    }
+
+    checkAndUpdateGitPath(instanceId) {
+        const targetPath = this.resolveGitRoot(instanceId);
+        if (targetPath !== this.currentGitPath) {
+            console.log(`🔄 Git 路径变更：${this.currentGitPath} -> ${targetPath}`);
+            this.git = this.initGit(targetPath);
+            this.currentGitPath = targetPath;
         }
         return this.git;
     }
@@ -67,11 +94,11 @@ class GitRoutes {
     // 获取分支信息
     async handleGetBranches(req, res) {
         try {
-            const gitInstance = this.checkAndUpdateGitPath();
+            const gitInstance = this.checkAndUpdateGitPath(req.query.instance);
             if (!gitInstance) {
                 return res.status(500).json({
                     success: false,
-                    message: '当前目录不是有效的Git仓库',
+                    message: '当前目录不是有效的 Git 仓库',
                     currentPath: process.cwd()
                 });
             }
@@ -81,7 +108,7 @@ class GitRoutes {
                 await gitInstance.fetch(['--all', '--prune']);
                 console.log('✅ 远程分支信息已更新，已删除的分支引用已清理');
             } catch (fetchError) {
-                console.log('⚠️  远程分支更新失败，使用本地缓存的分支信息:', fetchError.message);
+                console.log('⚠️  远程分支更新失败，使用本地缓存的分支信息：', fetchError.message);
             }
 
             const [currentBranch, allBranches] = await Promise.all([
@@ -101,7 +128,7 @@ class GitRoutes {
                 allBranches: allBranches.all,
                 localBranches: localBranches,
                 remoteBranches: remoteBranches,
-                gitPath: process.cwd(),
+                gitPath: this.currentGitPath || process.cwd(),
                 timestamp: Date.now()
             });
         } catch (error) {
@@ -117,11 +144,11 @@ class GitRoutes {
     // 切换分支
     async handleCheckout(req, res) {
         try {
-            const gitInstance = this.checkAndUpdateGitPath();
+            const gitInstance = this.checkAndUpdateGitPath(req.query.instance);
             if (!gitInstance) {
                 return res.status(500).json({
                     success: false,
-                    message: '当前目录不是有效的Git仓库',
+                    message: '当前目录不是有效的 Git 仓库',
                     currentPath: process.cwd()
                 });
             }
@@ -166,7 +193,7 @@ class GitRoutes {
 
             res.json({
                 success: true,
-                message: `已切换到分支: ${targetBranch}`,
+                message: `已切换到分支：${targetBranch}`,
                 currentBranch: newBranch.current,
                 timestamp: Date.now()
             });
@@ -183,11 +210,11 @@ class GitRoutes {
     // 拉取最新代码
     async handlePull(req, res) {
         try {
-            const gitInstance = this.checkAndUpdateGitPath();
+            const gitInstance = this.checkAndUpdateGitPath(req.query.instance);
             if (!gitInstance) {
                 return res.status(500).json({
                     success: false,
-                    message: '当前目录不是有效的Git仓库',
+                    message: '当前目录不是有效的 Git 仓库',
                     currentPath: process.cwd()
                 });
             }
@@ -213,11 +240,11 @@ class GitRoutes {
     // 获取状态
     async handleGetStatus(req, res) {
         try {
-            const gitInstance = this.checkAndUpdateGitPath();
+            const gitInstance = this.checkAndUpdateGitPath(req.query.instance);
             if (!gitInstance) {
                 return res.status(500).json({
                     success: false,
-                    message: '当前目录不是有效的Git仓库',
+                    message: '当前目录不是有效的 Git 仓库',
                     currentPath: process.cwd()
                 });
             }
@@ -233,7 +260,7 @@ class GitRoutes {
             console.log('❌ Git 状态获取失败：', error.message);
             res.status(500).json({
                 success: false,
-                message: '获取Git状态失败',
+                message: '获取 Git 状态失败',
                 error: error.message
             });
         }
@@ -242,11 +269,11 @@ class GitRoutes {
     // 添加文件到暂存区
     async handleAdd(req, res) {
         try {
-            const gitInstance = this.checkAndUpdateGitPath();
+            const gitInstance = this.checkAndUpdateGitPath(req.query.instance);
             if (!gitInstance) {
                 return res.status(500).json({
                     success: false,
-                    message: '当前目录不是有效的Git仓库',
+                    message: '当前目录不是有效的 Git 仓库',
                     currentPath: process.cwd()
                 });
             }
@@ -275,11 +302,11 @@ class GitRoutes {
     // 提交代码
     async handleCommit(req, res) {
         try {
-            const gitInstance = this.checkAndUpdateGitPath();
+            const gitInstance = this.checkAndUpdateGitPath(req.query.instance);
             if (!gitInstance) {
                 return res.status(500).json({
                     success: false,
-                    message: '当前目录不是有效的Git仓库',
+                    message: '当前目录不是有效的 Git 仓库',
                     currentPath: process.cwd()
                 });
             }
@@ -317,7 +344,7 @@ class GitRoutes {
             if (!gitInstance) {
                 return res.status(500).json({
                     success: false,
-                    message: '当前目录不是有效的Git仓库',
+                    message: '当前目录不是有效的 Git 仓库',
                     currentPath: process.cwd()
                 });
             }

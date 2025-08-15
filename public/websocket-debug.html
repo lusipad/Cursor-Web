@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket 连接调试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .debug-container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            border-radius: 5px;
+            background: #f8f9fa;
+            border-left: 4px solid #007bff;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .error {
+            border-left-color: #dc3545;
+            background: #f8d7da;
+        }
+        .success {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+        .warning {
+            border-left-color: #ffc107;
+            background: #fff3cd;
+        }
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status.connected { background: #d4edda; color: #155724; }
+        .status.connecting { background: #fff3cd; color: #856404; }
+        .status.disconnected { background: #f8d7da; color: #721c24; }
+        .status.error { background: #f5c6cb; color: #721c24; }
+    </style>
+</head>
+<body>
+    <div class="debug-container">
+        <h1>🔌 WebSocket 连接调试工具</h1>
+        
+        <div class="section">
+            <h3>1. 连接信息</h3>
+            <div id="connection-info"></div>
+            <button onclick="updateConnectionInfo()">刷新连接信息</button>
+        </div>
+        
+        <div class="section">
+            <h3>2. 直接 WebSocket 测试</h3>
+            <button onclick="testDirectWebSocket()">测试直接连接</button>
+            <button onclick="closeDirectWebSocket()">关闭连接</button>
+            <div id="direct-ws-result" class="result" style="display:none;"></div>
+        </div>
+        
+        <div class="section">
+            <h3>3. SimpleWebClient WebSocket 测试</h3>
+            <button onclick="testSimpleClientWebSocket()">测试 SimpleClient 连接</button>
+            <button onclick="reconnectSimpleClient()">重新连接</button>
+            <div id="simple-client-result" class="result" style="display:none;"></div>
+        </div>
+        
+        <div class="section">
+            <h3>4. 发送消息测试</h3>
+            <input type="text" id="test-message" placeholder="输入测试消息" value="WebSocket 连接测试" style="width: 300px; padding: 8px; margin-right: 10px;">
+            <button onclick="sendTestMessage()">发送测试消息</button>
+            <div id="send-message-result" class="result" style="display:none;"></div>
+        </div>
+        
+        <div class="section">
+            <h3>5. 实时日志</h3>
+            <button onclick="clearLogs()">清空日志</button>
+            <button onclick="toggleAutoScroll()">切换自动滚动</button>
+            <div id="logs" class="result"></div>
+        </div>
+    </div>
+
+    <!-- 加载必要的脚本 -->
+    <script src="js/modules/module-loader.js"></script>
+    
+    <script>
+        let directWs = null;
+        let autoScroll = true;
+        let logCount = 0;
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logElement = document.getElementById('logs');
+            const logEntry = `[${timestamp}] ${message}\n`;
+            logElement.textContent += logEntry;
+            
+            if (autoScroll) {
+                logElement.scrollTop = logElement.scrollHeight;
+            }
+            
+            logCount++;
+            if (logCount > 1000) {
+                const lines = logElement.textContent.split('\n');
+                logElement.textContent = lines.slice(-500).join('\n');
+                logCount = 500;
+            }
+            
+            console.log(`[WebSocket Debug] ${message}`);
+        }
+        
+        function showResult(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            element.style.display = 'block';
+            element.className = `result ${type}`;
+            element.textContent = message;
+        }
+        
+        function updateConnectionInfo() {
+            const info = {
+                'URL': window.location.href,
+                '协议': window.location.protocol,
+                '主机': window.location.hostname,
+                '端口': window.location.port || '默认',
+                'WebSocket URL': getWebSocketUrl()
+            };
+            
+            let html = '';
+            for (const [key, value] of Object.entries(info)) {
+                html += `<strong>${key}:</strong> ${value}<br>`;
+            }
+            
+            document.getElementById('connection-info').innerHTML = html;
+            log('连接信息已更新');
+        }
+        
+        function getWebSocketUrl() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.hostname;
+            const port = window.location.port || '3000';
+            return `${protocol}//${host}:${port}`;
+        }
+        
+        function testDirectWebSocket() {
+            log('开始直接 WebSocket 连接测试...');
+            
+            if (directWs) {
+                directWs.close();
+                directWs = null;
+            }
+            
+            const wsUrl = getWebSocketUrl();
+            log(`尝试连接到: ${wsUrl}`);
+            
+            try {
+                directWs = new WebSocket(wsUrl);
+                
+                directWs.onopen = () => {
+                    log('✅ 直接 WebSocket 连接成功');
+                    showResult('direct-ws-result', '✅ WebSocket 连接成功', 'success');
+                    
+                    // 发送注册消息
+                    const registerMsg = {
+                        type: 'register',
+                        role: 'web',
+                        instanceId: 'debug-test'
+                    };
+                    directWs.send(JSON.stringify(registerMsg));
+                    log('已发送注册消息');
+                };
+                
+                directWs.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        log(`📥 收到消息: ${data.type} - ${JSON.stringify(data)}`);
+                    } catch (e) {
+                        log(`📥 收到原始消息: ${event.data}`);
+                    }
+                };
+                
+                directWs.onclose = (event) => {
+                    log(`❌ WebSocket 连接关闭: code=${event.code}, reason=${event.reason}`);
+                    showResult('direct-ws-result', `❌ 连接关闭: ${event.code} - ${event.reason}`, 'error');
+                };
+                
+                directWs.onerror = (error) => {
+                    log(`⚠️ WebSocket 错误: ${error}`);
+                    showResult('direct-ws-result', `⚠️ 连接错误: ${error}`, 'error');
+                };
+                
+                // 连接超时检测
+                setTimeout(() => {
+                    if (directWs && directWs.readyState === WebSocket.CONNECTING) {
+                        log('⏰ 连接超时');
+                        directWs.close();
+                        showResult('direct-ws-result', '⏰ 连接超时', 'error');
+                    }
+                }, 10000);
+                
+            } catch (error) {
+                log(`❌ 创建 WebSocket 失败: ${error.message}`);
+                showResult('direct-ws-result', `❌ 创建失败: ${error.message}`, 'error');
+            }
+        }
+        
+        function closeDirectWebSocket() {
+            if (directWs) {
+                directWs.close();
+                directWs = null;
+                log('直接 WebSocket 连接已关闭');
+                showResult('direct-ws-result', '连接已手动关闭', 'warning');
+            } else {
+                log('没有活动的直接 WebSocket 连接');
+            }
+        }
+        
+        function testSimpleClientWebSocket() {
+            log('测试 SimpleWebClient WebSocket 连接...');
+            
+            if (!window.simpleClient) {
+                log('❌ SimpleWebClient 未初始化');
+                showResult('simple-client-result', '❌ SimpleWebClient 未初始化', 'error');
+                return;
+            }
+            
+            if (!window.simpleClient.wsManager) {
+                log('❌ WebSocketManager 未初始化');
+                showResult('simple-client-result', '❌ WebSocketManager 未初始化', 'error');
+                return;
+            }
+            
+            const wsManager = window.simpleClient.wsManager;
+            const connectionState = wsManager.getConnectionState ? wsManager.getConnectionState() : '未知';
+            const isConnected = wsManager.isConnected ? wsManager.isConnected() : false;
+            
+            log(`WebSocket 状态: ${connectionState}`);
+            log(`是否已连接: ${isConnected}`);
+            
+            const result = `状态: ${connectionState}\n已连接: ${isConnected}\n重连次数: ${wsManager.reconnectAttempts || 0}`;
+            
+            if (isConnected) {
+                showResult('simple-client-result', `✅ ${result}`, 'success');
+            } else {
+                showResult('simple-client-result', `⚠️ ${result}`, 'warning');
+            }
+        }
+        
+        function reconnectSimpleClient() {
+            log('尝试重新连接 SimpleWebClient WebSocket...');
+            
+            if (!window.simpleClient || !window.simpleClient.wsManager) {
+                log('❌ SimpleWebClient 或 WebSocketManager 未初始化');
+                showResult('simple-client-result', '❌ 客户端未初始化', 'error');
+                return;
+            }
+            
+            try {
+                if (window.simpleClient.wsManager.manualReconnect) {
+                    window.simpleClient.wsManager.manualReconnect();
+                    log('✅ 重连请求已发送');
+                    showResult('simple-client-result', '🔄 重连中...', 'warning');
+                    
+                    // 2秒后检查连接状态
+                    setTimeout(() => {
+                        testSimpleClientWebSocket();
+                    }, 2000);
+                } else if (window.simpleClient.wsManager.connect) {
+                    window.simpleClient.wsManager.connect();
+                    log('✅ 连接请求已发送');
+                    showResult('simple-client-result', '🔄 连接中...', 'warning');
+                    
+                    setTimeout(() => {
+                        testSimpleClientWebSocket();
+                    }, 2000);
+                } else {
+                    log('❌ 找不到重连方法');
+                    showResult('simple-client-result', '❌ 找不到重连方法', 'error');
+                }
+            } catch (error) {
+                log(`❌ 重连失败: ${error.message}`);
+                showResult('simple-client-result', `❌ 重连失败: ${error.message}`, 'error');
+            }
+        }
+        
+        function sendTestMessage() {
+            const message = document.getElementById('test-message').value.trim();
+            if (!message) {
+                log('❌ 请输入测试消息');
+                showResult('send-message-result', '❌ 请输入测试消息', 'error');
+                return;
+            }
+            
+            log(`尝试发送测试消息: ${message}`);
+            
+            // 优先使用 SimpleWebClient
+            if (window.simpleClient && window.simpleClient.sendAndPoll) {
+                log('使用 SimpleWebClient 发送消息...');
+                
+                window.simpleClient.sendAndPoll(message)
+                    .then(result => {
+                        log(`✅ SimpleWebClient 发送成功: ${JSON.stringify(result)}`);
+                        showResult('send-message-result', `✅ 发送成功: ${JSON.stringify(result)}`, 'success');
+                    })
+                    .catch(error => {
+                        log(`❌ SimpleWebClient 发送失败: ${error.message}`);
+                        showResult('send-message-result', `❌ 发送失败: ${error.message}`, 'error');
+                    });
+            } else if (directWs && directWs.readyState === WebSocket.OPEN) {
+                log('使用直接 WebSocket 发送消息...');
+                
+                try {
+                    const msgData = {
+                        type: 'user_message',
+                        message: message,
+                        timestamp: Date.now(),
+                        instanceId: 'debug-test'
+                    };
+                    
+                    directWs.send(JSON.stringify(msgData));
+                    log('✅ 直接 WebSocket 发送成功');
+                    showResult('send-message-result', '✅ 消息已通过直接 WebSocket 发送', 'success');
+                } catch (error) {
+                    log(`❌ 直接 WebSocket 发送失败: ${error.message}`);
+                    showResult('send-message-result', `❌ 发送失败: ${error.message}`, 'error');
+                }
+            } else {
+                log('❌ 没有可用的 WebSocket 连接');
+                showResult('send-message-result', '❌ 没有可用的 WebSocket 连接', 'error');
+            }
+        }
+        
+        function clearLogs() {
+            document.getElementById('logs').textContent = '';
+            logCount = 0;
+            log('日志已清空');
+        }
+        
+        function toggleAutoScroll() {
+            autoScroll = !autoScroll;
+            log(`自动滚动已${autoScroll ? '开启' : '关闭'}`);
+        }
+        
+        // 页面加载完成后初始化
+        window.addEventListener('load', function() {
+            log('WebSocket 调试工具已加载');
+            updateConnectionInfo();
+            
+            // 等待模块加载
+            setTimeout(() => {
+                if (window.simpleClient) {
+                    log('✅ SimpleWebClient 已加载');
+                    testSimpleClientWebSocket();
+                } else {
+                    log('⚠️ SimpleWebClient 未加载，等待中...');
+                    
+                    // 继续等待
+                    let waitCount = 0;
+                    const waitInterval = setInterval(() => {
+                        waitCount++;
+                        if (window.simpleClient) {
+                            log('✅ SimpleWebClient 已加载（延迟）');
+                            testSimpleClientWebSocket();
+                            clearInterval(waitInterval);
+                        } else if (waitCount >= 20) {
+                            log('❌ SimpleWebClient 加载超时');
+                            clearInterval(waitInterval);
+                        }
+                    }, 500);
+                }
+            }, 2000);
+        });
+    </script>
+</body>
+</html>

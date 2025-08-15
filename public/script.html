@@ -13,19 +13,62 @@
         .copy-btn:active { background: #388e3c; }
         pre { background: #181818; color: #eee; padding: 1em; border-radius: 6px; overflow-x: auto; font-size: 13px; }
         .tip { color: #aaa; margin-bottom: 1em; }
+        
+        /* 页眉样式 */
+        .page-header {
+            background: #2d2d2d;
+            border-bottom: 1px solid #404040;
+            padding: 16px 20px;
+            margin: -2em -2em 2em -2em;
+            border-radius: 8px 8px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .page-header h1 {
+            margin: 0;
+            font-size: 18px;
+            color: #ffffff;
+        }
+        .btn-back {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            background: #404040;
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+        .btn-back:hover {
+            background: #505050;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h2>Cursor 同步脚本</h2>
+        <!-- 页眉 -->
+        <div class="page-header">
+            <h1>Cursor 同步脚本</h1>
+            <a href="/" class="btn-back">
+                <span>←</span>
+                返回主页
+            </a>
+        </div>
+        
+        <div id="scriptInstance" style="font-size:12px;opacity:.85;margin-bottom:8px;"></div>
         <div class="tip">在 <b>Cursor</b> 的开发者工具（F12）中粘贴下方脚本并回车运行</div>
         <button id="copy-cursor-script" class="copy-btn">一键复制脚本</button>
         <pre id="cursor-script">正在加载脚本...</pre>
         <div class="tip">脚本会同步整个Cursor页面内容到本网页</div>
-        <a href="/" style="color:#4caf50;">返回首页</a>
     </div>
+    <script src="/js/instance-utils.js"></script>
     <script>
-    fetch('/cursor-browser.js').then(r => r.text()).then(code => {
+    try{ InstanceUtils && InstanceUtils.renderBadge(document.getElementById('scriptInstance')); }catch{}
+    // 默认提供轻量注入脚本（KISS）；需要高级功能时可改为 /cursor-browser.js
+    fetch('/inject-lite.js').then(r => r.text()).then(code => {
         document.getElementById('cursor-script').textContent = code;
     });
     document.getElementById('copy-cursor-script').onclick = function() {
