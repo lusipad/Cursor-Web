@@ -110,7 +110,10 @@ class InjectRoutes {
   async injectIntoAllTargets(cdpPort, instanceId) {
     // 优先注入轻量脚本（KISS），若不存在则回退到旧版 cursor-browser.js
     const preferLite = String(process.env.USE_LITE_INJECT || '1') !== '0';
-    const publicDir = path.join(__dirname, '..', 'public');
+    // 支持打包环境：在打包后使用可执行文件目录下的public文件夹
+    const publicDir = process.pkg 
+      ? path.join(path.dirname(process.execPath), 'public')
+      : path.join(__dirname, '..', '..', 'public');
     const litePath = path.join(publicDir, 'inject-lite.js');
     const legacyPath = path.join(publicDir, 'cursor-browser.js');
     const scriptPath = (preferLite && fs.existsSync(litePath)) ? litePath : legacyPath;

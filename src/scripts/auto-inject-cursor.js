@@ -116,7 +116,10 @@ function waitForCDP(port, timeoutMs = 60000) {
 }
 
 function buildInjectionSource() {
-  const scriptPath = path.join(__dirname, '..', 'public', 'cursor-browser.js');
+  // 支持打包环境：在打包后使用可执行文件目录下的public文件夹
+  const scriptPath = process.pkg 
+    ? path.join(path.dirname(process.execPath), 'public', 'cursor-browser.js')
+    : path.join(__dirname, '..', '..', 'public', 'cursor-browser.js');
   if (!fileExists(scriptPath)) {
     throw new Error(`未找到脚本：${scriptPath}`);
   }
