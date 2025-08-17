@@ -7,6 +7,7 @@ const fs = require('fs');
 console.log('🔄 使用 NodeJS 直连SQLite的数据提取逻辑');
 const ChatManager = require('./services/chatManager-fallback');
 const CursorHistoryManager = require('./services/cursorHistoryManager-real');
+const InstanceStatusManager = require('./services/instanceStatusManager');
 
 const WebSocketManager = require('./services/websocketManager');
 const ContentRoutes = require('./routes/contentRoutes');
@@ -46,6 +47,8 @@ const server = createServer(app);
 const chatManager = new ChatManager();
 const cursorHistoryManager = new CursorHistoryManager();
 const websocketManager = new WebSocketManager(server, chatManager, cursorHistoryManager);
+const injectRoutes = new InjectRoutes(websocketManager);
+const instanceStatusManager = new InstanceStatusManager(websocketManager, injectRoutes);
 
 // 设置中间件
 new AppMiddleware(app);
@@ -54,8 +57,7 @@ new AppMiddleware(app);
 const contentRoutes = new ContentRoutes(chatManager, websocketManager, cursorHistoryManager);
 const gitRoutes = new GitRoutes();
 const historyRoutes = new HistoryRoutes(cursorHistoryManager);
-const instancesRoutes = new InstancesRoutes();
-const injectRoutes = new InjectRoutes(websocketManager);
+const instancesRoutes = new InstancesRoutes(instanceStatusManager);
 const docsRoutes = new DocsRoutes();
 
 // 注册 API 路由

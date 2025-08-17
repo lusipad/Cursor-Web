@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>状态测试 - Cursor Web</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="js/instance-utils.js"></script>
+    <style>
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 16px;
+            margin: 20px 0;
+        }
+        .status-card {
+            background: #161616;
+            border: 1px solid #2a2a2a;
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px dashed #333;
+        }
+        .status-item:last-child {
+            border-bottom: none;
+        }
+        .status-value {
+            font-weight: bold;
+        }
+        .json-display {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="page-header">
+            <div class="header-left">
+                <a href="/" class="btn btn-back">
+                    <span class="back-icon">←</span>
+                    返回主页
+                </a>
+            </div>
+            <div class="header-center">
+                <h1>实例状态测试</h1>
+            </div>
+            <div class="header-right">
+                <button id="refreshBtn" class="btn btn-primary">刷新状态</button>
+            </div>
+        </header>
+
+        <main class="main">
+            <div class="status-grid">
+                <div class="status-card">
+                    <h3>当前实例状态</h3>
+                    <div id="currentInstanceStatus">
+                        <div class="status-item">
+                            <span>实例ID:</span>
+                            <span class="status-value" id="currentInstanceId">-</span>
+                        </div>
+                        <div class="status-item">
+                            <span>连接状态:</span>
+                            <span class="status-value" id="connectionStatus">-</span>
+                        </div>
+                        <div class="status-item">
+                            <span>注入状态:</span>
+                            <span class="status-value" id="injectStatus">-</span>
+                        </div>
+                        <div class="status-item">
+                            <span>在线客户端:</span>
+                            <span class="status-value" id="onlineClients">-</span>
+                        </div>
+                        <div class="status-item">
+                            <span>已注入客户端:</span>
+                            <span class="status-value" id="injectedClients">-</span>
+                        </div>
+                        <div class="status-item">
+                            <span>活跃进程:</span>
+                            <span class="status-value" id="aliveProcesses">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="status-card">
+                    <h3>API对比测试</h3>
+                    <div id="apiComparison">
+                        <div class="status-item">
+                            <span>统一状态API:</span>
+                            <span class="status-value" id="unifiedApiStatus">-</span>
+                        </div>
+                        <div class="status-item">
+                            <span>客户端API:</span>
+                            <span class="status-value" id="clientsApiStatus">-</span>
+                        </div>
+                        <div class="status-item">
+                            <span>进程API:</span>
+                            <span class="status-value" id="processesApiStatus">-</span>
+                        </div>
+                        <div class="status-item">
+                            <span>状态一致性:</span>
+                            <span class="status-value" id="consistencyCheck">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="status-card">
+                <h3>详细状态数据</h3>
+                <div class="json-display" id="detailedStatus">加载中...</div>
+            </div>
+
+            <div class="status-card">
+                <h3>所有实例状态</h3>
+                <div class="json-display" id="allInstancesStatus">加载中...</div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let currentInstanceId = 'default';
+
+        // 初始化
+        window.addEventListener('load', function() {
+            if (window.InstanceUtils) {
+                currentInstanceId = window.InstanceUtils.get() || 'default';
+            }
+            document.getElementById('currentInstanceId').textContent = currentInstanceId;
+            refreshStatus();
+            
+            // 设置自动刷新
+            setInterval(refreshStatus, 5000);
+        });
+
+        // 刷新按钮事件
+        document.getElementById('refreshBtn').addEventListener('click', refreshStatus);
+
+        // 刷新状态
+        async function refreshStatus() {
+            try {
+                // 并行获取所有状态数据
+                const [unifiedStatus, clientsData, processesData, allInstancesData] = await Promise.all([
+                    fetchUnifiedStatus(),
+                    fetchClientsData(),
+                    fetchProcessesData(),
+                    fetchAllInstancesStatus()
+                ]);
+
+                // 更新当前实例状态显示
+                updateCurrentInstanceStatus(unifiedStatus);
+                
+                // 更新API对比
+                updateApiComparison(unifiedStatus, clientsData, processesData);
+                
+                // 更新详细状态
+                updateDetailedStatus(unifiedStatus);
+                
+                // 更新所有实例状态
+                updateAllInstancesStatus(allInstancesData);
+
+            } catch (error) {
+                console.error('刷新状态失败:', error);
+                document.getElementById('detailedStatus').textContent = '刷新失败: ' + error.message;
+            }
+        }
+
+        // 获取统一状态
+        async function fetchUnifiedStatus() {
+            const response = await fetch(`/api/instances/${encodeURIComponent(currentInstanceId)}/status`);
+            if (!response.ok) throw new Error(`统一状态API失败: ${response.status}`);
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || '统一状态API返回错误');
+            return data.data;
+        }
+
+        // 获取客户端数据
+        async function fetchClientsData() {
+            const response = await fetch('/api/inject/clients');
+            if (!response.ok) throw new Error(`客户端API失败: ${response.status}`);
+            const data = await response.json();
+            return data.success ? data.data : [];
+        }
+
+        // 获取进程数据
+        async function fetchProcessesData() {
+            const response = await fetch('/api/inject/processes');
+            if (!response.ok) throw new Error(`进程API失败: ${response.status}`);
+            const data = await response.json();
+            return data.success ? data.data : [];
+        }
+
+        // 获取所有实例状态
+        async function fetchAllInstancesStatus() {
+            const response = await fetch('/api/instances-status');
+            if (!response.ok) throw new Error(`所有实例状态API失败: ${response.status}`);
+            const data = await response.json();
+            return data.success ? data.data : {};
+        }
+
+        // 更新当前实例状态显示
+        function updateCurrentInstanceStatus(status) {
+            if (!status) return;
+            
+            document.getElementById('connectionStatus').textContent = status.connection.text;
+            document.getElementById('injectStatus').textContent = status.inject.text;
+            
+            if (status.summary) {
+                document.getElementById('onlineClients').textContent = status.summary.onlineClients;
+                document.getElementById('injectedClients').textContent = status.summary.injectedClients;
+                document.getElementById('aliveProcesses').textContent = status.summary.aliveProcesses;
+            }
+        }
+
+        // 更新API对比
+        function updateApiComparison(unifiedStatus, clientsData, processesData) {
+            // 统一API状态
+            const unifiedOk = unifiedStatus ? '✅ 正常' : '❌ 失败';
+            document.getElementById('unifiedApiStatus').textContent = unifiedOk;
+            
+            // 客户端API状态
+            const clientsOk = Array.isArray(clientsData) ? '✅ 正常' : '❌ 失败';
+            document.getElementById('clientsApiStatus').textContent = clientsOk;
+            
+            // 进程API状态
+            const processesOk = Array.isArray(processesData) ? '✅ 正常' : '❌ 失败';
+            document.getElementById('processesApiStatus').textContent = processesOk;
+            
+            // 一致性检查
+            let consistency = '✅ 一致';
+            if (unifiedStatus && Array.isArray(clientsData)) {
+                const currentInstanceClients = clientsData.filter(c => c.instanceId === currentInstanceId);
+                const unifiedOnline = unifiedStatus.summary?.onlineClients || 0;
+                const actualOnline = currentInstanceClients.filter(c => c.online).length;
+                
+                if (unifiedOnline !== actualOnline) {
+                    consistency = `❌ 不一致 (统一:${unifiedOnline} vs 实际:${actualOnline})`;
+                }
+            }
+            document.getElementById('consistencyCheck').textContent = consistency;
+        }
+
+        // 更新详细状态
+        function updateDetailedStatus(status) {
+            document.getElementById('detailedStatus').textContent = JSON.stringify(status, null, 2);
+        }
+
+        // 更新所有实例状态
+        function updateAllInstancesStatus(allStatuses) {
+            document.getElementById('allInstancesStatus').textContent = JSON.stringify(allStatuses, null, 2);
+        }
+    </script>
+</body>
+</html>

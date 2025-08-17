@@ -3,13 +3,17 @@ const express = require('express');
 const router = express.Router();
 
 class InstancesRoutes {
-  constructor() {
+  constructor(instanceStatusManager) {
+    this.instanceStatusManager = instanceStatusManager;
     this.setupRoutes();
   }
 
   setupRoutes() {
     router.get('/instances', this.handleListInstances.bind(this));
     router.get('/instances/:id', this.handleGetInstance.bind(this));
+    router.get('/instances/:id/status', this.handleGetInstanceStatus.bind(this));
+    router.get('/instances-status', this.handleGetAllInstancesStatus.bind(this));
+    router.post('/instances/cleanup-processes', this.handleCleanupProcesses.bind(this));
   }
 
   // 解析 instances.json 文件路径（支持根目录或 config/ 目录）
@@ -88,6 +92,46 @@ class InstancesRoutes {
       res.json({ success: true, data: found });
     } catch (e) {
       res.status(500).json({ success: false, error: e?.message || 'read instance failed' });
+    }
+  }
+
+  async handleGetInstanceStatus(req, res) {
+    try {
+      const id = String(req.params.id || '');
+      if (!this.instanceStatusManager) {
+        return res.status(503).json({ success: false, error: 'status manager not available' });
+      }
+      
+      const status = await this.instanceStatusManager.getInstanceStatus(id);
+      res.json({ success: true, data: status });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e?.message || 'get instance status failed' });
+    }
+  }
+
+  async handleGetAllInstancesStatus(req, res) {
+    try {
+      if (!this.instanceStatusManager) {
+        return res.status(503).json({ success: false, error: 'status manager not available' });
+      }
+      
+      const statuses = await this.instanceStatusManager.getAllInstancesStatus();
+      res.json({ success: true, data: statuses });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e?.message || 'get all instances status failed' });
+    }
+  }
+
+  async handleCleanupProcesses(req, res) {
+    try {
+      if (!this.instanceStatusManager) {
+        return res.status(503).json({ success: false, error: 'status manager not available' });
+      }
+      
+      await this.instanceStatusManager.cleanupDeadProcesses();
+      res.json({ success: true, message: 'dead processes cleaned up' });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e?.message || 'cleanup processes failed' });
     }
   }
 

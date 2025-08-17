@@ -12,23 +12,16 @@
     if (!listEl) return;
     listEl.innerHTML = '<div class="meta">加载中...</div>';
     try{
-      const [instances, clientsArr] = await Promise.all([
+      const [instances, statusesData] = await Promise.all([
         api('/api/instances'),
-        api('/api/inject/clients').catch(()=>[])
+        api('/api/instances-status').catch(()=>({}))
       ]);
       try{ InstanceUtils && InstanceUtils.renderBadge(labelEl); }catch{}
       if (!Array.isArray(instances) || instances.length===0){ listEl.innerHTML='<div class="meta">未发现实例</div>'; return; }
       listEl.innerHTML='';
-      const injectedInst = new Set();
-      const onlineInst = new Set();
-      const clients = Array.isArray(clientsArr) ? clientsArr : [];
-      if (clients.length){
-        for (const c of clients){
-          const id = c?.instanceId; if (!id) continue;
-          if (c.injected) injectedInst.add(id);
-          if (c.online) onlineInst.add(id);
-        }
-      }
+      
+      // 使用统一状态数据
+      const statuses = statusesData || {};
       instances.forEach(it=>{
         const id = it?.id || '(unknown)';
         const name = it?.name || id;
@@ -46,11 +39,38 @@
         btns.appendChild(h('button', { class:'btn btn-secondary', 'data-act':'restart', 'data-id':id }, '重启'));
         btns.appendChild(h('button', { class:'btn btn-info', 'data-act':'inject', 'data-id':id }, '注入'));
         btns.appendChild(h('button', { class:'btn', style:'background:#444', 'data-act':'set-default', 'data-id':id }, '设为默认'));
+        btns.appendChild(h('button', { class:'btn btn-secondary', 'data-act':'cleanup', 'data-id':id }, '清理'));
+        
+        // 使用统一状态数据
+        const instanceStatus = statuses[id];
         const statusBar = h('div', { style:'display:flex;align-items:center;gap:8px;flex-wrap:wrap;' });
-        const online = onlineInst.has(id);
-        const injected = injectedInst.has(id);
-        statusBar.appendChild(h('span', { class:`badge ${online?'badge-ok':'badge-off'}` }, online?'在线':'离线'));
-        statusBar.appendChild(h('span', { class:`badge ${injected?'badge-ok':'badge-warn'}` }, injected?'已注入':'未注入'));
+        
+        if (instanceStatus) {
+          const connStatus = instanceStatus.connection.status;
+          const injectStatus = instanceStatus.inject.status;
+          
+          // 连接状态
+          const connClass = connStatus === 'connected' ? 'badge-ok' : 
+                           connStatus === 'connecting' ? 'badge-warn' : 'badge-off';
+          statusBar.appendChild(h('span', { class:`badge ${connClass}` }, instanceStatus.connection.text));
+          
+          // 注入状态  
+          const injectClass = injectStatus === 'injected' ? 'badge-ok' : 
+                             injectStatus === 'running' ? 'badge-warn' : 
+                             injectStatus === 'process_dead' ? 'badge-error' : 'badge-off';
+          statusBar.appendChild(h('span', { class:`badge ${injectClass}` }, instanceStatus.inject.text));
+          
+          // 显示详细信息
+          if (instanceStatus.summary) {
+            const summary = instanceStatus.summary;
+            statusBar.appendChild(h('span', { class:'meta', style:'font-size:10px;' }, 
+              `客户端:${summary.onlineClients}/${summary.totalClients} 进程:${summary.aliveProcesses}/${summary.totalProcesses}`));
+          }
+        } else {
+          // 回退到原有显示方式
+          statusBar.appendChild(h('span', { class:'badge badge-off' }, '状态未知'));
+        }
+        
         head.appendChild(statusBar);
         head.appendChild(btns);
         card.appendChild(head);
@@ -78,7 +98,13 @@
             alert('已设置为默认实例：'+id);
             return;
           }
-          if (act==='launch' || act==='restart'){ await api('/api/inject/'+(act==='launch'?'launch':'restart'), 'POST', { instanceId:id, pollMs:30000 }); alert((act==='launch'?'启动':'重启')+'请求已发送'); await Promise.all([refreshProcesses(), refreshClients()]); return; }
+          if (act==='cleanup'){
+            await api('/api/instances/cleanup-processes', 'POST');
+            alert('死进程清理完成');
+            await Promise.all([refreshInstances(), refreshProcesses(), refreshClients()]);
+            return;
+          }
+          if (act==='launch' || act==='restart'){ await api('/api/inject/'+(act==='launch'?'launch':'restart'), 'POST', { instanceId:id, pollMs:30000 }); alert((act==='launch'?'启动':'重启')+'请求已发送'); await Promise.all([refreshProcesses(), refreshClients(), refreshInstances()]); return; }
           if (act==='inject'){
             await api('/api/inject/scan-inject', 'POST', { instanceId:id, startPort:9222, endPort:9250 });
             alert('已尝试注入现有页面');
@@ -138,6 +164,7 @@
     try{ InstanceUtils && InstanceUtils.renderBadge(document.getElementById('instancesCurrentLabel')); }catch{}
     $('instances-refresh') && ($('instances-refresh').onclick = async ()=>{ await refreshInstances(); await refreshProcesses(); await refreshClients(); });
     $('instances-scan-inject') && ($('instances-scan-inject').onclick = async ()=>{ try{ const id = InstanceUtils && InstanceUtils.get(); await api('/api/inject/scan-inject','POST',{ instanceId:id||null, startPort:9222, endPort:9250 }); alert('已尝试扫描注入'); }catch(e){ alert('扫描失败：'+e.message); }});
+    $('instances-cleanup') && ($('instances-cleanup').onclick = async ()=>{ try{ await api('/api/instances/cleanup-processes','POST'); await refreshInstances(); await refreshProcesses(); alert('死进程清理完成'); }catch(e){ alert('清理失败：'+e.message); }});
     $('instances-kill-all') && ($('instances-kill-all').onclick = async ()=>{ try{ await api('/api/inject/kill-all','POST'); await refreshProcesses(); alert('已发送终止全部'); }catch(e){ alert('操作失败：'+e.message); }});
 
     const boot = async ()=>{ await refreshClients(); await refreshInstances(); await refreshProcesses(); };
